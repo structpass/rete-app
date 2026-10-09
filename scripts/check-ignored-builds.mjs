@@ -4,7 +4,7 @@
 // 背景: rete は install 時に自動実行されるビルドスクリプトを許可制にしている
 // （package.json の pnpm.onlyBuiltDependencies）。許可漏れがあっても pnpm は警告を出すだけで先へ進むため、
 // 本来必要なビルドが飛んだまま CI が緑になりうる。そこで install ログの「弾かれた一覧」を
-// 下の想定集合と突合し、増減があれば CI を赤くする。
+// 下の必須集合・許容集合と突合し、必須の欠落・未知の依存があれば CI を赤くする。
 //
 // 想定集合は「弾かれていて構わない依存」の名簿であり、package.json の onlyBuiltDependencies
 // （＝実行を許可する依存の名簿）とは別物。両者を混同して片方をもう片方から生成しないこと。
@@ -15,18 +15,17 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// 弾かれていることが意図どおりの依存（cmn-0231 の設計意図と一致することを CI run 30417883753 で実測）。
-// 依存追加でこの一覧が動いたら、まず「そのビルドは本当に不要か」を判断し、
-// 必要なら package.json の onlyBuiltDependencies へ許可を足す。不要ならここへ追記する。
-//
-// cmn-0343: @nestjs/core を除外した。許可名簿へ移したのではなく**そもそも弾かれなくなった**＝
-// @nestjs/core@11.1.28 の package.json が scripts: {} で postinstall を持たない（実測）。
-// CI run 31238015292 の install ログでも弾かれたのは @scarf/scarf, prisma の 2 件だけだった。
-// 版が戻って postinstall が復活したら unexpected 側で赤くなるので、その時にここへ戻す。
-// v2-393: native patch適用後のCI run 37616649994では braces/magicast も検出される。
-// 両packageに install時のlifecycleはなく、配布済みJSへpatchを適用するためbuildは不要。
-// onlyBuiltDependenciesへの実行許可は追加せず、未知の依存は引き続き拒否する。
-export const EXPECTED_IGNORED_BUILDS = ['@scarf/scarf', 'braces', 'magicast', 'prisma'];
+// install lifecycleを持ち、常に弾かれていることを確認する依存。
+export const REQUIRED_IGNORED_BUILDS = ['@scarf/scarf', 'prisma'];
+// pnpm 9.15.4はpatch対象を警告に含める場合がある（CI実ログで2件/4件を確認）。
+// braces@3.0.3 / magicast@0.5.5にはpreinstall/install/postinstallがなく、
+// 配布済みJSへpatchを適用するためbuildは不要。警告が無くても欠落にはしない。
+// ビルド実行許可を与える集合ではない。未知の依存は引き続き拒否する。
+export const OPTIONAL_IGNORED_BUILDS = ['braces', 'magicast'];
+export const EXPECTED_IGNORED_BUILDS = [
+  ...REQUIRED_IGNORED_BUILDS,
+  ...OPTIONAL_IGNORED_BUILDS,
+].sort();
 
 // pnpm の文言はバージョンで揺れるため、既知の 2 表現を両方見る（9.15.4 は前者）。
 const MARKER_PATTERNS = [
@@ -80,12 +79,16 @@ export function parseIgnoredBuilds(logText) {
   return { found: false, names: [] };
 }
 
-/** 想定集合との差分を返す（ok=true で一致）。 */
-export function compareIgnoredBuilds(actualNames, expectedNames = EXPECTED_IGNORED_BUILDS) {
+/** 必須の欠落と、必須・許容集合にない依存を返す。 */
+export function compareIgnoredBuilds(
+  actualNames,
+  requiredNames = REQUIRED_IGNORED_BUILDS,
+  optionalNames = OPTIONAL_IGNORED_BUILDS,
+) {
   const actual = new Set(actualNames);
-  const expected = new Set(expectedNames);
-  const unexpected = [...actual].filter((name) => !expected.has(name)).sort();
-  const missing = [...expected].filter((name) => !actual.has(name)).sort();
+  const allowed = new Set([...requiredNames, ...optionalNames]);
+  const unexpected = [...actual].filter((name) => !allowed.has(name)).sort();
+  const missing = [...new Set(requiredNames)].filter((name) => !actual.has(name)).sort();
   return { ok: unexpected.length === 0 && missing.length === 0, unexpected, missing };
 }
 
@@ -130,20 +133,20 @@ function main() {
     if (unexpected.length > 0) {
       console.error(
         `[check-ignored-builds] 想定外に弾かれた依存: ${unexpected.join(', ')}` +
-          '（ビルドが必要なら package.json の pnpm.onlyBuiltDependencies へ許可を足す / 不要なら本スクリプトの EXPECTED_IGNORED_BUILDS へ追記）',
+          '（そのビルドが必要かを確認し、必須・許容集合または pnpm.onlyBuiltDependencies を見直してください）',
       );
     }
     if (missing.length > 0) {
       console.error(
         `[check-ignored-builds] 弾かれる想定だったのにログに無い依存: ${missing.join(', ')}` +
-          '（依存が消えた / 許可済みになったなら EXPECTED_IGNORED_BUILDS から外す）',
+          '（依存の消失や実行許可への移動を確認し、REQUIRED_IGNORED_BUILDS を見直してください）',
       );
     }
     process.exit(1);
   }
 
   console.log(
-    `[check-ignored-builds] OK: 弾かれた ${names.length} 件が想定と一致（${names.join(', ')}）`,
+    `[check-ignored-builds] OK: 必須の警告が揃い、弾かれた ${names.length} 件は許容集合内（${names.join(', ')}）`,
   );
 }
 

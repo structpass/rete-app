@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 
 import {
   EXPECTED_IGNORED_BUILDS,
+  REQUIRED_IGNORED_BUILDS,
+  OPTIONAL_IGNORED_BUILDS,
   parseIgnoredBuilds,
   compareIgnoredBuilds,
 } from './check-ignored-builds.mjs';
@@ -22,6 +24,63 @@ const REAL_LOG = [
   'The following dependencies have build scripts that were ignored: @scarf/scarf, braces, magicast, prisma',
   'Done in 21.4s',
 ].join('\n');
+
+// CI run 37859646576（公開commit 4eaa848 / 2026-10-08）の install出力。
+const REAL_TWO_LOG = [
+  'Scope: all 4 workspace projects',
+  'Lockfile is up to date, resolution step is skipped',
+  'The following dependencies have build scripts that were ignored: @scarf/scarf, prisma',
+  'Done in 2.1s',
+].join('\n');
+
+function runCli(log) {
+  const dir = mkdtempSync(join(tmpdir(), 'cib-policy-'));
+  try {
+    const logPath = join(dir, 'install.log');
+    writeFileSync(logPath, log);
+    return spawnSync(
+      process.execPath,
+      [join(REPO_ROOT, 'scripts/check-ignored-builds.mjs'), logPath],
+      {
+        encoding: 'utf8',
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+for (const [label, log] of [
+  ['2件', REAL_TWO_LOG],
+  ['4件', REAL_LOG],
+]) {
+  test(`CLI: 実${label}警告を受理し、必須と許容を区別する`, () => {
+    const result = runCli(log);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /OK/);
+  });
+}
+
+for (const [label, log] of [
+  ['未知の依存', REAL_TWO_LOG.replace('prisma', 'prisma, unknown-dependency')],
+  ['@scarf/scarf欠落', REAL_LOG.replace('@scarf/scarf, ', '')],
+  ['prisma欠落', REAL_LOG.replace(', prisma', '')],
+  ['空ログ', ''],
+  ['空マーカー', 'Ignored build scripts:'],
+  ['マーカー欠落', 'Lockfile is up to date\nDone in 3s'],
+]) {
+  test(`CLI: ${label}は拒否する`, () => {
+    const result = runCli(log);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+}
+
+test('CLI: ANSIと枠線付きの折り返しでも必須警告を検査する', () => {
+  const esc = String.fromCharCode(27);
+  const log = `${esc}[33m│ Ignored build scripts: @scarf/scarf,${esc}[0m\n│ braces, magicast, prisma.`;
+  assert.equal(runCli(log).status, 0);
+  assert.equal(runCli(log.replace('prisma', 'unknown-dependency')).status, 1);
+});
 
 test('parseIgnoredBuilds: pnpm 9.15 の文言から依存名を抽出する', () => {
   const result = parseIgnoredBuilds(REAL_LOG);
@@ -99,8 +158,32 @@ test('compareIgnoredBuilds: 想定にあるのにログから消えた依存も�
   // cmn-0343 の実発火ケース＝弾かれる想定だった依存が postinstall を落として消えた形。
   const result = compareIgnoredBuilds(['prisma']);
   assert.equal(result.ok, false);
-  assert.deepEqual(result.missing, ['@scarf/scarf', 'braces', 'magicast']);
+  assert.deepEqual(result.missing, ['@scarf/scarf']);
   assert.deepEqual(result.unexpected, []);
+});
+
+test('compareIgnoredBuilds: patched依存の出現有無の全組合せを受理する', () => {
+  assert.deepEqual(REQUIRED_IGNORED_BUILDS, ['@scarf/scarf', 'prisma']);
+  assert.deepEqual(OPTIONAL_IGNORED_BUILDS, ['braces', 'magicast']);
+  for (const optional of [[], ['braces'], ['magicast'], ['braces', 'magicast']]) {
+    assert.deepEqual(compareIgnoredBuilds([...REQUIRED_IGNORED_BUILDS, ...optional]), {
+      ok: true,
+      unexpected: [],
+      missing: [],
+    });
+  }
+});
+
+test('許容集合は固定したpatch対象だけで、実行許可名簿と重ならない', () => {
+  const manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  assert.deepEqual(Object.keys(manifest.pnpm.patchedDependencies).sort(), [
+    'braces@3.0.3',
+    'magicast@0.5.5',
+  ]);
+  assert.deepEqual(
+    EXPECTED_IGNORED_BUILDS.filter((name) => manifest.pnpm.onlyBuiltDependencies.includes(name)),
+    [],
+  );
 });
 
 test('（実データ）想定集合が実ログと一致し、許可名簿とは別物である', () => {
