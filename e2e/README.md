@@ -155,14 +155,14 @@ e2e/
 
 ## 使用ユーザー（seed 済み）
 
-| キー     | メール                       | system role | 備考                                                                                                                         |
-| -------- | ---------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| admin    | admin@rete.local             | ADMIN       | bootstrap admin                                                                                                              |
-| member   | of-admin@struct-pass.example | MEMBER      | org-change / space-scope の越境・可視シナリオで使用                                                                          |
-| whUser   | wh-user@struct-pass.example  | MEMBER      | 非メンバー PJ のチャネルが見えないこと（S-SPC-05）                                                                           |
-| newcomer | newcomer@struct-pass.example | MEMBER      | 異動・脱退で可視が切れること（org-change）                                                                                   |
-| mfaUser  | mfa-user@rete.local          | MEMBER      | mfa-login.feature 専用（MFA 無効で seed 焼き込み・シナリオ内 setup）                                                         |
-| tanaka   | tanaka@struct-pass.example   | ADMIN       | org-change.feature 退職ロック対象（シナリオ冒頭で復元後に専用セッションを確立・事前生成4ユーザーのセッションを壊さないため） |
+| キー     | メール                         | system role | 備考                                                                                                                         |
+| -------- | ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| admin    | `admin@rete.local`             | ADMIN       | bootstrap admin                                                                                                              |
+| member   | `of-admin@struct-pass.example` | MEMBER      | org-change / space-scope の越境・可視シナリオで使用                                                                          |
+| whUser   | `wh-user@struct-pass.example`  | MEMBER      | 非メンバー PJ のチャネルが見えないこと（S-SPC-05）                                                                           |
+| newcomer | `newcomer@struct-pass.example` | MEMBER      | 異動・脱退で可視が切れること（org-change）                                                                                   |
+| mfaUser  | `mfa-user@rete.local`          | MEMBER      | mfa-login.feature 専用（MFA 無効で seed 焼き込み・シナリオ内 setup）                                                         |
+| tanaka   | `tanaka@struct-pass.example`   | ADMIN       | org-change.feature 退職ロック対象（シナリオ冒頭で復元後に専用セッションを確立・事前生成4ユーザーのセッションを壊さないため） |
 
 ## HTML レポート確認
 

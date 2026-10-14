@@ -131,7 +131,7 @@ pnpm --filter @rete/backend prisma:seed
 pnpm dev
 ```
 
-- frontend: http://localhost:3000 ／ backend: http://localhost:3001/api/v1
+- frontend: `http://localhost:3000` ／ backend: `http://localhost:3001/api/v1`
 - `DATABASE_URL` の `<user>` / `<password>` はルート `.env` の値に置き換え、ポートも揃えます。URL内の `connection_limit` / `pool_timeout` は残してください。雛形のままでは接続できません。
 - 各環境ファイルの認証鍵placeholderは評価用です。MFAを評価する場合は `MFA_TOTP_ENC_KEY` に有効な32バイトの鍵を設定します。共有・外部公開前の確認は [NOTICE.md](./NOTICE.md) を参照してください。
 - 初回の管理者メールは `SEED_ADMIN_EMAIL`（未設定時 `admin@rete.local`）です。管理者とデモユーザーの既定パスワードは [seed.ts](./packages/backend/prisma/seed.ts) にある公開情報です。
