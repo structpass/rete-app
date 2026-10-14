@@ -142,7 +142,7 @@ pnpm dev
 
 ## Referenceと一緒に評価する
 
-[Reference公開版](https://github.com/structpass/reference-public)をセットで取得します。Referenceの[README](https://github.com/structpass/reference-public#両アプリの認証を接続する)が、ポート分離・OIDC設定の対応・seedのID・起動順序の正本です。
+[Reference公開版](https://github.com/structpass/reference-app)をセットで取得します。Referenceの[README](https://github.com/structpass/reference-app#両アプリの認証を接続する)が、ポート分離・OIDC設定の対応・seedのID・起動順序の正本です。
 
 共存時はRete frontend 3010 / backend 3011 / DB 5433、Reference frontend 3000 / backend 3001 / DB 5432を使います。Rete frontendのPORTとAPI URL、backendのPORT・CORS_ORIGIN・DATABASE_URL、ルート.envのRETE_DB_PORTを揃えてから、Rete→Referenceの順に起動します。Referenceのseedはパスワードを持ちません。Reteの公開評価用資格情報を、外部公開や実運用で有効なまま使わないでください。
 
