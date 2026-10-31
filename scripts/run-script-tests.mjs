@@ -166,9 +166,15 @@ function main() {
   // 記録は標準出力から読む（一時ファイルを作らない・後始末も要らない）。
   const outcomes = [];
   for (const file of testFiles) {
+    // どの検査で止まったかを CI のログから辿れるようにする（全部終わるまで何も出さないと、
+    // 1 本のハングが「20 分後に canceled」になり、原因のファイルが分からない）。
+    console.log(`[run-script-tests] 実行: ${basename(file)}`);
     const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', file], {
       encoding: 'utf8',
       maxBuffer: 256 * 1024 * 1024,
+      // 1 本が返らない時にジョブごと時間切れで消えないよう、ファイル単位で打ち切る。
+      // 打ち切られた回は出口が 0/1 でないため、既存の「走り切っていない」判定で赤になる。
+      timeout: 180_000,
     });
     outcomes.push({
       file,
