@@ -16,5 +16,17 @@
     "package": "deepmerge",
     "expiresOn": "2026-11-29",
     "reason": "No upstream fixed release (patched_versions <0.0.0). Dev-only paths: @nestjs/cli > fork-ts-checker-webpack-plugin and jest > jest-config. The production image installs with --prod, so neither ships; no request input reaches mergeObject. Reassess on a fixed release or when the plugin/CLI reads untrusted input."
+  },
+  {
+    "id": "GHSA-g3hv-75wg-m249",
+    "package": "minimatch",
+    "expiresOn": "2026-12-31",
+    "reason": "Fixed only in 11.x (major). Locked 3.1.5 is what eslint 9 and @nestjs/cli's glob 7 require; forcing 11 breaks their calling API. Both paths are dev/build tooling, and the production image installs with --prod. Reassess when eslint or the CLI moves to a patched major."
+  },
+  {
+    "id": "GHSA-3g3m-2fjr-6pw4",
+    "package": "glob",
+    "expiresOn": "2026-12-31",
+    "reason": "Fixed only in 14.x (major). Locked 13.0.6 belongs to @nestjs/cli's build/watch tooling and is not shipped (--prod). Reassess when the CLI moves to glob 14."
   }
 ]
