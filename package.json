@@ -91,7 +91,8 @@
       "test-exclude>glob": "7.2.3"
     },
     "patchedDependencies": {
-      "test-exclude@6.0.0": "patches/test-exclude@6.0.0.patch"
+      "test-exclude@6.0.0": "patches/test-exclude@6.0.0.patch",
+      "@jest/reporters@29.7.0": "patches/@jest__reporters@29.7.0.patch"
     }
   }
 }

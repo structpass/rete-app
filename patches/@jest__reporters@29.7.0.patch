@@ -1,0 +1,15 @@
+diff --git a/build/CoverageReporter.js b/build/CoverageReporter.js
+index 48ba4feb38349cb1a5671635ebf5841bbf5c31fa..f0e0b53ee419c10621f205f885df05eca38ffa8f 100644
+--- a/build/CoverageReporter.js
++++ b/build/CoverageReporter.js
+@@ -371,8 +371,8 @@ class CoverageReporter extends _BaseReporter.default {
+               // (rather than recalculating it for each covered file) we save a tonne
+               // of execution time.
+               if (filesByGlob[absoluteThresholdGroup] === undefined) {
+-                filesByGlob[absoluteThresholdGroup] = _glob()
+-                  .default.sync(absoluteThresholdGroup)
++                var g = _glob();
++                filesByGlob[absoluteThresholdGroup] = (g.globSync ?? g.default.sync)(absoluteThresholdGroup)
+                   .map(filePath => path().resolve(filePath));
+               }
+               if (filesByGlob[absoluteThresholdGroup].indexOf(file) > -1) {

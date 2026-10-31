@@ -42,6 +42,9 @@ overrides:
   test-exclude>glob: 7.2.3
 
 patchedDependencies:
+  '@jest/reporters@29.7.0':
+    hash: c90b7c3b8e244992c907897bd6c02d5e5a0cd698070e2b07fdfe04ab1b58df6e
+    path: patches/@jest__reporters@29.7.0.patch
   test-exclude@6.0.0:
     hash: 5f58b6aeeb902ef81967bba011c159db1c8ad76289a682b10839c7b5a8427203
     path: patches/test-exclude@6.0.0.patch
@@ -7267,7 +7270,7 @@ snapshots:
   '@jest/core@29.7.0(ts-node@10.9.2(@types/node@20.19.41)(typescript@5.9.3))':
     dependencies:
       '@jest/console': 29.7.0
-      '@jest/reporters': 29.7.0
+      '@jest/reporters': 29.7.0(patch_hash=c90b7c3b8e244992c907897bd6c02d5e5a0cd698070e2b07fdfe04ab1b58df6e)
       '@jest/test-result': 29.7.0
       '@jest/transform': 29.7.0
       '@jest/types': 29.6.3
@@ -7335,7 +7338,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@jest/reporters@29.7.0':
+  '@jest/reporters@29.7.0(patch_hash=c90b7c3b8e244992c907897bd6c02d5e5a0cd698070e2b07fdfe04ab1b58df6e)':
     dependencies:
       '@bcoe/v8-coverage': 0.2.3
       '@jest/console': 29.7.0
