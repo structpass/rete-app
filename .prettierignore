@@ -55,3 +55,7 @@ register-rete-watchdog.ps1
 # prettier が YAML frontmatter として展開（'key': value の複数行化）すると JSON.parse 不能になり
 # previous_digest の回帰比較が壊れるため整形対象外（2026-08-13 実証）。
 plans/
+
+# Next.js が型生成のたびに書き換える生成物。公開CIは typegen の後に format:check を走らせるため、
+# 生成物の引用符・改行を整形対象にすると必ず赤になる（中身は Next が管理する）。
+packages/frontend/next-env.d.ts
