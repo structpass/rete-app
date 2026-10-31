@@ -77,11 +77,13 @@ test('成功でも警告は隠さない', () => {
 
 test('失敗時は終了コード、末尾の失敗内容、完全ログの場所を返す', () => {
   const result = runInline(
+    // process.exit() はパイプへの書き込みを流し切る前に落ちる（Linux の CI で出力が欠け、
+    // 100 行超のログを返す検査が環境で揺れた）。出口は exitCode で伝えて、書き込みを待たせる。
     `for (let i = 0; i < 300; i++) console.log('noise-' + i);
      console.log('Tests: 300 total');
      console.log('✖ failing tests:');
      console.error('Error: synthetic failure');
-     process.exit(7);`,
+     process.exitCode = 7;`,
   );
 
   assert.equal(result.status, 7, result.stderr);
