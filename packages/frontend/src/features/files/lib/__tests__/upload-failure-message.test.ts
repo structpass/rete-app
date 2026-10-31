@@ -86,13 +86,10 @@ describe('uploadFailureReason', () => {
     ).toBe('アップロードの回数が多すぎます。少し待ってからお試しください');
   });
 
-  it('413（multipart のハードキャップ）はサーバーのサイズ理由を潰さない', () => {
-    // 413 は error code の派生表に無いため code は INTERNAL_ERROR になる。code を鍵に汎用文へ置換すると
-    // 「直せば通る理由」が消えるため、判定は HTTP status で行う（v2-191 レビュー指摘）。
+  it.each(['BAD_REQUEST', 'INTERNAL_ERROR'])('413 は code=%s でもサイズ理由を潰さない', (code) => {
+    // 現行と旧サーバーの両方で、判定は HTTP status に基づき案内文を保つ。
     expect(
-      uploadFailureReason(
-        axiosError(413, 'INTERNAL_ERROR', 'ファイルサイズが上限（100 MB）を超えています'),
-      ),
+      uploadFailureReason(axiosError(413, code, 'ファイルサイズが上限（100 MB）を超えています')),
     ).toBe('ファイルサイズが上限（100 MB）を超えています');
   });
 

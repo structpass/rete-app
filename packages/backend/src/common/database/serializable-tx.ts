@@ -115,6 +115,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** raw SQL の SSI / deadlock だけをモデル更新と同じ競合へ揃える。 */
+function normalizeTransactionError(error: unknown): unknown {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2010' &&
+    (error.meta?.code === '40001' || error.meta?.code === '40P01')
+  ) {
+    return new Prisma.PrismaClientKnownRequestError('Serializable transaction write conflict', {
+      code: 'P2034',
+      clientVersion: error.clientVersion,
+      meta: { sqlState: error.meta.code },
+    });
+  }
+  return error;
+}
+
 /**
  * Serializable（SSI）トランザクションを、競合 abort（P2034）時に自動リトライしながら実行する共通ヘルパ。
  *
@@ -130,7 +146,8 @@ function sleep(ms: number): Promise<void> {
  * 原子化のみが必要な箇所に使う（settings.repository の deleteSystem 等が前例）。基準の重複記載は
  * repository 側に置かない（更新漏れで食い違う温床になるため、各 repository はこの 1 箇所への pointer だけを残す）。
  *
- * リトライするのは P2034（write conflict）だけ。P2028（tx timeout）/ P2024（接続待ち超過）は「遅い・混んでいる」
+ * raw SQL の P2010 + SQLSTATE 40001 / 40P01 も P2034（write conflict）へ正規化する。
+ * リトライするのは P2034 だけ。P2028（tx timeout）/ P2024（接続待ち超過）は「遅い・混んでいる」
  * が原因で即やり直しても同じ結果になりやすく、待ち時間だけ倍増するため再試行せず投げ返す
  * （PrismaExceptionFilter が 503 + Retry-After へ写像する）。P2034 も上限到達後はそのまま投げる（→ 409）。
  *
@@ -182,9 +199,12 @@ export async function runInSerializableTransaction<T>(
         maxWait: Math.min(maxWait, remaining),
       });
     } catch (e) {
+      // Prisma の raw query は SSI / deadlock を P2010 に包む。通常のモデル更新と同じ
+      // 再試行・上限到達時の 409 写像を維持する。SQL 構文エラー等は再試行しない。
+      const error = normalizeTransactionError(e);
       if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2034' &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034' &&
         attempt < maxAttempts
       ) {
         const delay = backoffDelayMs(attempt);
@@ -196,7 +216,7 @@ export async function runInSerializableTransaction<T>(
         await sleep(delay);
         continue;
       }
-      throw e;
+      throw error;
     }
   }
 }

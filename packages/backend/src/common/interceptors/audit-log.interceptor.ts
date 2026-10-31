@@ -26,6 +26,13 @@ type MutatingMethod = (typeof MUTATING_METHODS)[number];
 const AUTH_EXCLUDED_PATHS = ['/auth/login', '/auth/logout'];
 
 /**
+ * GET のまま「持ち出し」だけを記録する経路（endsWith 判定・d534）。
+ * GET は通常記録しない（operational-policy §6）が、CSV 出力は閲覧ではなく書き出しのため、
+ * 次に export を足す時も service ごとに明示記録を足さず、ここへ 1 行加えるだけで済む形に揃える。
+ */
+const GET_EXPORT_PATHS = ['/members/export'];
+
+/**
  * 機能名の英語キー／path セグメント → 日本語表示（set-0080）。
  * set-0180: @RequireFeature（RBAC キー）は撤去されたが、機能名マップは記録時の表示にそのまま使う。
  */
@@ -44,6 +51,8 @@ const FEATURE_LABEL_MAP: Record<string, string> = {
   accounts: 'アカウント',
   auth: '認証',
   announcements: 'お知らせ',
+  'calendar-events': 'カレンダー',
+  'calendar-holidays': '祝日設定',
   'announcement-tags': 'お知らせタグ',
   categories: '分類',
   'desk-groups': 'デスクグループ',
@@ -76,6 +85,8 @@ function toFeatureLabel(raw: string): string {
  *   - HTTP method が mutating（POST/PATCH/PUT/DELETE）
  *   - auth login/logout route でない（明示記録側が担当）
  *   - ハンドラが正常完了（2xx）時のみ tap で記録（例外は tap を通過しない）
+ *   - 例外的に GET でも持ち出し（GET_EXPORT_PATHS）だけは actionType=read で記録する（d534）。
+ *     service 側の明示記録と二重にならないよう、ここに挙げた経路では service で記録しない。
  *
  * §4 best-effort: 記録失敗がリクエスト/レスポンスを壊さないよう fire-and-forget で非同期。
  * AuditRecorderService が内部で try/catch 済みのため二重 catch だが、
@@ -97,8 +108,11 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const actionType = this.methodToActionType(method as MutatingMethod);
+    const isExport = this.isExportPath(method, path);
+    // export は読み取りのため actionType は read（閲覧）のまま、summary だけ出力を表す形にする。
+    const actionType = isExport ? 'read' : this.methodToActionType(method as MutatingMethod);
     const feature = this.resolveFeature(context, path);
+    const label = AUDIT_ACTION_LABELS[actionType] ?? actionType;
 
     return next.handle().pipe(
       tap(() => {
@@ -112,7 +126,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             systemName: AUDIT_RETE_SYSTEM_NAME,
             actionType,
             feature,
-            summary: `${feature} を${AUDIT_ACTION_LABELS[actionType] ?? actionType}`,
+            summary: isExport ? `${feature} を出力` : `${feature} を${label}`,
             ipAddress: clientIp(req),
             userAgent: clientUserAgent(req),
           })
@@ -128,9 +142,15 @@ export class AuditLogInterceptor implements NestInterceptor {
   /** 記録条件を満たすかを判定する。 */
   private shouldRecord(method: string, path: string, user: AuthenticatedUser | undefined): boolean {
     if (!user) return false;
+    if (this.isExportPath(method, path)) return true;
     if (!(MUTATING_METHODS as readonly string[]).includes(method)) return false;
     if (AUTH_EXCLUDED_PATHS.some((p) => path.endsWith(p))) return false;
     return true;
+  }
+
+  /** 持ち出し（CSV 出力）の経路か。GET の通常記録対象外をこの経路だけ例外的に記録する。 */
+  private isExportPath(method: string, path: string): boolean {
+    return method === 'GET' && GET_EXPORT_PATHS.some((p) => path.endsWith(p));
   }
 
   /** HTTP method → AuditActionType 変換。 */

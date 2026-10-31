@@ -1,0 +1,74 @@
+/* d944: 掲示板と同じ viewport 固定＋ペイン内スクロールを、この画面だけに適用する。 */
+:global(body):has(.page) :global(.app-shell) {
+  height: 100vh;
+  overflow: hidden;
+}
+
+:global(body):has(.page) :global(.app-sidebar) {
+  align-self: stretch;
+  position: relative;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  max-width: 800px;
+}
+
+/* /hub の検索30px＋操作30px＋段間6px＋下余白4pxと同じ構成。 */
+.toolbar {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+}
+
+.toolbar :global(.desk-filter-bar.is-static.sp-filter-bar),
+.toolbar :global(.sp-list-action-row) {
+  margin-bottom: 0;
+}
+
+.frame {
+  flex: 1;
+  min-height: 0;
+}
+
+.frame > :global(.sp-card),
+.frame > :global(.sp-card) > div {
+  height: 100%;
+}
+
+.frame > :global(.sp-card) > div {
+  overflow-y: auto;
+}
+
+.frame table {
+  table-layout: fixed;
+}
+
+.frame thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--sp-card);
+}
+
+/* 開発統括指定の80%密度。この画面の変更前実測2.8remに対して2.24rem。 */
+.frame :global(.sp-row-pillable) > td {
+  height: 2.24rem;
+  padding-block: 0;
+}
+
+.frame :global(.sp-row-icon-btn) {
+  width: 1.4rem;
+  height: 1.4rem;
+}

@@ -44,6 +44,13 @@ tickets*.json
 .hermes/
 NUL
 
+# 環境の復旧・自動再起動（chk-rete / watchdog / 隠し起動ランチャ）。行の折り返しが崩れると
+# タスクスケジューラの引数や埋め込みパスが壊れるため整形対象外。
+chk-rete.ps1
+chk-restart.ps1
+rete-dev-watchdog.ps1
+register-rete-watchdog.ps1
+
 # maint-log digest（plans/）は collect.mjs の生成物で metrics が JSON 1 行の機械読取形式。
 # prettier が YAML frontmatter として展開（'key': value の複数行化）すると JSON.parse 不能になり
 # previous_digest の回帰比較が壊れるため整形対象外（2026-08-13 実証）。

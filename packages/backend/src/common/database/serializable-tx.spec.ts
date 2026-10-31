@@ -19,7 +19,7 @@ import {
  *   （呼び出し側で指定し忘れが起きない・Prisma 既定値への暗黙依存が残らない）。
  * - 競合 abort（P2034）は既定 3 回まで再試行し、上限到達時は最後の例外をそのまま投げ返すこと。
  * - 再試行の前にランダムな待機（full jitter）が入ること＝固定間隔で再突入しないこと。
- * - P2034 以外（P2028 / P2024 を含む）は再試行せず即座に投げ返すこと（無駄な多重実行で副作用を重ねない）。
+ * - raw SQL の直列化失敗・deadlock も P2034 に正規化する。それ以外（P2028 / P2024 を含む）は即座に投げ返す。
  * - 成功時は 1 回で抜け、コールバックの戻り値をそのまま返すこと。
  *
  * E2E / 実 DB へ委譲すること:
@@ -123,6 +123,44 @@ describe('runInSerializableTransaction', () => {
     expect(delays).toHaveLength(2);
     // 1 回目: 0.2 * 25 = 5ms / 2 回目: 0.9 * 50 = 45ms（指数的に上限が伸び、乱数で散る）。
     expect(delays).toEqual([5, 45]);
+  });
+
+  it.each(['40001', '40P01'])('raw SQL の %s も transaction 全体を再試行する', async (code) => {
+    $transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('raw conflict', {
+        code: 'P2010',
+        clientVersion: '6.2.0',
+        meta: { code },
+      }),
+    );
+    await expect(runInSerializableTransaction(prisma, async () => 'ok')).resolves.toBe('ok');
+    expect($transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('raw SQL の競合も上限到達時は P2034 にして既存の HTTP 409 写像へ渡す', async () => {
+    $transaction.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('raw conflict', {
+        code: 'P2010',
+        clientVersion: '6.2.0',
+        meta: { code: '40001' },
+      }),
+    );
+    await expect(runInSerializableTransaction(prisma, async () => 'ok')).rejects.toMatchObject({
+      code: 'P2034',
+      meta: { sqlState: '40001' },
+    });
+    expect($transaction).toHaveBeenCalledTimes(DEFAULT_MAX_ATTEMPTS);
+  });
+
+  it('raw SQL の構文エラーは正規化も再試行もしない', async () => {
+    const error = new Prisma.PrismaClientKnownRequestError('syntax error', {
+      code: 'P2010',
+      clientVersion: '6.2.0',
+      meta: { code: '42601' },
+    });
+    $transaction.mockRejectedValue(error);
+    await expect(runInSerializableTransaction(prisma, async () => 'ok')).rejects.toBe(error);
+    expect($transaction).toHaveBeenCalledTimes(1);
   });
 
   it('再試行が発生したら回数の分かる warn ログを 1 回ずつ残す（機微情報は載せない）', async () => {

@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useRowHoverBand } from '@/hooks/use-row-hover-band';
 
-export interface PageTabDef {
+// 呼び出し元は tabs を渡すだけで型名を取り込まない（公開面に使われない型を出さない・d611）。
+interface PageTabDef {
   key: string;
   label: ReactNode;
   /** タブ右肩のカウントバッジ。null/undefined なら非表示。 */

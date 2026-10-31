@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Role } from '@rete/shared';
+import { Role, HOME_PERMISSIONS, NO_HOME_GROUP_PERMISSIONS } from '@rete/shared';
 import { useSession } from '@/features/auth';
 import { useAsyncAction } from '@/hooks/use-async-action';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 import { FormActions, FormButton, PageTitle } from './primitives';
 import { GroupFormCard } from './group-form-card';
 import { GroupMemberPicker } from './group-member-picker';
@@ -33,6 +36,11 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
 
   const [name, setName] = useState('');
   const [originalName, setOriginalName] = useState('');
+  const [permissions, setPermissions] = useState({ ...NO_HOME_GROUP_PERMISSIONS });
+  const [originalPermissions, setOriginalPermissions] = useState({ ...NO_HOME_GROUP_PERMISSIONS });
+  const permissionsChanged = Object.values(HOME_PERMISSIONS).some(
+    ({ groupFlagKey }) => permissions[groupFlagKey] !== originalPermissions[groupFlagKey],
+  );
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +48,16 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
   const [saving, setSaving] = useState(false);
   const [memberBusy, setMemberBusy] = useState(false);
   const { run } = useAsyncAction();
+  const discard = useDiscardConfirm();
+  const handleBack = () => {
+    if (saving || memberBusy) return;
+    discard.request(name !== originalName || permissionsChanged, () =>
+      router.push('/settings/groups'),
+    );
+  };
+  // Esc は「一覧へ戻る」と同じ動きにする（UI 共通仕様 escape-key 規約①⑤）。
+  // 破棄確認ダイアログ自身もこのフックと同じスタックに載り、末尾（手前の層）だけが消費する（規約⑦）。
+  useEscapeConsume(handleBack, { enabled: !loading && !notFound });
 
   useMountedFetch(
     async (alive) => {
@@ -56,6 +74,12 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
         if (!alive()) return;
         setName(group.name);
         setOriginalName(group.name);
+        const flags = { ...NO_HOME_GROUP_PERMISSIONS };
+        for (const { groupFlagKey } of Object.values(HOME_PERMISSIONS)) {
+          flags[groupFlagKey] = group[groupFlagKey] ?? false;
+        }
+        setPermissions(flags);
+        setOriginalPermissions(flags);
         setAccounts(accountList);
         setSelectedAccountIds(members.map((m) => m.accountId));
       } catch (err) {
@@ -71,11 +95,11 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
   const nameChanged = trimmedName !== '' && trimmedName !== originalName;
 
   async function handleSave() {
-    if (!nameChanged) return;
+    if (!trimmedName || (!nameChanged && !permissionsChanged)) return;
     await run(
       async () => {
-        await updateUserGroup(groupId, { name: trimmedName });
-        toast.success('管理グループ名を更新しました');
+        await updateUserGroup(groupId, { name: trimmedName, ...permissions });
+        toast.success('管理グループを更新しました');
         router.push('/settings/groups');
       },
       {
@@ -115,7 +139,14 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
 
   const backLink = (
     <p className="mb-3 text-sm text-[var(--sp-text-warm-mute)]">
-      <Link className="text-[var(--sp-accent-red)] underline" href="/settings/groups">
+      <Link
+        className="text-[var(--sp-accent-red)] underline"
+        href="/settings/groups"
+        onClick={(event) => {
+          event.preventDefault();
+          handleBack();
+        }}
+      >
         管理グループ一覧
       </Link>
       へ戻る
@@ -155,7 +186,18 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
       <PageTitle title="管理グループを編集" />
       {backLink}
 
-      <GroupFormCard name={name} onNameChange={setName} nameDisabled={saving}>
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
+      <GroupFormCard
+        name={name}
+        onNameChange={setName}
+        nameDisabled={saving}
+        permissions={permissions}
+        onPermissionsChange={setPermissions}
+      >
         <GroupMemberPicker
           accounts={accounts}
           selectedAccountIds={selectedAccountIds}
@@ -165,18 +207,14 @@ export function GroupEditScreen({ groupId }: { groupId: string }) {
         />
 
         <FormActions>
-          <FormButton
-            variant="secondary"
-            onClick={() => router.push('/settings/groups')}
-            disabled={saving}
-          >
+          <FormButton variant="secondary" onClick={handleBack} disabled={saving}>
             一覧へ戻る
           </FormButton>
           <FormButton
             variant="primary"
             onClick={handleSave}
             loading={saving}
-            disabled={!nameChanged}
+            disabled={!trimmedName || (!nameChanged && !permissionsChanged)}
           >
             保存
           </FormButton>

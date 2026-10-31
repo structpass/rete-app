@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DndContext } from '@dnd-kit/core';
 import { FileList } from '../components/file-list';
@@ -25,6 +25,31 @@ vi.mock('@/features/user-table-column-widths', () => ({
     resetWidths: fnResetWidths,
   }),
 }));
+
+// v2-505 差し戻し: 明細の★列は撤去した。Provider がある状態でも★を描かないことを
+// 確かめられるよう、favorites の context を ON/OFF できるようにしておく
+// （OFF のときは元から何も描かない）。
+const { favoritesAvailableRef } = vi.hoisted(() => ({
+  favoritesAvailableRef: { current: false },
+}));
+vi.mock('@/features/shell/hooks/favorites-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/shell/hooks/favorites-context')>();
+  return {
+    ...actual,
+    useOptionalFavoritesContext: () =>
+      favoritesAvailableRef.current
+        ? {
+            items: [],
+            loading: false,
+            error: null,
+            refetch: vi.fn(),
+            add: vi.fn(),
+            remove: vi.fn(),
+            reorder: vi.fn(),
+          }
+        : null,
+  };
+});
 
 const folderItem: FileItem = {
   kind: 'folder',
@@ -242,5 +267,31 @@ describe('FileList — page mode file dblclick (fil-0075)', () => {
     }).not.toThrow();
     // 配線なし時は両クリックともトグル（従来どおり）。
     expect(toggle).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * v2-505 差し戻し: 明細の★列は撤去した。
+ * お気に入り登録はトップバーの★（現在フォルダ）が担い、明細の file/folder を個別に登録する
+ * 必要は無かった（開発統括判断）。rete-files-0030 の「★登録は Home 側導線へ一本化」に戻す。
+ */
+describe('FileList — 明細に★列を出さない（v2-505 差し戻し）', () => {
+  beforeEach(() => {
+    // Provider があっても★を描かないことを確かめる（配下でも出ない）。
+    favoritesAvailableRef.current = true;
+  });
+  afterEach(() => {
+    favoritesAvailableRef.current = false;
+  });
+
+  it('ファイル行・フォルダ行のどちらにも★ボタンを描かない', () => {
+    renderList([fileRow, folderRow], {});
+    expect(screen.queryByRole('button', { name: /お気に入り/ })).toBeNull();
+  });
+
+  it('★列の見出しセルも無い', () => {
+    const { container } = renderList([fileRow], {});
+    expect(container.querySelector('th.col-favorite')).toBeNull();
+    expect(container.querySelector('td.col-favorite')).toBeNull();
   });
 });

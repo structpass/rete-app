@@ -4,6 +4,9 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { OidcModule } from 'nest-oidc-provider';
+import { CalendarEventsModule } from './modules/calendar-events/calendar-events.module';
+import { CalendarHolidaysModule } from './modules/calendar-holidays/calendar-holidays.module';
+import { HomePermissionsModule } from './modules/home-permissions/home-permissions.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule, PrismaService } from './database';
@@ -95,6 +98,9 @@ import { RequestCacheModule } from './common/request-cache.module';
     AttachmentsModule,
     SettingsModule,
     AnnouncementModule,
+    CalendarEventsModule,
+    CalendarHolidaysModule,
+    HomePermissionsModule,
     AnnouncementTagsModule,
     AccountsModule,
     MembersModule,
@@ -131,15 +137,15 @@ import { RequestCacheModule } from './common/request-cache.module';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
-    // R8: 全体強制 MFA の遮断ガード（グローバル）。authMethod==='local' かつ enforced かつ未設定の認証済リクエストを
-    // 403 MFA_SETUP_REQUIRED で遮断する。MFA セットアップ系 / me / logout / login は内部 EXEMPT で素通し。
+    // R8: 全体強制 MFA の遮断ガード（グローバル）。認証の出自が 'local'（未設定を含む）かつ enforced かつ未設定の
+    // 認証済リクエストを 403 MFA_SETUP_REQUIRED で遮断する（d955）。MFA セットアップ系 / me / logout / login は内部 EXEMPT で素通し。
     // LoginSettingsService / MfaService は各 Module が export 済み（imports に LoginSettingsModule / MfaModule）。
     {
       provide: APP_GUARD,
       useClass: MfaEnforcementGuard,
     },
-    // set-0035: 強制パスワード変更の遮断ガード（グローバル）。mustChangePassword=true かつ authMethod==='local' の
-    // 認証済リクエストを 403 PASSWORD_CHANGE_REQUIRED で遮断する。変更 API / ポリシー取得 / me / logout / login は
+    // set-0035: 強制パスワード変更の遮断ガード（グローバル）。mustChangePassword=true かつ出自が 'local'（未設定を含む）の
+    // 認証済リクエストを 403 PASSWORD_CHANGE_REQUIRED で遮断する（d955）。変更 API / ポリシー取得 / me / logout / login は
     // 内部 EXEMPT で素通し。req.user の mustChangePassword を読むだけで追加 DB クエリは無い（依存サービス無し）。
     {
       provide: APP_GUARD,

@@ -1,3 +1,4 @@
+import { NO_HOME_GROUP_PERMISSIONS } from '@rete/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,6 +28,59 @@ vi.mock('@/features/auth/components/session-provider', () => ({
 }));
 
 describe('GroupCreateScreen（作成サブ画面・set-0188）', () => {
+  it('Homeの4権限を選択して名前と一緒に作成する', async () => {
+    const user = userEvent.setup();
+    render(<GroupCreateScreen />);
+    await user.type(await screen.findByLabelText('グループ名'), '新チーム');
+    for (const label of ['掲示板', 'カレンダー', 'FAQ', 'タグ管理']) {
+      expect(screen.getByLabelText(label)).not.toBeChecked();
+      await user.click(screen.getByLabelText(label));
+    }
+    await user.click(screen.getByRole('button', { name: '作成' }));
+    await waitFor(() =>
+      expect(api.createUserGroup).toHaveBeenCalledWith({
+        name: '新チーム',
+        canEditHomeBoard: true,
+        canEditHomeCalendar: true,
+        canEditHomeFaq: true,
+        canManageHomeTags: true,
+      }),
+    );
+  });
+
+  it('名前が空でも権限だけの未保存変更をEscで捨てない', async () => {
+    const user = userEvent.setup();
+    render(<GroupCreateScreen />);
+    await user.click(await screen.findByLabelText('カレンダー'));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(router.push).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole('button', { name: 'キャンセル' }).at(-1)!);
+    expect(screen.getByLabelText('カレンダー')).toBeChecked();
+    expect(api.createUserGroup).not.toHaveBeenCalled();
+  });
+
+  it.each(['キャンセル', '管理グループ一覧'])(
+    '未保存名を%sで失わず、破棄確定後にだけ戻る',
+    async (label) => {
+      const user = userEvent.setup();
+      render(<GroupCreateScreen />);
+      await screen.findByLabelText('グループ名');
+      await user.type(screen.getByLabelText('グループ名'), '未保存');
+      await user.click(
+        screen.getByRole(label === 'キャンセル' ? 'button' : 'link', { name: label }),
+      );
+      expect(router.push).not.toHaveBeenCalled();
+      await user.click(screen.getAllByRole('button', { name: 'キャンセル' }).at(-1)!);
+      expect(screen.getByLabelText('グループ名')).toHaveValue('未保存');
+      await user.click(
+        screen.getByRole(label === 'キャンセル' ? 'button' : 'link', { name: label }),
+      );
+      await user.click(screen.getByRole('button', { name: 'OK' }));
+      expect(router.push).toHaveBeenCalledWith('/settings/groups');
+      expect(api.createUserGroup).not.toHaveBeenCalled();
+    },
+  );
   beforeEach(() => {
     vi.clearAllMocks();
     membersApi.fetchMembers.mockResolvedValue([
@@ -66,7 +120,12 @@ describe('GroupCreateScreen（作成サブ画面・set-0188）', () => {
     await user.click(screen.getByRole('button', { name: 'ユーザーを追加' }));
     await user.click(screen.getByRole('button', { name: '作成' }));
 
-    await waitFor(() => expect(api.createUserGroup).toHaveBeenCalledWith({ name: '新チーム' }));
+    await waitFor(() =>
+      expect(api.createUserGroup).toHaveBeenCalledWith({
+        ...NO_HOME_GROUP_PERMISSIONS,
+        name: '新チーム',
+      }),
+    );
     await waitFor(() =>
       expect(api.addUserGroupMember).toHaveBeenCalledWith({ groupId: 'grp-9', accountId: 'acc-1' }),
     );
@@ -81,7 +140,12 @@ describe('GroupCreateScreen（作成サブ画面・set-0188）', () => {
     await user.type(screen.getByLabelText('グループ名'), '新チーム');
     await user.click(screen.getByRole('button', { name: '作成' }));
 
-    await waitFor(() => expect(api.createUserGroup).toHaveBeenCalledWith({ name: '新チーム' }));
+    await waitFor(() =>
+      expect(api.createUserGroup).toHaveBeenCalledWith({
+        ...NO_HOME_GROUP_PERMISSIONS,
+        name: '新チーム',
+      }),
+    );
     expect(api.addUserGroupMember).not.toHaveBeenCalled();
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/settings/groups'));
   });
@@ -97,10 +161,45 @@ describe('GroupCreateScreen（作成サブ画面・set-0188）', () => {
     expect(api.createUserGroup).not.toHaveBeenCalled();
   });
 
+  // 編集画面（group-edit-screen）と同じ待ち方に揃える（d594）。
+  it('読み込み中は見出しだけを出し、入力と作成ボタンは出さない', async () => {
+    let resolveMembers: (v: { id: string; name: string }[]) => void = () => {};
+    membersApi.fetchMembers.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMembers = resolve;
+      }),
+    );
+
+    render(<GroupCreateScreen />);
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '管理グループを作成' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('読み込み中…')).toBeInTheDocument();
+    expect(screen.queryByLabelText('グループ名')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '作成' })).not.toBeInTheDocument();
+
+    resolveMembers([{ id: 'acc-1', name: '田中 太郎' }]);
+    await screen.findByLabelText('グループ名');
+    expect(screen.queryByText('読み込み中…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '作成' })).toBeInTheDocument();
+  });
+
   it('アーカイブの導線を持たない', async () => {
     render(<GroupCreateScreen />);
     await screen.findByRole('heading', { level: 2, name: '管理グループを作成' });
 
     expect(screen.queryByText(/アーカイブ/)).not.toBeInTheDocument();
+  });
+
+  it('グループ名はサーバが空を拒否するため必須として出すこと（正本 comp-form-field）', async () => {
+    render(<GroupCreateScreen />);
+    const input = await screen.findByLabelText('グループ名');
+
+    // マークは label の外に置き、アクセシブル名は「グループ名」のまま（FormLabel required）。
+    expect(input).toHaveAttribute('aria-required', 'true');
+    const marks = document.querySelectorAll('.sp-required-mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.textContent?.replace(/\s+/g, '')).toBe('*必須');
   });
 });

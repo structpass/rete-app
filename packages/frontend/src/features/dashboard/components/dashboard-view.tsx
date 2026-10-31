@@ -6,12 +6,11 @@ import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import toast from 'react-hot-toast';
-import { Role } from '@rete/shared';
+import { useHomePermissions } from '../hooks/home-permissions-context';
 import { cn, formatDate, formatDateTime } from '@/lib/utils';
 import { highlightMatches } from '@/lib/highlight';
 import { Pagination } from '@/components/shared/pagination';
 import { PageTitle } from '@/components/shared/page-title';
-import { useSession } from '@/features/auth/hooks/use-session';
 import { RichTextView } from '@/features/desk/components/rich-text-view';
 import { AttachmentChip } from '@/features/desk/components/attachment-chip';
 import { Avatar } from '@/features/desk/components/desk-avatar';
@@ -22,6 +21,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { downloadFile } from '@/features/files/lib/api';
 import { TagIcon } from '@/components/tags/tag-icon';
+import { Badge } from '@/components/ui/badge';
 import { TagFilterDropdown } from '@/components/tags/tag-filter-dropdown';
 import { useAnnouncements } from '../hooks/use-announcements';
 import { useAnnouncementDetail } from '../hooks/use-announcement-detail';
@@ -94,23 +94,27 @@ function AnnouncementRowContent({ item, draggable, onSelect, keyword }: RowConte
       <div className="sp-row-meta flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] text-[var(--sp-text-warm-2)]">
         <span>{formatDate(item.publishedAt)}</span>
         {item.tags.map((t) => (
-          <span
-            key={t.id}
-            className="inline-flex items-center gap-0.5 rounded-sm bg-[var(--sp-card)] px-1 py-px text-[0.6875rem] text-[var(--sp-text-warm-2)]"
-          >
+          <Badge key={t.id} variant="outline">
             <TagIcon name={t.icon} size={12} color={t.color} />
             <span>{t.name}</span>
-          </span>
+          </Badge>
         ))}
       </div>
-      {/* 下段: タイトル。未読は太字・既読は通常（rete-home-0011）。 */}
+      {/* 下段: タイトル。未読・既読は補助情報のインクドットで示し、文字の太さは行の正本（.sp-row-title=500）
+          に従う（d539・上段より見出しが太い状態の解消。旧 rete-home-0011 の未読=太字は撤回）。 */}
       <div className="mt-1 flex min-w-0 items-center gap-1.5">
+        {item.unread && (
+          <span
+            aria-hidden
+            data-testid="home-unread-dot"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sp-accent-ink)]"
+          />
+        )}
         <span
           className={cn(
             // sp-row-title: 選択行の微拡大（hom-0123）は hom-0133 で廃止。横展開の判断が済むまで
             // マーカーだけ残す（Home では .sp-row-pill が付かないため拡大は起きない）。
             'sp-row-title truncate text-[0.8125rem]',
-            item.unread ? 'font-semibold' : 'font-normal',
           )}
         >
           {highlightMatches(item.title, keyword)}
@@ -297,13 +301,10 @@ function AnnouncementDetailView({
             <h4 className="text-sm font-semibold text-[var(--sp-text-warm)]">タグ</h4>
             <div className="flex flex-wrap gap-1">
               {detail.tags.map((t) => (
-                <span
-                  key={t.id}
-                  className="inline-flex items-center gap-0.5 rounded-sm bg-[var(--sp-card)] px-1.5 py-0.5 text-xs text-[var(--sp-text-warm-2)]"
-                >
+                <Badge key={t.id} variant="outline" className="gap-1">
                   <TagIcon name={t.icon} size={12} color={t.color} />
                   <span>{t.name}</span>
-                </span>
+                </Badge>
               ))}
             </div>
           </section>
@@ -332,8 +333,8 @@ function AnnouncementDetailView({
 const KIND_LABEL: Record<AnnouncementTagKind, string> = { board: '掲示板', faq: 'FAQ' };
 
 export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }) {
-  const { user } = useSession();
-  const isAdmin = user?.role === Role.ADMIN;
+  const permissions = useHomePermissions();
+  const isAdmin = kind === 'faq' ? permissions.faqEdit : permissions.boardEdit;
   const kindLabel = KIND_LABEL[kind];
 
   // お知らせタグマスタ（rete-home-0043）。AnnouncementTagMasterProvider（AppShell 配下・hom-0073）から
@@ -434,15 +435,25 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
 
   // 一覧取得・更新後、選択が外れていれば先頭を選ぶ（削除で対象が消えた時も追従）。
   // 自動選択でも詳細 GET が走り「表示された = 既読」となるため handleSelect 経由で既読化する。
+  // d670: handleSelect の items 検索は選択確定前の（または一覧再取得後の）items を見るため、
+  // 先頭行が未読のまま選択済みの時に楽観更新が漏れ、既読化してもドットが残っていた。
+  // 自動選択の先頭行の未読は handleSelect に委ねず、ここで打ち消す（詳細 GET で既読になる行と一致させる）。
   useEffect(() => {
     if (items.length === 0) {
       setSelectedId(null);
       return;
     }
-    if (selectedId === null || !items.some((a) => a.id === selectedId)) {
-      handleSelect(items[0].id);
+    const hasSelection = items.some((a) => a.id === selectedId);
+    if (selectedId === null || !hasSelection) {
+      const head = items[0];
+      if (head.unread) {
+        markReadLocal(head.id);
+        decrement();
+      }
+      setEditor(null);
+      setSelectedId(head.id);
     }
-  }, [items, selectedId, handleSelect]);
+  }, [items, selectedId, markReadLocal, decrement, setEditor]);
 
   // cmn-0384: 削除 pending 中の再確定窓を塞ぐ（memberships-admin-screen の removingId パターン踏襲）。
   // close-first 契約（cmn-0352）ではダイアログが確定即閉じるため、remove 未解決の間に削除導線→再確定で
@@ -633,7 +644,8 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
         {/* 左: 通知リスト */}
         {/* rete-home-0038: min-w-0 で grid トラック（1fr）超過を防ぐ。長いタイトルでも列幅が膨らまず
             明細を行き来してもレイアウトシフトしない（タイトル自体は行内 truncate）。 */}
-        <section className="flex h-full min-w-0 flex-col overflow-hidden border border-[var(--sp-line-warm)] bg-[var(--sp-card)]">
+        {/* 正本 comp-card: 囲み面（枠・角丸・影）は画面側で作り込まず .sp-panel（Card と同値）に寄せる。 */}
+        <section className="sp-panel flex h-full min-w-0 flex-col overflow-hidden">
           {/* ヘッダ行は「タイトル」ラベルのみ・中央寄せ（rete-home-0018 / 0020: 通知日・重要・New の
               カラムは廃止し、各明細の管理情報行へ集約）。 */}
           {/* rete-home-0028: ヘッダの縦幅を Desk のチャット明細ヘッダ（.desk-chat-list-head: py 0.375rem / font 0.6875rem）に揃える。 */}
@@ -651,14 +663,6 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
               <p role="alert" className="px-4 py-6 text-sm text-[var(--sp-accent-red)]">
                 {error}
               </p>
-            ) : items.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-[var(--sp-text-warm-mute)]">
-                {kindLabel}はありません
-              </p>
-            ) : visibleItems.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-[var(--sp-text-warm-mute)]">
-                該当する通知はありません
-              </p>
             ) : (
               <ul
                 ref={listRef}
@@ -667,6 +671,11 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
                 onMouseOver={handleListMouseOver}
                 onMouseLeave={handleListMouseLeave}
               >
+                {visibleItems.length === 0 && (
+                  <li className="px-4 py-6 text-sm text-[var(--sp-text-warm-mute)]">
+                    {items.length === 0 ? `${kindLabel}はありません` : '該当する通知はありません'}
+                  </li>
+                )}
                 {dndEnabled ? (
                   // ADMIN・未フィルタ・単一ページ: グリップで並び替え可能。permanent な順序は backend に永続化。
                   <DndContext
@@ -733,7 +742,7 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
         {/* rete-home-0033: h-full min-h-0 で grid セル高を確定し、本文（article overflow-y-auto）の
             スクロールバーをペイン内に収める（旧: 高さ無制限で縦長本文がウィンドウ外へはみ出していた）。
             rete-home-0038: min-w-0 で長いタイトル時の横膨張を防ぐ。 */}
-        <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-[var(--sp-line-warm)] bg-[var(--sp-card)]">
+        <section className="sp-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
           {editor ? (
             <AnnouncementForm
               // 編集セッション単位で remount し、初期値由来のローカル state（selectedTagIds 等）が
@@ -746,6 +755,7 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
               initialTagIds={editor.mode === 'edit' ? editor.tags.map((t) => t.id) : undefined}
               tagMaster={tagMaster}
               saving={saving}
+              canEdit={isAdmin}
               onCancel={closeEditor}
               onSubmit={handleSubmit}
             />

@@ -29,6 +29,13 @@ const mockPrisma = {
   account: {
     findUnique: jest.fn(),
   },
+  // d963: loadExistingGrant は必須MFAの判定に passwordPolicy と mfaSetting を読む。
+  passwordPolicy: {
+    findUnique: jest.fn(),
+  },
+  mfaSetting: {
+    findFirst: jest.fn(),
+  },
 };
 
 const prisma = mockPrisma as unknown as PrismaService;
@@ -58,6 +65,9 @@ describe('buildOidcConfiguration', () => {
   beforeEach(() => {
     envBackup = { ...process.env };
     for (const key of OIDC_ENV_KEYS) delete process.env[key];
+    // 既定は「必須MFA OFF」＝grant の再利用・自動付与を従来どおり行う（各テストが必要に応じて上書きする）。
+    mockPrisma.passwordPolicy.findUnique.mockResolvedValue(null);
+    mockPrisma.mfaSetting.findFirst.mockResolvedValue(null);
     (generateKeyPair as jest.Mock).mockResolvedValue({
       privateKey: PRIVATE_KEY,
       publicKey: PUBLIC_KEY,
@@ -214,6 +224,40 @@ describe('buildOidcConfiguration', () => {
       const built = await build();
 
       expect(built.oidc.clients).toEqual([]);
+    });
+
+    // AND 条件の逆側。secret 未設定側だけが既存 spec で固定されており、redirect URI だけを
+    // 設定した時に登録されてしまう実装（条件を OR に取り違える／URI 側の存在検査を落とす）を
+    // 検出できなかった。本番の登録条件は「secret と redirect URI の両方」なので、
+    // 片側だけの時に登録されないことを固定する（v2-502）。
+    it('OIDC_REFERENCE_REDIRECT_URIS だけ設定して secret 未設定なら clients が空になること（AND 条件の逆側）', async () => {
+      process.env.OIDC_REFERENCE_REDIRECT_URIS =
+        'https://ref.example.com/api/v1/auth/oidc/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toEqual([]);
+    });
+
+    // 登録される1件の形を全量で固定する。本番接続先が確定して env を入れた時に効く経路そのもので、
+    // grant_types / response_types / scope のどれかが変わると本番の SSO が壊れるため、
+    // 部分一致でなく toEqual で固定する（OIDC_REFERENCE_CLIENT_ID の既定値も同時に固定される・v2-502）。
+    it('secret と redirect URI が揃った時は client_id 既定値・grant/response・scope を含む1件が登録されること', async () => {
+      process.env.OIDC_REFERENCE_CLIENT_SECRET = 's3cret';
+      process.env.OIDC_REFERENCE_REDIRECT_URIS =
+        'https://ref.example.com/api/v1/auth/oidc/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toHaveLength(1);
+      expect(built.oidc.clients?.[0]).toEqual({
+        client_id: 'struct-pass-reference',
+        client_secret: 's3cret',
+        redirect_uris: ['https://ref.example.com/api/v1/auth/oidc/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        scope: 'openid profile email',
+      });
     });
 
     // cmn-0230: env の値に空要素（末尾カンマ・空白のみ）が混じっても、空要素を除いた残りで登録される。
@@ -633,6 +677,82 @@ describe('buildOidcConfiguration', () => {
       expect(instance.addOIDCScope).toHaveBeenCalledWith('openid profile email');
       expect(instance.save).toHaveBeenCalled();
       expect(result).toBe(instance);
+    });
+
+    // d963: provider 側の grant 再利用・自動付与は MfaEnforcementGuard の外側で動くため、
+    // 必須MFAを満たさないアカウントには grant を渡さない（interaction をやり直させる）。
+    it('必須MFA ON × 未設定なら既存 grant を再利用しないこと（d963）', async () => {
+      const { GrantMock } = makeGrant();
+      GrantMock.find.mockResolvedValue({ jti: 'existing' });
+      mockPrisma.passwordPolicy.findUnique.mockResolvedValue({ mfaEnforced: true });
+      mockPrisma.mfaSetting.findFirst.mockResolvedValue(null);
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          consentGrantId: 'g-1',
+          accountId: 'acc-1',
+          clientId: 'struct-pass-reference',
+        }),
+      );
+
+      expect(result).toBeUndefined();
+      expect(mockPrisma.mfaSetting.findFirst).toHaveBeenCalledWith({
+        where: { accountId: 'acc-1', enabled: true, confirmedAt: { not: null } },
+      });
+    });
+
+    it('必須MFA ON でも confirmed MFA があれば既存 grant を再利用すること（d963 の対照）', async () => {
+      const { GrantMock } = makeGrant();
+      GrantMock.find.mockResolvedValue({ jti: 'existing' });
+      mockPrisma.passwordPolicy.findUnique.mockResolvedValue({ mfaEnforced: true });
+      mockPrisma.mfaSetting.findFirst.mockResolvedValue({ id: 'mfa-1' });
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          sessionGrantId: 'g-2',
+          accountId: 'acc-1',
+          clientId: 'struct-pass-reference',
+        }),
+      );
+
+      expect(result).toEqual({ jti: 'existing' });
+    });
+
+    it('必須MFA ON × 未設定なら自動付与もしないこと（d963・interaction を強制する）', async () => {
+      const { GrantMock } = makeGrant();
+      mockPrisma.passwordPolicy.findUnique.mockResolvedValue({ mfaEnforced: true });
+      mockPrisma.mfaSetting.findFirst.mockResolvedValue(null);
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          accountId: 'acc-1',
+          clientId: 'struct-pass-reference',
+          clientScope: 'openid profile email',
+          requestedScope: 'openid profile email',
+        }),
+      );
+
+      expect(result).toBeUndefined();
+      expect(GrantMock).not.toHaveBeenCalled();
+    });
+
+    it('grant はあるが session の accountId が無い時は再利用しない（fail-closed・d963）', async () => {
+      const { GrantMock } = makeGrant();
+      GrantMock.find.mockResolvedValue({ jti: 'existing' });
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({ GrantMock, consentGrantId: 'g-1', clientId: 'struct-pass-reference' }),
+      );
+
+      expect(result).toBeUndefined();
+      expect(GrantMock).not.toHaveBeenCalled();
     });
 
     // cmn-0229 LOW-1: 要求 ⊂ 登録（要求が登録の真部分集合）のケース。

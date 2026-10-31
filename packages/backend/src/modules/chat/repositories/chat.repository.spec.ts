@@ -26,6 +26,8 @@ const txMock = {
     update: jest.fn(),
     findUniqueOrThrow: jest.fn(),
   },
+  // 同時投稿の直列化に使う行ロック（SELECT … FOR NO KEY UPDATE）。
+  $queryRaw: jest.fn(),
 };
 
 const mockPrisma = {
@@ -443,6 +445,10 @@ describe('ChatRepository', () => {
         createdAt: new Date('2026-06-06T00:00:00Z'),
       });
       txMock.chatMessage.findUniqueOrThrow.mockResolvedValue({ id: 'm1' });
+      // d623: 既定は親テーマが未更新（同じ or 古い）＝ 今回の投稿で前進する。
+      txMock.chatTheme.findUniqueOrThrow.mockResolvedValue({
+        lastMessageAt: new Date('2026-06-05T00:00:00Z'),
+      });
     });
 
     it('メンション指定時はメッセージ作成と同一トランザクションで mention 行を createMany すること', async () => {
@@ -480,6 +486,55 @@ describe('ChatRepository', () => {
         where: { id: 't1' },
         data: { lastMessageAt: new Date('2026-06-06T00:00:00Z') },
       });
+    });
+
+    // d623: 同時投稿で古い投稿の親更新が後から完了しても、lastMessageAt を過去へ戻さない。
+    it('親の現在値が新しい投稿時刻より進んでいれば lastMessageAt を書き換えないこと', async () => {
+      txMock.chatTheme.findUniqueOrThrow.mockResolvedValue({
+        lastMessageAt: new Date('2026-06-06T00:00:01Z'),
+      });
+
+      await repo.createMessage('t1', 'author1', { body: '古い投稿' } as never);
+
+      expect(txMock.chatTheme.update).not.toHaveBeenCalled();
+      // 投稿自体は成功し、永続化した本文の再取得まで従来どおり行う。
+      expect(txMock.chatMessage.findUniqueOrThrow).toHaveBeenCalled();
+    });
+
+    it('親の現在値と同時刻なら書き換えないこと（前進しない更新を省く）', async () => {
+      txMock.chatTheme.findUniqueOrThrow.mockResolvedValue({
+        lastMessageAt: new Date('2026-06-06T00:00:00Z'),
+      });
+
+      await repo.createMessage('t1', 'author1', { body: '同時刻' } as never);
+
+      expect(txMock.chatTheme.update).not.toHaveBeenCalled();
+    });
+
+    it('外部キー検査と両立する行ロックを親更新より先に取ること（同時投稿の直列化）', async () => {
+      const calls: string[] = [];
+      txMock.$queryRaw.mockImplementation(() => {
+        calls.push('lock');
+        return Promise.resolve([{ id: 't1' }]);
+      });
+      txMock.chatTheme.findUniqueOrThrow.mockImplementation(() => {
+        calls.push('read');
+        return Promise.resolve({ lastMessageAt: new Date('2026-06-05T00:00:00Z') });
+      });
+      txMock.chatTheme.update.mockImplementation(() => {
+        calls.push('update');
+        return Promise.resolve({ id: 't1' });
+      });
+
+      await repo.createMessage('t1', 'author1', { body: '本文' } as never);
+
+      expect(calls).toEqual(['lock', 'read', 'update']);
+      const lockSql = (txMock.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+      expect(lockSql).toContain('FOR NO KEY UPDATE');
+      // 表名の直書きは Prisma の @@map("chat_themes") と一致している必要がある（実 DB で存在しない
+      // テーブルを掴むと投稿が全て失敗する）。FROM の直後を切り出して完全一致で照合する。
+      expect(lockSql).toMatch(/(?:^|\s)FROM\s+"?(\w+)"?(?:\s|$)/);
+      expect(lockSql.match(/(?:^|\s)FROM\s+"?(\w+)"?(?:\s|$)/)?.[1]).toBe('chat_themes');
     });
   });
 

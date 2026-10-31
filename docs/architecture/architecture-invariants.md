@@ -5,6 +5,7 @@ Reteで継続して守る構造上の境界です。例外を採用する場合�
 ## Product sources
 
 - UI規約、用語、画面命名、モデル概念は`packages/frontend/src/features/model/content/*.ts`を正本とする。
+- 脱モック前の静的モック（`index.html`・各タブの `index.html` 等）は`docs/_archive/mock/`に置き、現在状態の正本にしない（ADR 0084）。
 - 同じ仕様をAGENTS、memory、ADR本文へ複製しない。AGENTSは発火条件と入口だけを持つ。
 
 ## Backend boundaries
@@ -29,6 +30,6 @@ Reteで継続して守る構造上の境界です。例外を採用する場合�
 
 ## Verification
 
-- 機械的に強制できる規則は、AGENTSへ重ねず型、test、lint、CI、Boardサーバーゲートへ置く。
-- UI変更は`ui-verification-gate.md`、移植は`porting-parity-check.md`、Board作業は`board-session-lock.md`を適用する。
+- 機械的に強制できる規則は、AGENTSへ重ねず型、test、lint、CIへ置く。
+- UI変更は`ui-verification-gate.md`、移植は`porting-parity-check.md`を適用する（Board は 2026-10-18 に廃止したため `board-session-lock.md` の適用対象は無い）。
 - 完了はコード、テスト、CI、証跡またはlive状態で裏付ける。

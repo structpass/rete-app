@@ -171,25 +171,81 @@ describe('ProjectsService', () => {
       );
     });
 
-    it('PROJECT ADMIN membership がない場合は ForbiddenException', async () => {
+    it('PROJECT ADMIN membership がない場合は ForbiddenException（write しない）', async () => {
       mockProjRepo.findById.mockResolvedValue(makeProjectRow());
       mockMembershipRepo.findEffectiveMembership.mockResolvedValue(null);
 
       await expect(service.update(PROJECT_ID, { name: '新名称' }, USER_ID)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
+      expect(mockProjRepo.update).not.toHaveBeenCalled();
+      expect(mockProjRepo.adminUpdateWithCascade).not.toHaveBeenCalled();
     });
 
-    it('PROJECT ADMIN membership あり: 更新して ProjectDto を返す', async () => {
+    it('name のみ: 単純 update を使い、配下 CHANNEL の連鎖更新を呼ばない', async () => {
       mockProjRepo.findById.mockResolvedValue(makeProjectRow());
       mockMembershipRepo.findEffectiveMembership.mockResolvedValue({ role: 'ADMIN' });
       mockProjRepo.update.mockResolvedValue(makeProjectRow({ name: '新名称' }));
 
       const result = await service.update(PROJECT_ID, { name: '新名称' }, USER_ID);
 
+      expect(mockProjRepo.update).toHaveBeenCalledWith(PROJECT_ID, { name: '新名称' });
+      expect(mockProjRepo.adminUpdateWithCascade).not.toHaveBeenCalled();
       expect(result.data.name).toBe('新名称');
       // update に到達＝ADMIN ＝ チャネル管理可
       expect(result.data.canManageChannels).toBe(true);
+    });
+
+    it('archived=true: 連鎖 archive をトリガーする（単純 update は使わない）', async () => {
+      const FIXED_DATE = new Date('2026-06-14T00:00:00.000Z');
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow());
+      mockMembershipRepo.findEffectiveMembership.mockResolvedValue({ role: 'ADMIN' });
+      mockProjRepo.adminUpdateWithCascade.mockResolvedValue(
+        makeProjectRow({ archivedAt: FIXED_DATE }),
+      );
+
+      const result = await service.update(PROJECT_ID, { archived: true }, USER_ID);
+
+      const [, data, archived] = mockProjRepo.adminUpdateWithCascade.mock.calls[0];
+      expect(data.archivedAt).toBeInstanceOf(Date);
+      expect(archived).toBe(true);
+      expect(mockProjRepo.update).not.toHaveBeenCalled();
+      expect(result.data.archived).toBe(true);
+    });
+
+    it('archived=false: 連鎖復元をトリガーする（単純 update は使わない）', async () => {
+      const FIXED_DATE = new Date('2026-06-14T00:00:00.000Z');
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow({ archivedAt: FIXED_DATE }));
+      mockMembershipRepo.findEffectiveMembership.mockResolvedValue({ role: 'ADMIN' });
+      mockProjRepo.adminUpdateWithCascade.mockResolvedValue(makeProjectRow());
+
+      await service.update(PROJECT_ID, { archived: false }, USER_ID);
+
+      const [, data, archived] = mockProjRepo.adminUpdateWithCascade.mock.calls[0];
+      expect(data.archivedAt).toBeNull();
+      expect(archived).toBe(false);
+      expect(mockProjRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('archived 指定は管理経路（adminUpdate）と同じ repository 呼び出しへ収束する', async () => {
+      const FIXED_DATE = new Date('2026-06-14T00:00:00.000Z');
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow());
+      mockMembershipRepo.findEffectiveMembership.mockResolvedValue({ role: 'ADMIN' });
+      mockProjRepo.adminUpdateWithCascade.mockResolvedValue(
+        makeProjectRow({ archivedAt: FIXED_DATE }),
+      );
+
+      await service.update(PROJECT_ID, { archived: true }, USER_ID);
+      const ordinary = mockProjRepo.adminUpdateWithCascade.mock.calls[0];
+      await service.adminUpdate(PROJECT_ID, { archived: true });
+      const admin = mockProjRepo.adminUpdateWithCascade.mock.calls[1];
+
+      expect(ordinary[0]).toBe(admin[0]);
+      // どちらも同じ形の更新値（archivedAt の Date）を作る。時刻そのものは呼び出し時点で決まる。
+      expect(Object.keys(ordinary[1])).toEqual(Object.keys(admin[1]));
+      expect(ordinary[1].archivedAt).toBeInstanceOf(Date);
+      expect(admin[1].archivedAt).toBeInstanceOf(Date);
+      expect(ordinary[2]).toBe(admin[2]);
     });
   });
 

@@ -1,66 +1,238 @@
 name: Test
 
+# 目的: カバレッジ床（frontend / backend / shared）と制約ドリフト検査を、人がコマンドを叩かなくても
+# 自動判定する（cmn-0207）。手元の開発ループ（起動・テスト・コミット・push）は一切遅くしない。
+#
+# main の push は deploy.yml が reusable workflow として呼び出し、どのブランチの push もこの workflow が直接実行する
+# （main も含む・下の on.push の注記を参照）。そのため main の CI 成功を deploy の必須条件にしつつ、
+# 配備が止まっている間も main の検査は 1 ワークフローだけで完結する。
+#
+# **将来 pull_request トリガーを足す時（cmn-0337）**: 下の「Repo invariant checks」ステップは
+# install より前に置いてあるため、fork からの PR では fork の未信頼コード（scripts/*.test.mjs）を
+# 最初に実行する点になる。push のみの現状では信頼済みコードしか走らないが、pull_request を足す
+# 場合は fork のコミットを checkout して任意コードを実行することになる点を必ず考慮すること
+# （fork PR の実行承認ポリシーはリポジトリ設定依存で、first-time contributors 以外は承認なしに
+# 自動実行されうる＝「承認待ちになるから安全」という前提で pull_request を足さないこと）。
 on:
   push:
+    # tag push では回さない（床判定の起点はブランチ push）。
+    #
+    # **ここを tags-ignore で書いてはいけない**（cmn-0342 で 3 週間 CI が沈黙した真因）。
+    # 公式 doc（workflow-syntax の on.<push>.<branches|tags>）が明記している:
+    #   "If you define only tags/tags-ignore or only branches/branches-ignore,
+    #    the workflow won't run for events affecting the undefined Git ref."
+    # つまり tag 側のフィルタだけを書くと**ブランチ側が「未定義の ref」になり branch push が
+    # 一切発火しない**。2026-07-27 の新設（8ac25e4d）から 2026-08-08 まで、push 起因の run は
+    # 総数 0 件で、動いていたのは workflow_dispatch の手動 3 件だけだった。
+    # branches: ['**'] なら全ブランチで回り、tag 側が未定義になるので tag push は回らない
+    # ＝元の意図（全ブランチ・tag 除外）をそのまま満たす。
+    #
+    # **main も外さない**（d714）。以前は branches-ignore: [main] で main の push を外していたが、
+    # main の検査は deploy.yml（CI/CD）の workflow_call だけが経路になり、その deploy.yml が
+    # disabled_manually の間は main の push で検査が 1 件も走らなかった（2026-10-22 実測:
+    # 最後の main の Test 実行は 2026-08-22。それ以降の main への push は実行ゼロ）。
+    # 経路が 1 本しかないものは、その 1 本が止まった瞬間に検査ごと止まる。deploy.yml が有効な間は
+    # main の push で Test が 2 回走る（CI/CD の test ジョブと本ワークフロー）。その二重実行は
+    # 配備を止めないための引き換えとして受け入れる（test ジョブの実測は約 7 分・上限 20 分）。
     branches: ['**']
   workflow_dispatch:
+  workflow_call:
 
+# 同一ブランチへ連続 push した時は最新のみ走らせる（無料枠の節約）。
+# group に event_name を混ぜ、workflow_dispatch の手動 run と push 起因の run が
+# 互いを巻き添えキャンセルしないようにする（cmn-0231 LOW2）。
 concurrency:
   group: test-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 読み取りのみ。新規シークレット・外部サービスは追加しない。
 permissions:
   contents: read
+
+# TZ は設定しない（runner の既定 UTC のまま）。一時的に入っていた TZ: Asia/Tokyo は cmn-0254 で
+# 撤去した。**ここを JST へ揃えてはいけない**（開発統括判断 2026-07-29 / fil-0111）。
+#
+# いま TZ をここへ足すと何が起きるか（cmn-0262 で効き先を実体へ引き直した）:
+# frontend vitest は自前で TZ=UTC を設定する（vitest.config.ts の test.env）ため、ここの env は
+# 上書きされて効かない。よって影響を受けるのは backend jest と shared vitest の 2 つで、そちらは
+# JST 実行下で「閲覧者ローカル表示」と「Asia/Tokyo 固定表示」が完全に一致し、実装がどちらへ
+# 差し替わっても spec が緑のままになる＝取り違えの検出装置が死ぬ。禁止はこの 2 つに対して生きている。
+#
+# コメントだけでは止まらないため機械の検査も置いた（cmn-0262）:
+# scripts/check-time-axis-invariants.test.mjs が「.github/workflows/*.yml に TZ が現れたら赤」を
+# 見る（下の Repo invariant checks ステップで走る）。cmn-0231 で実際に TZ が再追加された実績があり、
+# 「コメントを読んでいれば入れないはず」という前提は既に 1 度破られている。
+#
+# 各テストランナーの時間軸（cmn-0253 で整理・cmn-0262 で更新）:
+# - frontend vitest: vitest.config.ts の test.env で TZ=UTC へ固定済み＝手元と CI が同じ時間軸で走る。
+#   「手元だけ緑」を環境差の検出に頼らず、時間軸の取り違えは spec 自体で検出する
+#   （src/lib/__tests__/utils.test.ts が閲覧者ローカル表示を実値で pin している）。
+# - backend jest: TZ 固定なし＝手元 JST・CI UTC の差がそのまま残る。日時テストが CI だけ赤に
+#   なったら、ここを JST へ揃えるのではなくテスト側の時間軸を直す。直し方は「期待値を UTC へ
+#   書き換える」ではなく、期待値はローカル表示のリテラルのまま入力側をローカル時刻コンストラクタ
+#   で作って軸を揃える。実例は frontend の files/__tests__/file-edit-overlay.test.tsx を挙げているが、
+#   これは backend に同型の実例がまだ無いための代用＝backend 側に実例が生まれたらそちらへ差し替える。
+# - shared vitest: setupFiles を持たず TZ 固定なし（第三の例外）。日時ロジックを持たないため今は
+#   実害が無いだけで、shared へ日時整形が入るなら frontend と同じく設定側で UTC を固定すること。
+# - e2e Playwright: TZ 固定なし（第四の例外）。playwright.config.ts に timezoneId の記述は無く、
+#   手元 JST・CI UTC の差がそのまま残る。日時 assert をまだ行っていないため実害は無いが、
+#   日時 assert を e2e へ追加する時は設定側で UTC を固定すること。
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 実体は数分。ハングで無料枠を焼かないよう上限を切る。
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
+          # 本ワークフローは読み取りのみ（push / tag / git 書き込みステップ無し）。
+          # GITHUB_TOKEN を .git 配下へ残さない（install / test 中に走る推移依存コードから読めるため。
+          # 保存先は checkout の版で変わる＝v6 以降は .git/config でなく別ファイルだが、趣旨は同じ）。
           persist-credentials: false
+      # 第三者 Action は full commit SHA で pin する（可変タグは maintainer 側の差し替えが
+      # そのまま runner 上の実行内容に流れ込む）。兄弟リポ struct-pass-reference の deploy.yml も
+      # 同じ SHA へ揃えた（cmn-0250）。AWS 認証は deploy.yml 側の OIDC を使う。
+      # GitHub 公式 org（actions/*）はタグ参照のままにする＝差は意図的（同基準・更新コスト回避）。
+      # pnpm/action-setup は後継 pnpm/setup への移行案内が出ているが移行しない（現 pin は実走行実績
+      # あり・cmn-0393 判断）。次の Dependabot 追随 PR のタイミングでまとめて再判断する。
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # リポ不変条件の検査群（scripts/*.test.mjs）は node 標準モジュールだけで動く（依存ゼロ）ため
+      # install より前に置き、ここだけで落ちる時に install / build の数分を先払いしない。
+      # 走る検査の一覧はここへ列挙しない（cmn-0337）: 実際は run-script-tests.mjs が scripts/ を
+      # 自動探索して実行するため、列挙を書き下すと足し忘れ・消し忘れで実体とズレる。
+      # 中身を知りたければ scripts/run-script-tests.mjs を見る（scripts/ へ *.test.mjs を足せば
+      # 自動で対象に入る）。既知の検査が改名・削除されると同ファイルの REQUIRED_TESTS で検出する。
       - name: Repo invariant checks
         run: pnpm run check:repo-invariants
+      # install の出力（弾かれたビルドスクリプトの一覧）は後段の突合で使うためログへ落とす。
+      # 既定シェル（sh -e）は pipefail が無く、tee を挟むと install 自体の失敗を握り潰す。
+      # shell: bash の明示だけで GitHub 側が bash -eo pipefail で起動する＝下の set 行は重ね掛けの明示
+      # （消しても現状は動くが、shell 指定を触った時の保険として残す）。
+      # ログはリポ木の外（RUNNER_TEMP）へ置く＝将来 artifact upload やログ収集ステップが足された時に
+      # 自動で同梱される位置に置かない。
       - name: Install dependencies
         shell: bash
         run: |
           set -o pipefail
           pnpm install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/pnpm-install.log"
-      - name: Dependency security regressions
-        run: pnpm run test:security
-      - name: Seed guard checks
-        run: node --test scripts/check-seed-guards.test.mjs
+      # sprintf-js の到達性監査は node_modules の実体を読む（実体が無ければ未検査として赤にする設計）ため、
+      # install 前の Repo invariant checks から外し、install 直後の専用ステップで走らせる（d954）。
+      - name: Dependency audit boundary (sprintf-js)
+        run: pnpm run check:audit-boundary
+      # 許可し忘れたビルドスクリプトがあっても pnpm は警告だけで先へ進む（必要なビルドが飛んだまま緑になる）。
+      # 弾かれた一覧を想定集合と突合し、増減があれば赤くする。検出行が読めない場合も赤くなる（fail-closed）。
       - name: Ignored build scripts check
         run: pnpm run check:ignored-builds "$RUNNER_TEMP/pnpm-install.log"
+      # 修正版のある依存・期限付きの例外・監査inventoryの完全性を毎回確かめる（d706）。
+      # 手元の面倒（pnpm audit の引数が固定版で落ちる）を直した上で CI に載せる。
+      - name: Dependency security audit
+        run: pnpm run check:security
+      - name: OIDC credential lifecycle
+        run: pnpm run check:oidc-flow
+      # backend の jest は生成された Prisma Client を import するため、テスト前に生成する
+      # （DB 接続はしない＝スキーマからの型/クライアント生成のみ）。
       - name: Generate Prisma Client
+        # 生成コマンドの正本は backend の package.json（prisma:generate）1 本に寄せる。
         run: pnpm --filter @rete/backend run prisma:generate
         env:
+          # 接続はしないが、schema の datasource が env("DATABASE_URL") を解決するため
+          # CLI が値の存在を要求する場合がある。CI には .env が無いのでダミーを置く（秘匿情報ではない）。
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      # frontend / backend は @rete/shared の dist を解決するため先にビルドする。
       - name: Build shared
         run: pnpm --filter @rete/shared build
+      # frontend の next-env.d.ts は .next/types/routes.d.ts を参照する（Next 15.5 の typedRoutes）。
+      # .next は .gitignore 対象で fresh runner に存在しないため、型チェック前にルート型だけ生成する
+      # （next typegen は full build を走らせない＝next build 非包含の裁定と両立）。
       - name: Generate Next route types
         run: pnpm --filter @rete/frontend exec next typegen
+      # 型定義レベルの退行（テストが触れていない箇所を含む）を拾う。Prisma Client 生成と
+      # shared ビルドの後に置く（生成物未作成による偽の赤を避ける）。
+      # lint は --fix 付きでファイルを書き換える設定のため CI 不適、next build は数分かかる割に
+      # 拾える退行が型チェックと重なるため、いずれも含めない（cmn-0231 で裁定）。
       - name: Type check
         run: pnpm run type-check
+      # lint:check は --fix 無しのリードオンリー実行で CI 安全（cmn-0238）。
       - name: Lint check
         run: pnpm run lint:check
+      # prettier --check を CI へ追加（cmn-0263）。`pnpm run format:check` はルートの `.prettierrc`
+      # 設定でリポ全体（packages/ 含む）をチェックし、整形ドリフトがあれば即座に赤くなる。
+      # 既存の静的な書式・構文チェック群（lint:check / jscpd / knip）と同じ位置に置いた。
+      # ステップの存在と env は scripts/check-ci-workflow.test.mjs が固定している（cmn-0263）。
       - name: Format check
         run: pnpm run format:check
+      # 全パッケージの床をまとめて判定する（床割れでコマンドが非 0 終了＝ジョブが赤くなる）。
+      # 判定対象は workspace から自動導出する（step へ手書き列挙すると 4 つ目のパッケージが
+      # 判定漏れのまま緑になる）。ただし test:cov / type-check を定義していないパッケージは
+      # pnpm が黙って飛ばすため、新規パッケージ側の script 定義漏れまでは防げない。
+      # backend jest と frontend vitest の同時起動による 2 vCPU runner の OOM / flaky は、
+      # ルート script 側の --sequential で回避する。
+      # --no-bail は使わない（pnpm 9.15.4 では失敗しても exit 0 になり床判定が無効化される）。
+      # 意図した劣化（cmn-0231 で受け入れ・cmn-0250 で明記）: 1 ステップへ集約したため、どのパッケージで
+      # 落ちたかが GitHub の画面のステップ名から読めず、ログを開く必要がある。パッケージごとに 3 ステップへ
+      # 戻すと新規パッケージの判定漏れが復活するので、これは「戻すべき退化」ではなく引き換えである。
+      # なお script 定義漏れ側の穴は Repo invariant checks（check-workspace-scripts）で塞いだ。
       - name: Coverage threshold (all packages)
         run: pnpm run test:cov
-      - name: Duplication check (jscpd, non-blocking)
+      # 重複コード（jscpd）の検出。閾値の正本は scripts/check-duplication.mjs（d555）。
+      # 2026-10-20 の実測は重複行 1.31%。既存の重複解消を別途進められる余地を残し、
+      # 上限を 1.5% とした。重複行の割合が上限を超えた時とツールの異常は、ともに CI を落とす。
+      # 閾値を上げて回避せず、検出された共通処理を見直す。continue-on-error は使わない。
+      # 比較は jscpd 自身の --threshold に任せない（重複率を 2 桁に丸めて比べるため、緑になる境界が
+      # 丸めの境目 1.2425 付近にずれ、実測 1.2414% に対して 1.2425〜1.25 未満はすべて緑になった。
+      # 2026-10-22 実測）。jscpd の JSON 件数を小数第 2 位まで比べる。
+      # 型チェック / テストの後ろに置き、これらが先に落ちる時に検出ログで埋もれないようにする。
+      - name: Duplication check (jscpd)
         run: pnpm run check:duplication
+      # knip のスナップショット検査（cmn-0252）。**このステップが唯一の実行経路**で、Repo invariant
+      # checks（install 前）の自動探索からは外してある（cmn-0261 M2）＝knip の検出は生成物
+      # （shared の dist / Prisma Client / next typegen のルート型）に依存し、install だけの状態で回すと
+      # 未解決の import が未使用 export として数え上がって偽の赤になる（実測 exports 59→93）。
+      # よって生成・ビルドの後段であるこの位置が要件。ブロックする（検出件数ではなく「検出の境界が
+      # 戻っていないか」を見る検査で、増減の許容は baseline 側で表現しているため）。
+      #
+      # 非ブロックの Unused code check（pnpm run check:unused）は撤去した（cmn-0261 M3）＝CI で knip が
+      # 2 回走っていた。件数のログは本検査が `[knip] files=… exports=… …` の 1 行で出すので失われない。
+      # KNIP_SNAPSHOT_REQUIRED=1 は「node_modules 不在で skip したら落とす」ためのもの（cmn-0261 L4）。
+      # install 済みの位置に置いた検査が、install の壊れ方によっては skip で緑になる穴を塞ぐ。
+      # 起動は package.json の check:knip-snapshot 1 本に寄せる（ここへ直書きすると script 側を
+      # 直しても CI が追随しない／新設した script が CI で一度も動かず壊れても気付けない）。
+      # このステップの存在と env は scripts/check-ci-workflow.test.mjs が固定している。
       - name: Knip snapshot check
         run: pnpm run check:knip-snapshot
         env:
           KNIP_SNAPSHOT_REQUIRED: '1'
 
+  # /e2e は pnpm workspace の外（packages/* だけが workspace）に置いた独立 npm パッケージで、
+  # 上の test job の type-check（--filter "./packages/**"）は一切見ない＝steps / support / ui spec /
+  # playwright.config.ts の型退行が CI で一度も検出されていなかった（cmn-0256）。
+  # workspace へ取り込まず、e2e 自身の package-lock.json と type-check script で検査する
+  # ＝E2E の npm パッケージ境界（独自 lockfile・ローカル実行手順）をそのまま保つ。
+  # npx は使わない（未固定の tsc を実行時に取ってくると検査に使ったバージョンが再現しない）。
+  # 依存は e2e/package.json の devDependencies（typescript / @types/node）に固定済み。
+  # --ignore-scripts: このステップの用途は tsc を動かすことだけで、ネイティブビルドも
+  # ブラウザ取得も要らない。pnpm 側は onlyBuiltDependencies の許可制＋check:ignored-builds の
+  # fail-closed でインストール時の任意コード実行を絞っており、e2e だけがその姿勢の外に
+  # 出ないようにする（将来 e2e で Playwright を回す時も browser 取得は playwright install の責務）。
+  # actions/cache@v6 で e2e の npm ci がダウンロードするパッケージ群をキャッシュ（cmn-0272 項目1）。
+  # キャッシュ対象は npm のグローバルキャッシュ（~/.npm）＝npm ci がダウンロードした tarball の
+  # 保存先。setup-node の cache-dependency-path は cache: pnpm と併用すると pnpm store しか
+  # キャッシュしないため npm 取得物が保存されず効果がない（design 根拠）。
+  # キーは package-lock.json のハッシュ（更新で必ず invalidate）＋ restore-keys で部分一致を許容。
+  # actions/cache は actions/* 公式 org のためタグ参照のまま（test.yml 冒頭の方針と整合）。
+  #
+  # cmn-0376: e2e の支持単体テスト（support/__tests__/*.test.ts）は `node --experimental-strip-types`
+  # で TypeScript のまま実行する（Node 22+ の機能）。この機能が要るため、同 job は 24 系を明示する。
+  # - 本体 job と同じ .nvmrc（24 系）に揃え、版の二重管理をしない。
+  # - 同 workflow 内での二重キャッシュ保存を避けるため setup-node へ cache: を持ち込まない。
+  # - checkout は persist-credentials: false を引き継ぐ（test job と同型の hardening）。
+  # - timeout-minutes は test job と同じく明示する（ハングで無料枠を焼かない・job レベル設定）。
+  # - 本体 job との needs: は付けない（e2e 単体検査はリポの状態だけに依存し並列で成立する）。
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -81,12 +253,13 @@ jobs:
       - name: Install E2E dependencies
         run: npm ci --ignore-scripts
         working-directory: e2e
-      - name: Dependency security regressions (E2E)
-        run: npm run test:security
-        working-directory: e2e
       - name: Type check (E2E)
         run: npm run type-check
         working-directory: e2e
+      # cmn-0376: e2e の支持単体テスト（support/__tests__/*.test.ts・placeholders / sweep-e2e-orgs）。
+      # 通しの e2e では置換の契約を証明できないため親（cmn-0336）が単体テストを唯一の証明手段に据えたが、
+      # 実行経路が無かった。この step が唯一の経路で、起動は scripts/check-ci-workflow.test.mjs が固定する
+      # （ステップ・script・glob のいずれかを消すと赤くなる・criteria 5）。
       - name: Unit test (E2E)
         run: npm run test:unit
         working-directory: e2e

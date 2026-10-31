@@ -335,6 +335,45 @@ export function FilesShell({
   const { refresh: refreshSearch } = fileSearch;
 
   /**
+   * 一覧の行（一覧の現在地にあるフォルダ/ファイル）を、ツリーのフォルダへドロップして移動する（S-FILE-04-開発エージェント）。
+   * 移動の規則は検索結果からの移動（handleMoveFromSearch）と揃える: フォルダは自身/子孫への移動を弾き、
+   * 現在地（移動元のフォルダ）へのドロップは no-op にして無駄な書き込みを避ける。
+   * 一覧の行は移動後も同じ一覧に残るため、画面の現在地（パンくず）はそのまま（移動先へは替えない）。
+   * ツリーは use-file-browser の moveFolderTo が再取得するので、移した先に子フォルダが出る。
+   */
+  const handleMoveRowToFolder = useCallback(
+    async (
+      kind: 'folder' | 'file',
+      id: string,
+      targetFid: string,
+      parentFolderId: string | null,
+    ) => {
+      if (parentFolderId === targetFid) return;
+      if (kind === 'folder') {
+        if (id === targetFid) return;
+        if (isDescendant(currentTree, targetFid, id)) {
+          toast.error('フォルダを自身の子孫へは移動できません');
+          return;
+        }
+        try {
+          await moveFolderTo(id, targetFid);
+          toast.success('フォルダを移動しました');
+        } catch (e) {
+          toast.error(extractErrorMessage(e, 'フォルダの移動に失敗しました'));
+        }
+      } else {
+        try {
+          await moveFileTo(id, targetFid);
+          toast.success('ファイルを移動しました');
+        } catch (e) {
+          toast.error(extractErrorMessage(e, 'ファイルの移動に失敗しました'));
+        }
+      }
+    },
+    [currentTree, moveFolderTo, moveFileTo],
+  );
+
+  /**
    * 検索結果フォルダ内の項目（folder/file）をツリーのフォルダへドロップして移動する（rete-files-0004）。
    * フォルダは自身/子孫への移動を弾き、folder/file とも同一親（現在地）へのドロップは no-op（無駄 write 回避）。
    * 成功後は移動 API 側がツリー/一覧を再取得し、加えて検索を再実行してヒット一覧も最新化する。
@@ -377,6 +416,7 @@ export function FilesShell({
   const { sensors, onDragStart, onDragEnd, activeLabel } = useFileDnd({
     onReparent: handleReparent,
     onMoveRow: handleMoveRow,
+    onMoveRowToFolder: handleMoveRowToFolder,
     onMoveFromSearch: handleMoveFromSearch,
   });
 
@@ -503,7 +543,9 @@ export function FilesShell({
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    e.target.value = ''; // 同名ファイル連続選択でも change が発火するようリセット。
+    // 同名ファイル連続選択でも change が発火するようリセット。
+    // 選んだ中身を先に取り出す（画面が描き直された後も、取り出した中身は変わらない）。
+    e.target.value = '';
     if (files.length === 0 || !currentFolderId) return;
     await uploadFilesToFolder(currentFolderId, files);
   };
@@ -617,6 +659,9 @@ export function FilesShell({
           onNavigate={selectFolder}
           stacked
           favorite={
+            // トップバー★は現在フォルダの登録に固定する（v2-505 差し戻し）。
+            // 「★登録は Home 側導線へ一本化」した rete-files-0030 の方針を崩さないため、
+            // 選択状態で★の意味を差し替えない。ファイルのお気に入り登録は行の★導線が担う。
             currentFolderId && currentFolder
               ? { kind: 'folder', targetRef: currentFolderId, label: currentFolder.name }
               : undefined
@@ -767,6 +812,7 @@ export function FilesShell({
                 onNavigateFolder={selectFolder}
                 onEditFile={handleEditFile}
                 versionFlashId={versionFlash?.id ?? null}
+                parentFolderId={currentFolderId}
               />
             )}
           </div>
@@ -783,6 +829,10 @@ export function FilesShell({
           links={shownLinks}
           overflow={overflow}
           onClose={overlays.close}
+          // 中身（SendOverlayBody）が自前で判定する。入力を外側へ持ち上げると 2 箇所で数えることになるので、
+          // 枠へは空を渡す（詳細は send-overlay.tsx の型の宣言を見る）。
+          dirty={false}
+          submitting={false}
         />
       )}
       {overlays.overlay === 'settings' && <SettingsOverlay onClose={overlays.close} />}

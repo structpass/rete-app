@@ -3,13 +3,12 @@
 # ============================================================
 FROM node:24-alpine AS deps
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 WORKDIR /app
 
 # Copy workspace configuration
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY patches ./patches
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/frontend/package.json ./packages/frontend/
 
@@ -21,7 +20,7 @@ RUN pnpm install --frozen-lockfile
 # ============================================================
 FROM node:24-alpine AS build
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 WORKDIR /app
 
@@ -45,12 +44,10 @@ COPY packages/frontend ./packages/frontend
 # 本番成果物へ黙って焼き込まれる。ref-0087 と同じガード思想＝未設定なら明示的にビルド失敗させる
 # （写し元 reference の NEXT_PUBLIC_API_URL には localhost 既定値が残っている＝説明済み差分・cmn-0402 parity）。
 ARG NEXT_PUBLIC_API_BASE_URL
-ARG NEXT_PUBLIC_INSTRUCTION_BOARD_URL
 ARG NEXT_PUBLIC_REFERENCE_APP_URL
 ARG DOCKER_BUILD=1
 
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
-ENV NEXT_PUBLIC_INSTRUCTION_BOARD_URL=${NEXT_PUBLIC_INSTRUCTION_BOARD_URL}
 ENV NEXT_PUBLIC_REFERENCE_APP_URL=${NEXT_PUBLIC_REFERENCE_APP_URL}
 ENV DOCKER_BUILD=${DOCKER_BUILD}
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -58,7 +55,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # 未設定のままビルドすると localhost が成果物へ焼き込まれるため fail-fast で止める。
 RUN test -n "$NEXT_PUBLIC_API_BASE_URL" \
   || { echo "NEXT_PUBLIC_API_BASE_URL is required (docker build --build-arg NEXT_PUBLIC_API_BASE_URL=...)" >&2; exit 1; }
-# NEXT_PUBLIC_INSTRUCTION_BOARD_URL はガード対象外（cmn-0403 で意図的に未配線＝本番安全化の方針）。
 RUN test -n "$NEXT_PUBLIC_REFERENCE_APP_URL" \
   || { echo "NEXT_PUBLIC_REFERENCE_APP_URL is required (docker build --build-arg NEXT_PUBLIC_REFERENCE_APP_URL=...)" >&2; exit 1; }
 

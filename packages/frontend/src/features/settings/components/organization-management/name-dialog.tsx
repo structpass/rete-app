@@ -40,11 +40,15 @@ export function NameDialog({
         description={description}
       >
         <div style={{ marginBottom: '0.875rem' }}>
-          <FormLabel htmlFor="entity-name">名前</FormLabel>
+          {/* 名前は空を拒否して保存できない（disabled={!name.trim()}）＝正本 comp-form-field の必須バッジを出す。 */}
+          <FormLabel htmlFor="entity-name" required>
+            名前
+          </FormLabel>
           <input
             id="entity-name"
             type="text"
             className="sp-input"
+            aria-required="true"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={80}

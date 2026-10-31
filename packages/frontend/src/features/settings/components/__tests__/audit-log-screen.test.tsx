@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { flush } from '@/test-utils/flush';
 import { getListColumn, getListLayoutOrder } from '@/test-utils/list-layout';
-import type { AuditLogDto, PaginationMeta } from '@rete/shared';
+import { AUDIT_PAGE_SIZE, type AuditLogDto, type PaginationMeta } from '@rete/shared';
 import { AuditLogScreen } from '../audit-log-screen';
 
 // ── API モック（audit-logs / tenant systems）─cmn-0142: vi.hoisted 化─
@@ -131,6 +131,14 @@ describe('AuditLogScreen', () => {
     );
   });
 
+  // d756: 画面が問い合わせる件数はサーバーの既定と同じ共有定数を読む（画面側に写しを置かない）。
+  it('問い合わせる limit は共有定数 AUDIT_PAGE_SIZE と一致する', async () => {
+    await renderScreen();
+    expect(mockFetchAuditLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: AUDIT_PAGE_SIZE }),
+    );
+  });
+
   it('操作種別フィルタを変えると actionType 付き・カーソルリセットで再フェッチする', async () => {
     await renderScreen();
     mockFetchAuditLogs.mockClear();
@@ -180,7 +188,7 @@ describe('AuditLogScreen', () => {
     // パネル内で期間を入れる。
     fireEvent.change(screen.getByLabelText('出力開始日'), { target: { value: '2026-06-01' } });
     fireEvent.change(screen.getByLabelText('出力終了日'), { target: { value: '2026-06-10' } });
-    fireEvent.click(screen.getByRole('button', { name: 'ダウンロード' }));
+    fireEvent.click(screen.getByRole('button', { name: '出力する' }));
     await flush();
 
     expect(mockDownloadCsv).toHaveBeenCalledWith(
@@ -207,7 +215,7 @@ describe('AuditLogScreen', () => {
     // set-0092 以降は 92 日超過は UI 側で非活性のため、上限内期間で API 失敗経路を見る
     fireEvent.change(screen.getByLabelText('出力開始日'), { target: { value: '2026-06-01' } });
     fireEvent.change(screen.getByLabelText('出力終了日'), { target: { value: '2026-06-10' } });
-    fireEvent.click(screen.getByRole('button', { name: 'ダウンロード' }));
+    fireEvent.click(screen.getByRole('button', { name: '出力する' }));
     await flush();
 
     expect(mockToastError).toHaveBeenCalledWith('一時的に出力できません');
@@ -261,7 +269,7 @@ describe('AuditLogScreen', () => {
     const count = document.querySelector('[data-csv-export-day-count]');
     expect(count?.textContent).toMatch(/出力日数/);
     expect(count?.textContent).toMatch(/超過/);
-    expect(screen.getByRole('button', { name: 'ダウンロード' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '出力する' })).toBeDisabled();
   });
 
   it('CSV 期間が上限内ならダウンロード可能・出力日数を表示（set-0092）', async () => {
@@ -271,7 +279,7 @@ describe('AuditLogScreen', () => {
     fireEvent.change(screen.getByLabelText('出力終了日'), { target: { value: '2026-06-10' } });
     const count = document.querySelector('[data-csv-export-day-count]');
     expect(count?.textContent).toMatch(/出力日数\s*10\s*日/);
-    expect(screen.getByRole('button', { name: 'ダウンロード' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: '出力する' })).not.toBeDisabled();
   });
 
   it('「CSV 出力」は絞り込み帯の外の独立行にあり、出力パネルはその直後に開く（set-0152）', async () => {
@@ -348,11 +356,54 @@ describe('AuditLogScreen', () => {
     expect(emptyCell?.textContent).toContain('操作ログがありません');
   });
 
-  it('読み込み失敗時は toast を表示し空表示にフォールバックする', async () => {
+  it('読み込み失敗時は、toast に加えて一覧の領域内に失敗を残す（d592）', async () => {
     mockFetchAuditLogs.mockRejectedValue(new Error('network'));
     await renderScreen();
     expect(mockToastError).toHaveBeenCalledWith('操作ログの読み込みに失敗しました');
+    // 0 件の文言で失敗を隠さない（領域内の role="alert" に残す・正本 ui.ts:109）。
+    expect(screen.getByRole('alert')).toHaveTextContent('操作ログの読み込みに失敗しました');
+    expect(screen.queryByText('操作ログがありません')).not.toBeInTheDocument();
+  });
+
+  // d659: 取得失敗の表示から、失敗したページのカーソルに依存せず先頭から取り直す。
+  it('取得失敗の表示に再試行を添え、押すと取り直して失敗の表示を消す（d659）', async () => {
+    mockFetchAuditLogs.mockRejectedValueOnce(new Error('network'));
+    mockFetchAuditLogs.mockResolvedValue({
+      data: [],
+      meta: { total: 0, hasNext: false, hasPrev: false },
+      cursors: {},
+    });
+    await renderScreen();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('操作ログの読み込みに失敗しました');
+    fireEvent.click(within(alert).getByRole('button', { name: '再試行' }));
+    await flush();
+
+    expect(mockFetchAuditLogs).toHaveBeenCalledTimes(2);
+    // 先頭ページ・先頭カーソルで取り直す（失敗したページのカーソルを引き継がない）。
+    expect(mockFetchAuditLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: undefined }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByText('操作ログがありません')).toBeInTheDocument();
+  });
+
+  it('失敗の後に再取得が通れば、失敗の表示は消える（d592）', async () => {
+    mockFetchAuditLogs.mockRejectedValueOnce(new Error('network'));
+    mockFetchAuditLogs.mockResolvedValue({
+      data: [],
+      meta: { total: 0, hasNext: false, hasPrev: false },
+      cursors: {},
+    });
+    await renderScreen();
+    expect(screen.getByRole('alert')).toHaveTextContent('操作ログの読み込みに失敗しました');
+    // 再取得（検索語の変更）で通ったら、失敗の表示は 0 件の表示へ戻る。
+    fireEvent.change(screen.getByPlaceholderText('ユーザー名 / メールで検索...'), {
+      target: { value: 'x' },
+    });
+    await flush();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('MEMBER ユーザーにはタイトルのみ示し一覧・フェッチを行わない（set-0057）', async () => {
@@ -493,5 +544,186 @@ describe('AuditLogScreen', () => {
     expect(csvFrom).toHaveAttribute('type', 'date');
     fireEvent.change(csvFrom, { target: { value: '2026-06-01' } });
     expect((csvFrom as HTMLInputElement).value).toBe('2026-06-01');
+  });
+
+  it('出力パネルの日付欄の見えるラベルも読み上げ名と同じ「出力開始日 / 出力終了日」（d536）', async () => {
+    await renderScreen();
+    fireEvent.click(screen.getByRole('button', { name: 'CSV 出力' }));
+    // 絞り込み帯の期間欄（開始日 / 終了日）と同じ画面に出るため、見えるラベルも「出力」を冠して区別する。
+    expect(screen.getByText('出力開始日', { selector: 'label' })).toBeInTheDocument();
+    expect(screen.getByText('出力終了日', { selector: 'label' })).toBeInTheDocument();
+    expect(screen.queryByText('開始日', { selector: 'label' })).not.toBeInTheDocument();
+    expect(screen.queryByText('終了日', { selector: 'label' })).not.toBeInTheDocument();
+  });
+
+  it('出力中は「出力する」が載り、画面上の「CSV 出力」と読み上げ名が重ならない（d536）', async () => {
+    await renderScreen();
+    fireEvent.click(screen.getByRole('button', { name: 'CSV 出力' }));
+    const apply = screen.getByRole('button', { name: '出力する' });
+    expect(apply).toBeInTheDocument();
+    // パネルを開いた状態で「ダウンロード」という名前のボタンは無い（何を押すかが一意になる）。
+    expect(screen.queryByRole('button', { name: 'ダウンロード' })).not.toBeInTheDocument();
+  });
+
+  it('取得失敗のとき件数表示は「全 — 件」で、0 件の一覧と読めてしまわない（d536）', async () => {
+    mockFetchAuditLogs.mockRejectedValue(new Error('network'));
+    await renderScreen();
+    expect(screen.getByRole('alert')).toHaveTextContent('操作ログの読み込みに失敗しました');
+    // 失敗を「全 0 件」と出すと、本当に 0 件の一覧と読み分けられない。
+    expect(screen.getByText('全 — 件')).toBeInTheDocument();
+    expect(screen.queryByText('全 0 件')).not.toBeInTheDocument();
+  });
+
+  // ── d652: ページ取得中に続けて移動を押すと、同じカーソルで取り直して行が変わらないまま
+  // ページ番号だけ進み、末尾の行へ届かなくなる（41 件 / 20 件表示のとき 3/3 が 21〜40 行目になる）──
+  describe('取得中のページ移動は押し込めない（d652）', () => {
+    type Page = {
+      data: AuditLogDto[];
+      meta: PaginationMeta;
+      cursors: { next: string | null; prev: string | null };
+    };
+    const row = (id: number) => log({ id: `a${id}`, actorName: `利用者 ${id}` });
+    const pages: Record<string, Page> = {
+      first: {
+        data: Array.from({ length: 20 }, (_, i) => row(i + 1)),
+        meta: meta({ total: 41, page: 1, totalPages: 3 }),
+        cursors: { next: 'C-NEXT-1', prev: null },
+      },
+      'C-NEXT-1': {
+        data: Array.from({ length: 20 }, (_, i) => row(i + 21)),
+        meta: meta({ total: 41, page: 2, totalPages: 3 }),
+        cursors: { next: 'C-NEXT-2', prev: 'C-PREV-2' },
+      },
+      'C-NEXT-2': {
+        data: [row(41)],
+        meta: meta({ total: 41, page: 3, totalPages: 3 }),
+        cursors: { next: null, prev: 'C-PREV-3' },
+      },
+      last: {
+        data: [row(41)],
+        meta: meta({ total: 41, page: 3, totalPages: 3 }),
+        cursors: { next: null, prev: 'C-PREV-3' },
+      },
+    };
+    /**
+     * カーソルで該当ページを返す。defer を渡すと、渡したカーソルの問い合わせだけ手動で解決するまで
+     * 待たせる（その前の 1 ページ目はすぐ返る＝画面が動いてから次の移動が押せる状況を作る）。
+     * defer を渡さない時は待ちを外す。
+     */
+    function servePages(defer?: { key: string; resolve: () => void; promise: Promise<void> }) {
+      mockFetchAuditLogs.mockImplementation(
+        async (query: { cursor?: string; direction?: string }) => {
+          // 先頭は 'first' で表す（カーソル無しの初回と、先頭へ戻す問い合わせを同じページにする）。
+          const key = query.direction === 'last' ? 'last' : (query.cursor ?? 'first');
+          const page = pages[key];
+          if (defer && defer.key === key) await defer.promise;
+          return page;
+        },
+      );
+    }
+    function deferResponse(key: string) {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => (resolve = r));
+      return { key, resolve, promise };
+    }
+    const pageLabel = () => screen.getByText(/\d+ \/ 3 page/).textContent;
+    const nextButton = () => screen.getByRole('button', { name: '次のページ' });
+    const firstButton = () => screen.getByRole('button', { name: '先頭ページ' });
+
+    it('取得中の「次のページ」は押せず、押しても同じ位置から取り直さない', async () => {
+      servePages();
+      await renderScreen();
+      expect(pageLabel()).toBe('1 / 3 page');
+      expect(nextButton()).toBeEnabled();
+
+      // 2 ページ目の応答が遅れて届く状況を作る。
+      const defer = deferResponse('C-NEXT-1');
+      servePages(defer);
+      fireEvent.click(nextButton());
+      fireEvent.click(nextButton());
+
+      // 取得中は続けて押せない（押し込みで同じカーソルから取り直さない）。
+      expect(nextButton()).toBeDisabled();
+      defer.resolve();
+      await flush();
+
+      expect(pageLabel()).toBe('2 / 3 page');
+      expect(screen.getByText('利用者 21')).toBeInTheDocument();
+      // 取り直しは 1 回だけ（next のカーソル指定で 1 件目 → 2 件目）。
+      const nextCalls = mockFetchAuditLogs.mock.calls.filter(
+        (call: unknown[]) => (call[0] as { cursor?: string }).cursor === 'C-NEXT-1',
+      );
+      expect(nextCalls).toHaveLength(1);
+    });
+
+    it('次で 2 ページ目・3 ページ目まで辿ると末尾の行（41 行目）へ届く', async () => {
+      servePages();
+      await renderScreen();
+
+      fireEvent.click(nextButton());
+      await flush();
+      expect(pageLabel()).toBe('2 / 3 page');
+
+      fireEvent.click(nextButton());
+      await flush();
+      expect(pageLabel()).toBe('3 / 3 page');
+      expect(screen.getByText('利用者 41')).toBeInTheDocument();
+      // 最終ページでは「次のページ」「最終ページ」とも押せない。
+      expect(nextButton()).toBeDisabled();
+      expect(screen.getByRole('button', { name: '最終ページ' })).toBeDisabled();
+    });
+
+    it('「最終ページ」は最後の応答の後に番号を合わせ、取得中は押せない', async () => {
+      servePages();
+      await renderScreen();
+      const lastButton = () => screen.getByRole('button', { name: '最終ページ' });
+
+      const defer = deferResponse('last');
+      servePages(defer);
+      fireEvent.click(lastButton());
+      expect(lastButton()).toBeDisabled();
+      defer.resolve();
+      await flush();
+
+      expect(pageLabel()).toBe('3 / 3 page');
+      expect(screen.getByText('利用者 41')).toBeInTheDocument();
+    });
+
+    it('取得中は前のページ・先頭ページも押せない（戻し込みで位置をずらさない）', async () => {
+      servePages();
+      await renderScreen();
+      fireEvent.click(nextButton());
+      await flush();
+      expect(pageLabel()).toBe('2 / 3 page');
+
+      const defer = deferResponse('first');
+      servePages(defer);
+      fireEvent.click(screen.getByRole('button', { name: '前のページ' }));
+      await act(async () => {});
+      // 取得中は、前のページ・先頭ページとも押せない（待つ間に押しても位置をずらさない）。
+      expect(screen.getByRole('button', { name: '前のページ' })).toBeDisabled();
+      expect(firstButton()).toBeDisabled();
+      // 投げた問い合わせは「初回」「2 ページ目」「1 ページ目へ戻る（2 ページ目が持つ戻りカーソル）」
+      // の 3 回だけ。押し直しで同じカーソルの取り直しは起きていない。
+      await flush();
+      expect(
+        mockFetchAuditLogs.mock.calls.map(
+          (call: unknown[]) => (call[0] as { cursor?: string }).cursor,
+        ),
+      ).toEqual([undefined, 'C-NEXT-1', 'C-PREV-2']);
+      // 応答を待つ間も、まだ問い合わせが返っていない（押し直しの取り直しは起きていない）。
+      expect(mockFetchAuditLogs).toHaveBeenCalledTimes(3);
+      defer.resolve();
+      await flush();
+      // 戻り先（1 ページ目）に辿り着き、そこで止まる（押し込みで別の位置を要求していない）。
+      await act(async () => {});
+      expect(mockFetchAuditLogs).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('成功時の件数表示は従来どおり「全 N 件」のまま（取得失敗の分岐が通常時へ漏れない）（d536）', async () => {
+    await renderScreen();
+    expect(screen.getByText('全 2 件')).toBeInTheDocument();
+    expect(screen.queryByText('全 — 件')).not.toBeInTheDocument();
   });
 });

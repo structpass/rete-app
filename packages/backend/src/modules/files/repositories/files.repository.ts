@@ -398,6 +398,51 @@ export class FilesRepository {
   // --- 移動（Phase FB-2b: reparent / フォルダ間移動）---
 
   /**
+   * 構造参照の解決素材（FL+1・設計 §2.3）。id 群をフォルダとファイルから引き、フォルダは
+   * ルート→自身の祖先 id 列を返す（パス表記を app 層で組み、comma 区切りを扱わないため）。
+   * 可視判定は app 層で行う（ここは存在する行だけを返し、不在 id は現れない）。
+   *
+   * refIds は DTO で上限（REF_RESOLVE_MAX）に bounded してから渡す。フォルダの祖先は
+   * 対象と同一 space に閉じる（ADR 0063）。祖先の引きは 1 クエリで受け、辿りは app 層で行う。
+   */
+  async findRefTargets(ids: string[]): Promise<{
+    folders: { id: string; name: string; parentFolderId: string | null; spaceId: string }[];
+    files: { id: string; name: string; folderId: string }[];
+  }> {
+    if (ids.length === 0) {
+      return { folders: [], files: [] };
+    }
+    const [folders, files] = await Promise.all([
+      this.prisma.folder.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, parentFolderId: true, spaceId: true },
+      }),
+      this.prisma.file.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, folderId: true },
+      }),
+    ]);
+    return { folders, files };
+  }
+
+  /**
+   * フォルダの祖先を 1 クエリで引く（findRefTargets で得た対象から root まで辿る素材）。
+   * 渡した spaceIds に属するフォルダだけを返す（他 space の名前をパス表記へ混ぜない）。
+   */
+  findRefAncestors(
+    folderIds: string[],
+    spaceIds: string[],
+  ): Promise<{ id: string; name: string; parentFolderId: string | null }[]> {
+    if (folderIds.length === 0 || spaceIds.length === 0) {
+      return Promise.resolve([]);
+    }
+    return this.prisma.folder.findMany({
+      where: { id: { in: folderIds }, spaceId: { in: spaceIds } },
+      select: { id: true, name: true, parentFolderId: true },
+    });
+  }
+
+  /**
    * id 指定で File を所属フォルダの spaceId 付きで引く（移動・版追加・メタ取得・タグ付けの存在チェック用）。
    * fil-0146: 可視範囲評価が対象取得と同じ 1 クエリで済むよう folder.spaceId を同時に返す。
    */

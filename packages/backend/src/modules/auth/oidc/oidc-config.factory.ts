@@ -5,6 +5,8 @@ import type { PrismaService } from '../../../database';
 import { createOidcPrismaAdapter } from './oidc-prisma.adapter';
 import { buildApiPath } from '../../../common/config/api-routes';
 import { parseReferenceRedirectUris } from '../../../common/config/env-validation';
+import { LoginSettingsRepository } from '../../login-settings/repositories/login-settings.repository';
+import { MfaRepository } from '../../mfa/repositories/mfa.repository';
 
 /**
  * reference（first-party RP=struct-pass-reference）へ自動付与する scope の上限値。
@@ -130,6 +132,18 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
   const frontendUrl = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',')[0].trim();
   const jwks = await resolveJwks(isProd);
 
+  // d963: provider 側の grant 再利用・自動付与は MfaEnforcementGuard の外側（Rete のセッションを見ない）で動く。
+  // 必須MFAなのに confirmed MFA を持たないアカウントへは grant を渡さず、interaction（=ログイン＋MFA）を
+  // やり直させる。判定は MfaEnforcementGuard と同じデータ（passwordPolicy.mfaEnforced / mfaSetting）を読む。
+  const loginSettingsRepo = new LoginSettingsRepository(prisma);
+  const mfaRepo = new MfaRepository(prisma);
+  const requiresMfaSetupForAccount = async (accountId: string | undefined): Promise<boolean> => {
+    if (!accountId) return false;
+    const policy = await loginSettingsRepo.findPasswordPolicy();
+    if (!policy?.mfaEnforced) return false;
+    return (await mfaRepo.findConfirmedSetting(accountId)) === null;
+  };
+
   // RP client は secret が明示設定された時だけ登録する（既定 secret が本番に流出するのを防ぐ）。
   // RP 連携（struct-pass-reference）は次フェーズ。未設定の dev では静的 client 0 件で問題ない。
   // cmn-0230: redirect_uris も「有効値が1件以上ある」ことが登録の必要条件。
@@ -194,6 +208,8 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
     },
     pkce: { required: () => true },
     findAccount: async (_ctx, id) => {
+      // OIDC 基盤の限定した読み出しとして Prisma を直接使う（業務 Service の一般的な例外ではない）。
+      // 理由・範囲・再検討条件: docs/decisions/0073-oidc-sso-decisions-consolidated.md 判断4。
       // cmn-0232 LOW5: cmn-0208 で cmn-0185 の資格情報 lookup に JSDoc 注意書き（詰め替え必須）
       // を入れたが、本経路は Repository を介さず全列取得しており、その注意書きが届かない第二の
       // 「全列読み出し」になっていた（invariants §2 逸脱）。claims で使う列（id / name /
@@ -230,11 +246,27 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
           ? ctx.oidc.session.grantIdFor(ctx.oidc.client.clientId)
           : undefined);
       if (existingGrantId) {
-        return ctx.oidc.provider.Grant.find(existingGrantId);
+        const existingGrant = await ctx.oidc.provider.Grant.find(existingGrantId);
+        // d963: 再利用は interaction を省略するため、必須MFAを満たさないアカウントには渡さない
+        // （渡すと Reference のトークンが MFA 無しで再取得でき、Rete のセッション遮断を迂回できる）。
+        // どのアカウントの grant かを決められない（session 無し）なら再利用しない（fail-closed）。
+        const sessionAccountId = ctx.oidc.session?.accountId;
+        if (!sessionAccountId) {
+          return undefined;
+        }
+        if (existingGrant && (await requiresMfaSetupForAccount(sessionAccountId))) {
+          return undefined;
+        }
+        return existingGrant;
       }
       const accountId = ctx.oidc.session?.accountId;
       const clientId = ctx.oidc.client?.clientId;
       if (!accountId || clientId !== referenceClientId) {
+        return undefined;
+      }
+      // d963: 自動付与も interaction を省略する。必須MFAを満たさないアカウントには付与せず、
+      // provider にログイン（＋MFA）をやり直させる。
+      if (await requiresMfaSetupForAccount(accountId)) {
         return undefined;
       }
       // 付与 scope は client 登録済み scope を上限とし、要求 scope との積集合に限定する

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
-import type { UseDeskAttachmentsResult } from '../hooks/use-desk-attachments';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 // hook と File ピッカーをモックし、TaskAttachments の表示状態と解除/追加導線を検証する。
@@ -39,6 +38,7 @@ vi.mock('react-hot-toast', () => ({ default: { error: (...a: unknown[]) => toast
 
 import { TaskAttachments, AttachmentAddButton } from '../components/task-attachments';
 import type { Attachment } from '../lib/api';
+import type { UseDeskAttachmentsResult } from '../hooks/use-desk-attachments';
 
 const att = (id: string, name: string): Attachment => ({
   id,
@@ -70,9 +70,9 @@ function baseHook(): {
     loading: false,
     error: null,
     mutating: false,
-    add: vi.fn(),
-    remove: vi.fn(),
-    reload: vi.fn(),
+    add: vi.fn<UseDeskAttachmentsResult['add']>(),
+    remove: vi.fn<UseDeskAttachmentsResult['remove']>(),
+    reload: vi.fn<UseDeskAttachmentsResult['reload']>(),
   };
 }
 

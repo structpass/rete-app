@@ -13,6 +13,7 @@ import {
   validateReferenceRedirectUriRequiredInProduction,
 } from './common/config/env-validation';
 import { API_GLOBAL_PREFIX, CROSS_SERVICE_ROUTES } from './common/config/api-routes';
+import { parseMfaTotpEncKey } from './common/security/secret-crypto';
 import { throttleBypassEnabled } from './common/security/throttle-skip';
 
 const REQUIRED_ENV_VARS = ['DATABASE_URL'];
@@ -28,6 +29,18 @@ const PLACEHOLDER_MARKERS = ['change-me', 'insecure', 'placeholder', 'example'];
  * 検査する。未設定の本番は OIDC RP 連携を使わない構成なので起動できる（cmn-0230 採用方針）。
  */
 const OIDC_REFERENCE_CLIENT_SECRET_KEY = 'OIDC_REFERENCE_CLIENT_SECRET';
+
+/**
+ * MFA の暗号鍵（MFA_TOTP_ENC_KEY）。本番では必須にする。
+ *
+ * 未設定のまま本番が起動すると、鍵生成系（setup/confirm/disable/regenerate）が常に 503 になり
+ * 多要素認証を提供できない。さらに全体強制 MFA を ON にすると、local ユーザーは
+ * MFA_SETUP_REQUIRED で遮断されたまま設定を完了できず締め出される（強制を戻せるのは
+ * /settings/login に到達できる ADMIN だけ）。したがって「未設定＝起動できる」graceful degradation は
+ * dev / test に限り、本番は欠落・形不正を起動時に弾く（d558）。形の判定は暗号化と同じ関数を使う。
+ * 既に有効化済みの MFA はログイン検証もこの鍵に依存するため、鍵を失うと全ユーザーが再登録になる。
+ */
+const MFA_TOTP_ENC_KEY_NAME = 'MFA_TOTP_ENC_KEY';
 
 function validateEnv(): void {
   // NODE_ENV は本番ハードニングの発火条件のため、未設定・未知値での fail-open を起動時に弾く。
@@ -49,6 +62,8 @@ function validateEnv(): void {
  * cmn-0249: OIDC_REFERENCE_CLIENT_SECRET の条件付き検査（cmn-0230 採用方針＝未設定の本番は
  * 落とさない）と redirect_uris の必須化検査を、本関数に集約して problems[] へ載せる。
  * 以前は validateEnv 側で単独 throw していたため、不備が1件ずつ順に落ちる往復が増えた。
+ *
+ * d558: MFA の暗号鍵（MFA_TOTP_ENC_KEY）は本番必須として同じ problems[] に載せる。
  */
 function validateProductionSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
@@ -66,6 +81,19 @@ function validateProductionSecrets(): void {
     if (key !== 'OIDC_JWKS' && value.length < MIN_SECRET_LENGTH) {
       problems.push(`${key} must be at least ${MIN_SECRET_LENGTH} characters`);
     }
+  }
+  // d558: MFA の暗号鍵。本番は必須（欠落・placeholder・hex64/base64_32byte 以外の形を弾く）。
+  // 未設定のまま起動すると MFA を提供できず、全体強制 ON 時に local ユーザーが締め出される。
+  const mfaKey = process.env[MFA_TOTP_ENC_KEY_NAME];
+  if (!mfaKey) {
+    problems.push(`${MFA_TOTP_ENC_KEY_NAME} is required in production`);
+  } else if (
+    PLACEHOLDER_MARKERS.some((marker) => mfaKey.toLowerCase().includes(marker)) ||
+    parseMfaTotpEncKey(mfaKey) === null
+  ) {
+    problems.push(
+      `${MFA_TOTP_ENC_KEY_NAME} must be a real key: 64 hex characters or base64 of 32 bytes`,
+    );
   }
   // cmn-0230 / cmn-0249: OIDC_REFERENCE_CLIENT_SECRET は「設定されている時だけ」検査する。
   const oidcSecret = process.env[OIDC_REFERENCE_CLIENT_SECRET_KEY];
@@ -223,7 +251,11 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
+  if (process.env.BIND_HOST) {
+    await app.listen(port, process.env.BIND_HOST);
+  } else {
+    await app.listen(port);
+  }
   logger.log(`Application is running on: http://localhost:${port}`);
 }
 

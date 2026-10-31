@@ -134,8 +134,11 @@ Given('MFA ユーザー {string} で MFA を有効化する', async ({ world }, 
 
 When('ログアウトする', async ({ world }) => {
   if (!world.apiCtx) throw new Error('APIRequestContext が未初期化 — 事前にログインしてください');
-  world.lastResponse = await world.apiCtx.post('/api/v1/auth/logout');
-  await world.apiCtx.dispose();
+  // 直後の Then が status/body を読むため、ここでは dispose しない（dispose 後は読めない）。
+  // 破棄は fixture の teardown に任せる（auxiliaryContexts へ移して二重 dispose を避ける）。
+  const ctx = world.apiCtx;
+  world.lastResponse = await ctx.post('/api/v1/auth/logout');
+  world.auxiliaryContexts.push(ctx);
   world.apiCtx = null;
 });
 
@@ -232,5 +235,38 @@ When('同じバックアップコードで MFA ログインを叩く', async ({ 
   // 既使用コードを再投入（single-use 検証）
   world.lastResponse = await world.apiCtx.post('/api/v1/auth/login/mfa', {
     data: { code: codes[0] },
+  });
+});
+
+/**
+ * 本人確認して控えを作り直す（POST /settings/mfa/backup-codes/regenerate は code が必須）。
+ * 使ってよい控えは「前半のシナリオが 1 つ目を使う」ため 3 つ目。5 つ目は作り直し後に試す用に残す。
+ */
+When('控えの 1 つで本人確認してバックアップコードを作り直す', async ({ world }) => {
+  if (!world.apiCtx) throw new Error('APIRequestContext が未初期化');
+  const raw = world.uniqueNames['backupCodes'];
+  if (!raw) throw new Error('backupCodes 未設定');
+  const codes = JSON.parse(raw) as string[];
+  const forConfirm = codes[2];
+  if (!forConfirm) throw new Error('本人確認に使える控えが無い（backupCodes が 3 つ未満）');
+  world.lastResponse = await world.apiCtx.post('/api/v1/settings/mfa/backup-codes/regenerate', {
+    data: { code: forConfirm },
+  });
+});
+
+/**
+ * 作り直しの前の控え（最初の confirm が返した 10 個）のうち、まだ使っていない 1 つで挑む。
+ * 作り直しが効いていれば通らず 401 になる（S-OPS-03）。
+ */
+When('未使用の作り直し前のバックアップコードで MFA ログインを叩く', async ({ world }) => {
+  if (!world.apiCtx) throw new Error('APIRequestContext が未初期化');
+  const raw = world.uniqueNames['backupCodes'];
+  if (!raw) throw new Error('backupCodes 未設定');
+  const codes = JSON.parse(raw) as string[];
+  // 1 つ目は前半のシナリオ、3 つ目は作り直しの本人確認で使う。5 つ目は未使用のまま作り直しを迎える。
+  const unused = codes[4];
+  if (!unused) throw new Error('未使用の控えが無い（backupCodes が 5 つ未満）');
+  world.lastResponse = await world.apiCtx.post('/api/v1/auth/login/mfa', {
+    data: { code: unused },
   });
 });

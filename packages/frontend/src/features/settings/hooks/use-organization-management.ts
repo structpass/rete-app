@@ -58,12 +58,16 @@ export function useOrganizationManagement() {
     fetchFn: fetchOrgs,
     createFn: (name) => createOrganization({ name }),
     updateFn: (id, patch) => adminUpdateOrganization(id, patch),
+    // v2-410: 取得失敗は組織ペイン内の role="alert" へ出す（正本 ui.ts:109）。
+    loadErrorMessage: '組織の取得に失敗しました',
   });
 
   // ── PJ CRUD（選択組織配下・admin 経路）──
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsBusy, setProjectsBusy] = useState(false);
+  /** v2-410: 直近の取得成功で消える、現世代の PJ 一覧取得失敗（ペイン内 role="alert" へ接続）。 */
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   // 世代カウンタ: 組織 A→B の素早い切替で A の応答が後着して B の一覧を上書きしないようにする
   // （set-0150 の use-entity-crud 同型パターン・set-0162）。
   const projectsGenerationRef = useRef(0);
@@ -73,6 +77,11 @@ export function useOrganizationManagement() {
     const generation = ++projectsGenerationRef.current;
     if (!selectedOrgId) {
       setProjects([]);
+      // 選択解除はこのペインの失敗表示も消す（v2-410）。
+      setProjectsError(null);
+      // v2-421: 対象が外れた時も読み込み中を下ろす。ここで下ろさないと、進行中の旧取得が
+      // 世代ガードで捨てられる（finally も世代不一致で下ろせない）ため「読み込み中」が残る。
+      setProjectsLoading(false);
       return;
     }
     setProjectsLoading(true);
@@ -81,11 +90,16 @@ export function useOrganizationManagement() {
       const list = await fetchProjectsAdmin(selectedOrgId, projectIncludeArchived);
       if (generation !== projectsGenerationRef.current) return;
       setProjects(list);
+      // 現世代の成功でだけ失敗表示を消す（v2-410）。
+      setProjectsError(null);
     } catch (err) {
       if (generation !== projectsGenerationRef.current) return;
       // 取得失敗時は旧一覧を残さない（世代一致＝現在の選択に対する応答の失敗のみクリア・instruction-board-backlog-0022）
       setProjects([]);
-      toast.error(apiErrorMessage(err, 'プロジェクトの取得に失敗しました'));
+      // 失敗は領域内にも残す（toast だけにしない・正本 ui.ts:109。v2-410）。
+      const message = apiErrorMessage(err, 'プロジェクトの取得に失敗しました');
+      setProjectsError(message);
+      toast.error(message);
     } finally {
       if (generation === projectsGenerationRef.current) setProjectsLoading(false);
     }
@@ -95,6 +109,8 @@ export function useOrganizationManagement() {
   const [channels, setChannels] = useState<SpaceDto[]>([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsBusy, setChannelsBusy] = useState(false);
+  /** v2-410: 直近の取得成功で消える、現世代のチャネル一覧取得失敗（ペイン内 role="alert" へ接続）。 */
+  const [channelsError, setChannelsError] = useState<string | null>(null);
   // 世代カウンタ: PJ 切替の後着応答が選択外のチャネル一覧を上書きしないようにする（set-0162）。
   const channelsGenerationRef = useRef(0);
   const loadChannels = useCallback(async () => {
@@ -103,6 +119,11 @@ export function useOrganizationManagement() {
     const generation = ++channelsGenerationRef.current;
     if (!selectedProjectId) {
       setChannels([]);
+      // 選択解除はこのペインの失敗表示も消す（v2-410）。
+      setChannelsError(null);
+      // v2-421: 対象が外れた時も読み込み中を下ろす（projects 側と同じ理由。進行中の旧取得が
+      // 世代ガードで捨てられ finally でも下ろせないため、ここで下ろさないと表示が残る）。
+      setChannelsLoading(false);
       return;
     }
     setChannelsLoading(true);
@@ -111,11 +132,16 @@ export function useOrganizationManagement() {
       const list = await fetchChannelsByProjectAdmin(selectedProjectId, channelIncludeArchived);
       if (generation !== channelsGenerationRef.current) return;
       setChannels(list);
+      // 現世代の成功でだけ失敗表示を消す（v2-410）。
+      setChannelsError(null);
     } catch (err) {
       if (generation !== channelsGenerationRef.current) return;
       // 取得失敗時は旧一覧を残さない（世代一致＝現在の選択に対する応答の失敗のみクリア・instruction-board-backlog-0022）
       setChannels([]);
-      toast.error(apiErrorMessage(err, 'チャネルの取得に失敗しました'));
+      // 失敗は領域内にも残す（toast だけにしない・正本 ui.ts:109。v2-410）。
+      const message = apiErrorMessage(err, 'チャネルの取得に失敗しました');
+      setChannelsError(message);
+      toast.error(message);
     } finally {
       if (generation === channelsGenerationRef.current) setChannelsLoading(false);
     }
@@ -376,8 +402,14 @@ export function useOrganizationManagement() {
     orgCrud,
     projectsLoading,
     projectsBusy,
+    projectsError,
     channelsLoading,
     channelsBusy,
+    channelsError,
+    // d659: 各ペインの取得失敗表示から再試行できるよう、取り直しを画面へ渡す。
+    reloadOrgs: orgCrud.reload,
+    reloadProjects: loadProjects,
+    reloadChannels: loadChannels,
     handleSelectOrg,
     handleSelectProject,
     query,

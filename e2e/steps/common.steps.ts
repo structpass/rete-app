@@ -13,7 +13,7 @@ import { request, expect } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
 import { createAuthenticatedContext, BASE_URL, credByEmail } from '../support/auth';
 import { resolvePlaceholders, resolveRequest } from '../support/placeholders';
-import { resolveTeardownMethod } from '../support/teardown';
+import { buildCreatedResourceTeardown } from '../support/teardown';
 
 // cmn-0336: 解決の実体は support/placeholders.ts へ移した（単体テストのため依存ゼロの単独
 // モジュールにする必要があった）。ここからの再 export は steps/org-change.steps.ts の既存
@@ -36,6 +36,9 @@ Given('システムADMIN {string} でログインする', async ({ world }, emai
   const cred = credByEmail(email);
 
   world.apiCtx = await createAuthenticatedContext(cred.email, cred.password);
+  // ファイル設定は ADMIN だけが変えられる。このシナリオは全ユーザー共通の設定を触りうるため、
+  // 後始末で既定へ戻す対象として印を付ける（support/fixtures.ts）。
+  world.touchesFileSettings = true;
 
   // 自分の id を取得（P5-04 自己降格防止テスト用）
   const meRes = await world.apiCtx.get('/api/v1/auth/me');
@@ -139,11 +142,6 @@ Then('レスポンスに {string} チャネルが含まれる', async ({ world }
 
 // teardown method 判定は support/teardown.ts へ切り出し（単体テスト対象・cmn-0408）
 
-/** urlPath (例: /api/v1/roles) と id から teardown 用の full path (例: /api/v1/roles/<id>) を組み立てる */
-function buildResourcePath(urlPath: string, id: string): string {
-  return `${urlPath.replace(/\/$/, '')}/${id}`;
-}
-
 /** JSON path (例: "data.name") をたどって値を取得する */
 function resolveJsonPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
@@ -175,16 +173,13 @@ When(
     try {
       const resBody = (await world.lastResponse.json()) as {
         success: boolean;
-        data: { id: string } | null;
+        data: { id: unknown; revision?: unknown } | null;
       };
-      if (resBody.success && resBody.data?.id) {
-        // teardown も解決後の path を基準にする（DELETE step が resolved path で
-        // createdIds を引くため、ここを生のままにすると照合が外れる）。
-        world.createdIds.push({
-          method: resolveTeardownMethod(req.path),
-          path: buildResourcePath(req.path, resBody.data.id),
-        });
-      }
+      // teardown も解決後の path を基準にする（DELETE step が resolved path で
+      // createdIds を引くため、ここを生のままにすると照合が外れる）。
+      // revision を要求する消し口（予定）は support/teardown.ts が revision を添える（d793）。
+      const entry = resBody.success ? buildCreatedResourceTeardown(req.path, resBody.data) : null;
+      if (entry) world.createdIds.push(entry);
     } catch {
       // id 抽出失敗時は記録しない（テスト失敗を優先）
     }
@@ -234,8 +229,12 @@ When('DELETE {string} を叩く', async ({ world }, urlPath: string) => {
   world.lastResponse = await world.apiCtx.delete(resolved);
 
   // 明示削除成功時は teardown 登録から除外する（同じ resource の二重 DELETE を防ぐ）。
+  // 予定は登録側の path に `?revision=` が付いているため、クエリを落とした path でも照合する（d793）。
   if (world.lastResponse.status() < 400) {
-    world.createdIds = world.createdIds.filter((r) => r.path !== resolved);
+    const bare = resolved.split('?')[0];
+    world.createdIds = world.createdIds.filter(
+      (r) => r.path !== resolved && r.path.split('?')[0] !== bare,
+    );
   }
 });
 

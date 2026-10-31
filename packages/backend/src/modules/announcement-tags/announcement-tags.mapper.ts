@@ -11,10 +11,19 @@ export interface AnnouncementTagDto {
 }
 
 /**
+ * 変換に要る列。Entity そのものの他、列を絞って read した行（予定カレンダーの一覧など）も
+ * この正本変換を通せるように、使う列だけを受け取る（d814）。
+ */
+export type AnnouncementTagSource = Pick<
+  AnnouncementTag,
+  'id' | 'name' | 'icon' | 'color' | 'archivedAt'
+>;
+
+/**
  * AnnouncementTag Entity → AnnouncementTagDto（§1 DTO 境界・純粋関数 / rete-home-0043）。
  * File の toTagDto と同型の変換で、createdAt / updatedAt は DTO に載せない。
  */
-export function toAnnouncementTagDto(tag: AnnouncementTag): AnnouncementTagDto {
+export function toAnnouncementTagDto(tag: AnnouncementTagSource): AnnouncementTagDto {
   return {
     id: tag.id,
     name: tag.name,

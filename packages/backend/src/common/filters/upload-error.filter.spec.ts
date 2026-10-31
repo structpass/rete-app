@@ -59,6 +59,7 @@ describe('UploadErrorFilter', () => {
     filter.catch(new PayloadTooLargeException('File too large'), mockHost);
 
     expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(body().error.code).toBe('BAD_REQUEST');
     expect(body().error.message).toBe('ファイルサイズが上限（100 MB）を超えています');
   });
 

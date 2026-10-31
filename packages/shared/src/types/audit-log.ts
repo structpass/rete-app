@@ -49,6 +49,13 @@ export const AUDIT_ACTION_LABELS: Record<AuditActionType, string> = {
  */
 export const AUDIT_EXPORT_MAX_DAYS = 92;
 
+/**
+ * 一覧の 1 頁あたりの件数（SSOT）。backend の QueryAuditLogsDto.limit の既定値と、frontend の
+ * 操作ログ画面が問い合わせる limit がこの 1 値を読む。片方だけを変えると、最後の頁に残る行数と
+ * 前へ／次へで辿る頁の境目が食い違うため、値を 2 か所に置かない。
+ */
+export const AUDIT_PAGE_SIZE = 20;
+
 /** 操作ログ 1 行（Response）。一覧 / CSV はこの形を授受する。 */
 export interface AuditLogDto {
   id: string;

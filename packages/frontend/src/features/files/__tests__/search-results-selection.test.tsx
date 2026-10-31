@@ -46,8 +46,8 @@ function makeSelection(selected = new Set<string>()): SearchSelection & {
 } {
   return {
     has: (id: string) => selected.has(id),
-    toggle: vi.fn(),
-    setMany: vi.fn(),
+    toggle: vi.fn<SearchSelection['toggle']>(),
+    setMany: vi.fn<SearchSelection['setMany']>(),
   };
 }
 
@@ -71,6 +71,46 @@ function renderComp(
 }
 
 describe('SearchResults — selection (fil-0051)', () => {
+  it.each([false, true])('0件でも列見出しと本文の骨格を保持する（選択列=%s）', (selectable) => {
+    const { container, rerender } = renderComp([fileA], selectable ? makeSelection() : undefined);
+    const body = container.querySelector('tbody');
+    rerender(
+      <SearchResults
+        results={[]}
+        tree={tree}
+        loading={false}
+        error={false}
+        errorText="err"
+        emptyText="empty"
+        onNavigate={vi.fn()}
+        selection={selectable ? makeSelection() : undefined}
+      />,
+    );
+    expect(container.querySelector('tbody')).toBe(body);
+    expect(screen.getByRole('columnheader', { name: '名前' })).toBeInTheDocument();
+    expect(screen.getByText('empty').closest('td')).toHaveAttribute(
+      'colspan',
+      selectable ? '4' : '3',
+    );
+    expect(screen.getByText('0 件ヒット')).toBeInTheDocument();
+    if (selectable) expect(screen.getByRole('checkbox', { name: 'すべて選択' })).toBeDisabled();
+    rerender(
+      <SearchResults
+        results={[]}
+        tree={tree}
+        loading
+        error={false}
+        errorText="err"
+        emptyText="empty"
+        onNavigate={vi.fn()}
+        selection={selectable ? makeSelection() : undefined}
+      />,
+    );
+    expect(container.querySelector('tbody')).toBe(body);
+    expect(screen.getByText('検索中…')).toBeInTheDocument();
+    expect(screen.queryByText('empty')).not.toBeInTheDocument();
+  });
+
   it('selection 未指定なら選択列を出さず、ファイル行クリックは onNavigate（従来挙動）', () => {
     const onNavigate = vi.fn();
     const { container } = renderComp([fileA], undefined, onNavigate);

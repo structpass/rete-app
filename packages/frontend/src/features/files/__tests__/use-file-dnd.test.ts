@@ -14,9 +14,12 @@ function dragEnd(active: FileDragData, over: FileDragData | null): DragEndEvent 
 function setup() {
   const onReparent = vi.fn();
   const onMoveRow = vi.fn();
+  const onMoveRowToFolder = vi.fn();
   const onMoveFromSearch = vi.fn();
-  const { result } = renderHook(() => useFileDnd({ onReparent, onMoveRow, onMoveFromSearch }));
-  return { result, onReparent, onMoveRow, onMoveFromSearch };
+  const { result } = renderHook(() =>
+    useFileDnd({ onReparent, onMoveRow, onMoveRowToFolder, onMoveFromSearch }),
+  );
+  return { result, onReparent, onMoveRow, onMoveRowToFolder, onMoveFromSearch };
 }
 
 describe('useFileDnd — kind 別ディスパッチ', () => {
@@ -35,6 +38,67 @@ describe('useFileDnd — kind 別ディスパッチ', () => {
       dragEnd({ kind: 'row', index: 0, label: 'x' }, { kind: 'row', index: 2, label: 'y' }),
     );
     expect(onMoveRow).toHaveBeenCalledWith(0, 2);
+  });
+
+  // 一覧の行 → ツリーのフォルダ（S-FILE-04-開発エージェント）。一覧の行を落としても、行どうしの移動（並べ替え・同一階層）とは分けて扱う。
+  it('row(folder) → tree は onMoveRowToFolder("folder", fid, targetFid, parentFolderId)', () => {
+    const { result, onMoveRowToFolder, onMoveRow } = setup();
+    result.current.onDragEnd(
+      dragEnd(
+        {
+          kind: 'row',
+          index: 1,
+          label: 'A',
+          rowKind: 'folder',
+          rowId: 'a1',
+          rowParentFolderId: 'cur',
+        },
+        { kind: 'tree', fid: 'dest', label: 'Dest' },
+      ),
+    );
+    expect(onMoveRowToFolder).toHaveBeenCalledWith('folder', 'a1', 'dest', 'cur');
+    expect(onMoveRow).not.toHaveBeenCalled();
+  });
+
+  it('row(file) → tree は onMoveRowToFolder("file", fileId, targetFid, parentFolderId)', () => {
+    const { result, onMoveRowToFolder } = setup();
+    result.current.onDragEnd(
+      dragEnd(
+        {
+          kind: 'row',
+          index: 0,
+          label: 'doc',
+          rowKind: 'file',
+          rowId: 'file9',
+          rowParentFolderId: 'cur',
+        },
+        { kind: 'tree', fid: 'dest', label: 'Dest' },
+      ),
+    );
+    expect(onMoveRowToFolder).toHaveBeenCalledWith('file', 'file9', 'dest', 'cur');
+  });
+
+  it('row の移動元が root（parentFolderId 未指定）は null として渡る', () => {
+    const { result, onMoveRowToFolder } = setup();
+    result.current.onDragEnd(
+      dragEnd(
+        { kind: 'row', index: 0, label: 'A', rowKind: 'folder', rowId: 'a1' },
+        { kind: 'tree', fid: 'dest', label: 'Dest' },
+      ),
+    );
+    expect(onMoveRowToFolder).toHaveBeenCalledWith('folder', 'a1', 'dest', null);
+  });
+
+  it('row を tree 以外（row）へ落とした時は onMoveRowToFolder を呼ばない', () => {
+    const { result, onMoveRow, onMoveRowToFolder } = setup();
+    result.current.onDragEnd(
+      dragEnd(
+        { kind: 'row', index: 0, label: 'A', rowKind: 'folder', rowId: 'a1' },
+        { kind: 'row', index: 2, label: 'y' },
+      ),
+    );
+    expect(onMoveRow).toHaveBeenCalledWith(0, 2);
+    expect(onMoveRowToFolder).not.toHaveBeenCalled();
   });
 
   it('search(folder) → tree は onMoveFromSearch("folder", id, targetFid, parentFolderId)', () => {

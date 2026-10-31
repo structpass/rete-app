@@ -66,6 +66,7 @@ export class InteractionController {
     @Body() dto: LoginDto,
     @Req() req: Request,
   ) {
+    const authenticatedAt = Math.floor(Date.now() / 1000);
     const details = await interaction.details();
     // 現在の prompt が login でない（consent 段階等）のに login を叩かれた場合は弾く。
     // 誤った prompt で result を確定させると authorize フローの整合性が崩れるため。
@@ -73,6 +74,12 @@ export class InteractionController {
       throw new BadRequestException('現在のステップはログインではありません');
     }
     const user = await this.authService.validateCredentials(dto.email, dto.password);
+    // d21: 強制パスワード変更が残るアカウントは、SSO の入口でも先に変更させる。
+    // interaction は PasswordChangeEnforcementGuard の除外 path なので、ここで止めないと一時パスワードのまま
+    // SSO セッションを得て、変更の強制を迂回できる（d955 で interaction の完了は出自を変えない形にしたが、
+    // 除外 path であることに変わりはないため検査は残す）。local のパスワード検証を通った直後なので、
+    // 'local' 経路と同じ条件（mustChangePassword）で判定する。
+    this.assertPasswordChangeCompleted(user);
     const mfaEnforced = await this.loginSettings.isMfaEnforced();
     const mfaEnabled = await this.mfaService.verifyHasEnabledMfa(user.id);
     const mfaConfirmed = await this.mfaService.hasConfirmedMfa(user.id);
@@ -93,6 +100,8 @@ export class InteractionController {
       req.session.pendingMfaAccountId = user.id;
       req.session.pendingMfaAttempts = 0;
       req.session.pendingMfaInteractionUid = details.uid;
+      req.session.pendingOidcAuthTime = authenticatedAt;
+      req.session.pendingOidcCredentialVersion = user.sessionCredentialVersion;
       return ok({ mfaRequired: true });
     }
 
@@ -100,8 +109,11 @@ export class InteractionController {
     delete req.session.pendingMfaAccountId;
     delete req.session.pendingMfaAttempts;
     delete req.session.pendingMfaInteractionUid;
+    delete req.session.pendingOidcAuthTime;
+    delete req.session.pendingOidcCredentialVersion;
+    await this.authService.assertCurrentOidcLogin(user, authenticatedAt);
     const redirectTo = await interaction.result(
-      { login: { accountId: user.id, remember: false } },
+      { login: { accountId: user.id, remember: false, ts: authenticatedAt } },
       { mergeWithLastSubmission: false },
     );
     return ok({ redirectTo });
@@ -115,12 +127,18 @@ export class InteractionController {
     @Body() dto: MfaCodeDto,
     @Req() req: Request,
   ) {
+    const authenticatedAt = req.session.pendingOidcAuthTime;
     const details = await interaction.details();
     if (details.prompt.name !== 'login') {
       throw new BadRequestException('現在のステップはログインではありません');
     }
     const accountId = req.session.pendingMfaAccountId;
-    if (!accountId || req.session.pendingMfaInteractionUid !== details.uid) {
+    if (
+      !accountId ||
+      req.session.pendingMfaInteractionUid !== details.uid ||
+      authenticatedAt === undefined ||
+      !req.session.pendingOidcCredentialVersion
+    ) {
       throw new HttpException(
         {
           code: 'MFA_REQUIRED',
@@ -130,6 +148,12 @@ export class InteractionController {
       );
     }
 
+    const firstFactor = await this.authService.findActiveUser(accountId);
+    if (!firstFactor) throw new BadRequestException('ログインし直してください');
+    await this.authService.assertCurrentOidcLogin(
+      { ...firstFactor, sessionCredentialVersion: req.session.pendingOidcCredentialVersion },
+      authenticatedAt,
+    );
     await this.authService.assertMfaChallengeAllowed(accountId);
     const verified = await this.mfaService.verifyLoginChallenge(accountId, dto.code);
     if (!verified) {
@@ -139,6 +163,8 @@ export class InteractionController {
         delete req.session.pendingMfaAccountId;
         delete req.session.pendingMfaAttempts;
         delete req.session.pendingMfaInteractionUid;
+        delete req.session.pendingOidcAuthTime;
+        delete req.session.pendingOidcCredentialVersion;
       } else {
         req.session.pendingMfaAttempts = attempts;
       }
@@ -153,20 +179,27 @@ export class InteractionController {
       delete req.session.pendingMfaAccountId;
       delete req.session.pendingMfaAttempts;
       delete req.session.pendingMfaInteractionUid;
+      delete req.session.pendingOidcAuthTime;
+      delete req.session.pendingOidcCredentialVersion;
       throw new HttpException(
         { code: 'MFA_REQUIRED', message: 'アカウントが無効です' },
         HttpStatus.UNAUTHORIZED,
       );
     }
 
+    this.assertPasswordChangeCompleted(user);
+
     await this.authService.resetLoginAttempts(accountId);
+    await this.authService.assertCurrentOidcLogin(user, authenticatedAt);
     const redirectTo = await interaction.result(
-      { login: { accountId: user.id, remember: false } },
+      { login: { accountId: user.id, remember: false, ts: authenticatedAt } },
       { mergeWithLastSubmission: false },
     );
     delete req.session.pendingMfaAccountId;
     delete req.session.pendingMfaAttempts;
     delete req.session.pendingMfaInteractionUid;
+    delete req.session.pendingOidcAuthTime;
+    delete req.session.pendingOidcCredentialVersion;
     return ok({ redirectTo });
   }
 
@@ -179,12 +212,18 @@ export class InteractionController {
   @UseGuards(AuthenticatedGuard)
   @Post(':uid/session-login')
   async sessionLogin(@OidcInteraction() interaction: InteractionHelper, @Req() req: Request) {
+    const authenticatedAt = Math.floor(Date.now() / 1000);
     const details = await interaction.details();
     // login 以外の prompt（consent 等）で叩かれた場合は弾く（password 経路と同じガード）。
     if (details.prompt.name !== 'login') {
       throw new BadRequestException('現在のステップはログインではありません');
     }
     const user = req.user as AuthenticatedUser;
+    // 強制パスワード変更が残るローカルセッションは、interaction を完了させる前に変更させる
+    // （interaction は PasswordChangeEnforcementGuard の除外 path のため、ここで止める・d955 で出自は変えない）。
+    if ((req.session.authOrigin ?? 'local') === 'local') {
+      this.assertPasswordChangeCompleted(user);
+    }
     const mfaEnforced = await this.loginSettings.isMfaEnforced();
     const mfaEnabled = await this.mfaService.verifyHasEnabledMfa(user.id);
     const mfaConfirmed = await this.mfaService.hasConfirmedMfa(user.id);
@@ -206,13 +245,26 @@ export class InteractionController {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    // R9: SSO（既存 Rete セッションでの interaction 完了）も 'sso' で印付けする。
-    req.session.authMethod = 'sso';
+    // d955: 外部アプリへ認証を渡しても Rete の認証出自は変えない（authMethod を 'sso' に書き換えない）。
+    // 書き換えると、MFA 不要の間に local ログインしたセッションが後から MFA 必須になっても
+    // MfaEnforcementGuard を素通りする（IdP は Rete 自身で、認証は local のまま）。
+    // interaction を完了した事実だけを oidcSsoAt に残す。
+    req.session.oidcSsoAt = authenticatedAt;
+    await this.authService.assertCurrentOidcLogin(user, authenticatedAt);
     const redirectTo = await interaction.result(
-      { login: { accountId: user.id, remember: false } },
+      { login: { accountId: user.id, remember: false, ts: authenticatedAt } },
       { mergeWithLastSubmission: false },
     );
     return ok({ redirectTo });
+  }
+
+  private assertPasswordChangeCompleted(user: AuthenticatedUser): void {
+    if (user.mustChangePassword) {
+      throw new HttpException(
+        { code: 'PASSWORD_CHANGE_REQUIRED', message: 'パスワードの変更が必要です' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
   }
 
   @ApiOperation({ summary: 'consent prompt を完了（要求 scope/claim の grant を作成）' })
@@ -235,6 +287,22 @@ export class InteractionController {
       missingOIDCClaims?: string[];
       missingResourceScopes?: Record<string, string[]>;
     };
+
+    // d963: consent 完了は grant を作る最後の入口。provider のセッションだけが残っている（Rete のセッションが
+    // 切れている）場合、グローバルの MfaEnforcementGuard は req.user 不在で素通しするため、ここで止める。
+    // 必須 MFA を満たさないアカウントへ grant を発行すると、MFA 必須化後も Reference のトークンを取得できる。
+    if (
+      (await this.loginSettings.isMfaEnforced()) &&
+      !(await this.mfaService.hasConfirmedMfa(accountId))
+    ) {
+      throw new HttpException(
+        {
+          code: 'MFA_SETUP_REQUIRED',
+          message: 'ReteにログインしてMFAを設定してから再試行してください',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
 
     let grant: GrantInstance | undefined;
     if (details.grantId) {

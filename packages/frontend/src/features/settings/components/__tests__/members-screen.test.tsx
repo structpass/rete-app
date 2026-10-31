@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { flush } from '@/test-utils/flush';
+import { makeMemberDto } from '@/test-utils/fixtures';
 import { getListColumn, getListLayoutOrder } from '@/test-utils/list-layout';
 import type { MemberDto } from '@rete/shared';
 import { MembersScreen } from '../members-screen';
@@ -50,20 +51,8 @@ beforeEach(() => {
   mockRole = 'ADMIN';
 });
 
-// ── フィクスチャ ──
-const member = (over: Partial<MemberDto>): MemberDto => ({
-  id: 'm1',
-  name: '山田 太郎',
-  familyName: '山田',
-  givenName: '太郎',
-  email: 'taro@rete.local',
-  isActive: true,
-  lockedUntil: null,
-  mfaEnabled: false,
-  createdAt: '2026-06-01T09:00:00.000Z',
-  updatedAt: '2026-06-05T09:00:00.000Z',
-  ...over,
-});
+// ── フィクスチャ（d596: メンバーの組み立ては test-utils/fixtures が正本）──
+const member = (over: Partial<MemberDto>): MemberDto => makeMemberDto(over);
 
 const m1 = member({
   id: 'm1',
@@ -218,6 +207,27 @@ describe('MembersScreen', () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('メンバーを更新しました');
     expect(screen.queryByText('メンバーの編集')).not.toBeInTheDocument();
   });
+
+  it.each(['cancel', 'escape'])(
+    'メンバーの未保存入力は%sで破棄確認し、取り消すと保持する',
+    async (mode) => {
+      await renderScreen();
+      fireEvent.click(screen.getByRole('button', { name: '山田 太郎 を編集' }));
+      fireEvent.change(screen.getByTestId('member-editor-given-name'), {
+        target: { value: '未保存' },
+      });
+      if (mode === 'cancel') fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+      else fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      fireEvent.click(
+        within(screen.getByRole('alertdialog')).getByRole('button', { name: 'キャンセル' }),
+      );
+      expect(screen.getByTestId('member-editor-given-name')).toHaveValue('未保存');
+      fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+      fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+      expect(screen.queryByTestId('member-editor-given-name')).not.toBeInTheDocument();
+      expect(mockUpdateMember).not.toHaveBeenCalled();
+    },
+  );
 
   it('何も変更せず保存すると updateMember を呼ばずに閉じる（差分送信・rete-settings-0020）', async () => {
     await renderScreen();
@@ -803,5 +813,40 @@ describe('MembersScreen', () => {
     expect(screen.queryByText('メンバーがいません')).not.toBeInTheDocument();
     // 取得失敗は toast へ逃がさない（正本 ui.ts:109-110 の二層: 取得失敗=領域内 / 操作失敗=toast）
     expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('検索語を入れた状態で取得に失敗しても、0件の文言「見つかりませんでした」で失敗を隠さない（d655）', async () => {
+    mockFetchMembers.mockRejectedValue(new Error('network'));
+
+    render(<MembersScreen />);
+    await flush();
+    fireEvent.change(screen.getByPlaceholderText('氏名 / メールで検索...'), {
+      target: { value: '山田' },
+    });
+    await flush();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('メンバーの読み込みに失敗しました');
+    expect(screen.queryByText('メンバーが見つかりませんでした')).not.toBeInTheDocument();
+    // 件数も 0 件と読めない形にする（操作ログと同じ扱い・d536）。
+    expect(screen.queryByText(/全 0 件/)).not.toBeInTheDocument();
+    expect(screen.getByText(/全 — 件/)).toBeInTheDocument();
+  });
+
+  // d659: 取得失敗は「もう一度取る手段」までを 1 つの領域として出し、押せば本当に取り直す。
+  it('取得失敗の表示に再試行を添え、押すと取り直して失敗の表示を消す（d659）', async () => {
+    mockFetchMembers.mockRejectedValueOnce(new Error('network'));
+    mockFetchMembers.mockResolvedValue([makeMemberDto()]);
+
+    render(<MembersScreen />);
+    await flush();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('メンバーの読み込みに失敗しました');
+    fireEvent.click(within(alert).getByRole('button', { name: '再試行' }));
+    await flush();
+
+    expect(mockFetchMembers).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('メンバーがいません')).not.toBeInTheDocument();
   });
 });

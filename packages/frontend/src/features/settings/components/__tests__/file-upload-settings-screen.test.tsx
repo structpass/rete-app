@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // 画面が直接 import する hook（@/features/files/hooks/use-file-settings）をモックし、
@@ -38,6 +38,7 @@ function makeHookResult(overrides: Partial<ReturnType<typeof useFileSettings>> =
     allowedExtensions: ['.pdf', '.md'],
     fixedRejectedExtensions: ['.exe', '.dll', '.msi', '.scr', '.com'],
     rejectedExtensions: ['.ps1', '.sh'],
+    loadErrorReason: '',
     setMaxSizeMb: vi.fn(),
     addAllowedExtension: vi.fn().mockReturnValue('added'),
     addRejectedExtension: vi.fn().mockReturnValue('added'),
@@ -119,6 +120,15 @@ describe('FileUploadSettingsScreen 初回描画', () => {
     useFileSettings.mockReturnValue(makeHookResult({ error: true }));
     render(<FileUploadSettingsScreen />);
     expect(screen.getByText('設定の読み込みに失敗しました')).toBeInTheDocument();
+  });
+
+  it('error 時は読み込みに失敗した理由をそのまま描画する（d754）', () => {
+    useFileSettings.mockReturnValue(
+      makeHookResult({ error: true, loadErrorReason: '設定の参照権限がありません' }),
+    );
+    render(<FileUploadSettingsScreen />);
+    expect(screen.getByText('設定の参照権限がありません')).toBeInTheDocument();
+    expect(screen.queryByText('設定の読み込みに失敗しました')).not.toBeInTheDocument();
   });
 });
 
@@ -260,6 +270,53 @@ describe('保存とキャンセル（v2-203）', () => {
     // 破棄は保存を伴わない（保存ボタンを押すまで確定しない、という要求の 4）。
     expect(save).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith('変更を破棄しました');
+  });
+
+  it('編集中のキャンセルは破棄確認を挟み、取り消すと破棄しない', async () => {
+    const reset = vi.fn();
+    useFileSettings.mockReturnValue(makeHookResult({ dirty: true, reset }));
+    const user = userEvent.setup();
+    render(<FileUploadSettingsScreen />);
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    // 確認ダイアログが開いた時点では破棄しない（規約②: 未編集の時だけ即実行）。
+    expect(reset).not.toHaveBeenCalled();
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(reset).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    await user.click(screen.getByRole('button', { name: 'OK' }));
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('未編集で Esc を押すと確認を挟まず取得値へ戻す', async () => {
+    const reset = vi.fn();
+    useFileSettings.mockReturnValue(makeHookResult({ dirty: false, reset }));
+    const user = userEvent.setup();
+    render(<FileUploadSettingsScreen />);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('編集中に Esc を押すと破棄確認を挟み、閉じた Esc では破棄せず、OK で破棄する', async () => {
+    const reset = vi.fn();
+    useFileSettings.mockReturnValue(makeHookResult({ dirty: true, reset }));
+    const user = userEvent.setup();
+    render(<FileUploadSettingsScreen />);
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(reset).not.toHaveBeenCalled();
+
+    // 確認表示中の Esc はダイアログだけを閉じる（規約④。入力は破棄しない）。
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(reset).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    await user.click(await screen.findByRole('button', { name: 'OK' }));
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 
   it('saving 中は保存ボタンを無効化する', () => {

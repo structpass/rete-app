@@ -4,6 +4,7 @@
   "private": true,
   "description": "Struct Rete - サテライトシステム（タスク + チャット連結軸）",
   "scripts": {
+    "check:oidc-flow": "node scripts/check-oidc-credential-flow.mjs",
     "dev": "pnpm --parallel --filter \"./packages/**\" dev",
     "build": "pnpm --filter \"./packages/**\" build",
     "lint": "pnpm --filter \"./packages/**\" lint",
@@ -13,15 +14,16 @@
     "check:repo-invariants": "node scripts/run-script-tests.mjs",
     "check:ignored-builds": "node scripts/check-ignored-builds.mjs",
     "check:knip-snapshot": "node --test scripts/check-knip-baseline.test.mjs",
-    "check:duplication": "jscpd",
+    "check:duplication": "node scripts/check-duplication.mjs",
+    "check:security": "node scripts/security-audit.mjs",
     "check:unused": "knip --no-exit-code",
+    "check:audit-boundary": "node --test scripts/check-sprintf-precision-boundary.test.mjs",
     "build:shared": "pnpm --filter @rete/shared build",
-    "test": "pnpm run test:security && pnpm run build:shared && pnpm run check:repo-invariants && pnpm --filter \"./packages/**\" test",
+    "test": "pnpm run build:shared && pnpm run check:repo-invariants && pnpm run check:audit-boundary && pnpm --filter \"./packages/**\" test",
     "test:agent": "node scripts/run-tests-agent.mjs",
     "test:cov": "pnpm run build:shared && pnpm --filter \"./packages/**\" --sequential test:cov",
     "type-check": "pnpm run build:shared && pnpm --filter \"./packages/**\" --sequential type-check",
-    "clean": "pnpm --filter \"./packages/**\" clean && node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\"",
-    "test:security": "node --test scripts/check-braces-patch.test.cjs scripts/check-root-dependency-fixes.test.mjs"
+    "clean": "pnpm --filter \"./packages/**\" clean && node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\""
   },
   "keywords": [
     "struct-rete",
@@ -30,15 +32,16 @@
   ],
   "engines": {
     "node": ">=24.0.0",
-    "pnpm": ">=9.0.0"
+    "pnpm": ">=10.34.5"
   },
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@10.34.5",
   "devDependencies": {
     "@types/node": "^20.17.10",
     "eslint": "^9.18.0",
     "jscpd": "^5.0.14",
     "knip": "^5.88.1",
     "lint-staged": "15.5.0",
+    "pnpm": "10.34.5",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2"
   },
@@ -51,10 +54,12 @@
       "unrs-resolver"
     ],
     "overrides": {
-      "multer": "^2.4.0",
+      "multer": "^2.5.0",
+      "body-parser@2": "^2.4.0",
+      "zod@4": "^4.6.6",
       "deepmerge-ts@7": "^8.0.1",
       "form-data": "^4.0.6",
-      "vite": "^6.4.3",
+      "vite": "^6.4.4",
       "@angular-devkit/core>picomatch": "^4.0.4",
       "lodash": "^4.18.0",
       "postcss": "^8.5.23",
@@ -64,30 +69,23 @@
       "js-yaml@5": "^5.4.1",
       "brace-expansion@1": "^1.1.20",
       "brace-expansion@2": "^2.1.6",
-      "brace-expansion@5": "^5.0.12",
-      "fast-uri@3": "^3.1.8",
+      "brace-expansion@5": "^5.0.11",
+      "fast-uri@3": "^3.1.9",
       "ajv@8": "^8.18.0",
       "uuid@11": "^11.1.1",
-      "qs@6": "^6.16.0",
+      "qs@6": "^6.16.1",
       "browserslist": "^4.29.3",
       "baseline-browser-mapping": "^2.11.27",
-      "postcss-selector-parser@6": "7.1.6",
-      "proxy-addr@2": "2.0.8",
-      "source-map-js@1": "1.2.2",
-      "smol-toml@1": "1.9.0",
+      "postcss-selector-parser@6": "^7.1.6",
       "nanoid@5": "^5.1.16",
-      "nanoid@3": "^3.3.17"
-    },
-    "packageExtensions": {
-      "@hookform/resolvers": {
-        "peerDependencies": {
-          "zod": "*"
-        }
-      }
-    },
-    "patchedDependencies": {
-      "braces@3.0.3": "patches/braces@3.0.3.patch",
-      "magicast@0.5.5": "patches/magicast@0.5.5.patch"
+      "nanoid@3": "^3.3.17",
+      "proxy-addr": "^2.0.8",
+      "source-map-js": "^1.2.2",
+      "handlebars": "^4.7.10",
+      "tinypool": "^2.1.2",
+      "http-cache-semantics": "^4.3.0",
+      "follow-redirects": "^1.16.1",
+      "smol-toml": "^1.9.0"
     }
   }
 }

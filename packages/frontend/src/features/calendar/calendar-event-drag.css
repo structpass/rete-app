@@ -1,0 +1,54 @@
+.calendar-event.calendar-draggable {
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.calendar-event.calendar-time-event.calendar-draggable {
+  position: absolute;
+}
+.calendar-event.is-dragging {
+  outline: 2px dashed var(--sp-accent-teal);
+  cursor: grabbing;
+}
+.calendar-resize {
+  position: absolute;
+  z-index: 3;
+}
+.calendar-drag-month .calendar-resize {
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+}
+.calendar-drag-month .calendar-resize-start {
+  left: 0;
+}
+.calendar-drag-month .calendar-resize-end {
+  right: 0;
+}
+.calendar-drag-week .calendar-resize {
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+}
+.calendar-drag-week .calendar-resize-start {
+  top: 0;
+}
+.calendar-drag-week .calendar-resize-end {
+  bottom: 0;
+}
+.calendar-drag-preview {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(360px, 80vw);
+  padding: 6px 10px;
+  border: 1px solid var(--sp-accent-teal);
+  border-radius: 4px;
+  background: white;
+  color: black;
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px #0002;
+}

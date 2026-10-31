@@ -17,6 +17,8 @@ const badgeVariants = cva(
         review: 'bg-[var(--sp-status-review-bg)] text-[var(--sp-status-review-fg)]',
         done: 'bg-[var(--sp-status-done-bg)] text-[var(--sp-status-done-fg)]',
         outline: 'border border-input text-foreground',
+        // 注意喚起の一時状態（Desk の「未保存」等）。色は globals.css の --warning トークンのみ。
+        warning: 'bg-[hsl(var(--warning))] text-[hsl(var(--warning-foreground))]',
       },
     },
     defaultVariants: {

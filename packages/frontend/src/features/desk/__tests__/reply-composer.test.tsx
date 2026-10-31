@@ -42,6 +42,12 @@ vi.mock('../components/file-picker-overlay', () => ({
 import { ReplyComposer } from '../components/reply-composer';
 // dsk-0203 でチャット/タスク共有ユーティリティ（lib/mentions）へ抽出。既存挙動の検証はここに残す。
 import { extractMentionAccountIds } from '../lib/mentions';
+import { clearAllReplyDrafts, readReplyDraft, writeReplyDraft } from '../lib/reply-drafts';
+
+/** 親の clearReplyDraft 相当（テーマの書きかけを消す）。 */
+function clearReplyDraftForTest(themeId: string) {
+  writeReplyDraft(themeId, '');
+}
 import type { ChatMessage } from '../lib/api';
 
 /** ReplyComposer.onReply の型（実 prop から導出）。無型の vi.fn() を実 prop の型へ結ぶ（v2-253）。 */
@@ -154,6 +160,106 @@ describe('ReplyComposer — 返信 + deferred-flush 添付（FL-3b）', () => {
   it('旧「宛先を指定」ピッカーボタンは廃止され描画されない（rete-desk-0080）', () => {
     render(<ReplyComposer onReply={vi.fn()} accounts={[{ id: 'u-1', name: '山田' }]} />);
     expect(screen.queryByRole('button', { name: '宛先を指定' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ReplyComposer — 上位が保持する書きかけを value で受ける（d737）', () => {
+  beforeEach(() => clearAllReplyDrafts());
+
+  it('value を渡すと本文として表示し、入力は onChangeBody へ返す（自前では持たない）', () => {
+    const onChangeBody = vi.fn();
+    const { rerender } = render(
+      <ReplyComposer
+        onReply={vi.fn()}
+        accounts={[]}
+        value="<p>親が保持する書きかけ</p>"
+        onChangeBody={onChangeBody}
+      />,
+    );
+    const editor = screen.getByLabelText('返信') as HTMLTextAreaElement;
+    expect(editor.value).toBe('<p>親が保持する書きかけ</p>');
+
+    fireEvent.change(editor, { target: { value: '<p>追記</p>' } });
+    expect(onChangeBody).toHaveBeenCalledWith('<p>追記</p>');
+    // 制御コンポーネントのため、上位が値を返すまで表示は変わらない。
+    expect(editor.value).toBe('<p>親が保持する書きかけ</p>');
+
+    rerender(
+      <ReplyComposer
+        onReply={vi.fn()}
+        accounts={[]}
+        value="<p>追記</p>"
+        onChangeBody={onChangeBody}
+      />,
+    );
+    expect(editor.value).toBe('<p>追記</p>');
+  });
+
+  it('送信成功で onSent を呼ぶ（上位が書きかけを捨てる）', async () => {
+    const onSent = vi.fn();
+    const onReply = onReplyMock();
+    render(
+      <ReplyComposer
+        onReply={onReply}
+        accounts={[]}
+        value="<p>送信本文</p>"
+        onChangeBody={vi.fn()}
+        onSent={onSent}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+    expect(onReply).toHaveBeenCalledWith('<p>送信本文</p>', [], []);
+    expect(onSent).toHaveBeenCalledTimes(1);
+  });
+
+  it('送信に失敗した時は onSent を呼ばない（書きかけを残す）', async () => {
+    const onSent = vi.fn();
+    const onReply = vi.fn().mockRejectedValue(new Error('network'));
+    render(
+      <ReplyComposer
+        onReply={onReply}
+        accounts={[]}
+        value="<p>送信本文</p>"
+        onChangeBody={vi.fn()}
+        onSent={onSent}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+    expect(onSent).not.toHaveBeenCalled();
+  });
+
+  it('書きかけを消す口は onSent（onChangeBody が何も反映しない上位でも送信成功で書きかけが消える）', async () => {
+    // 親（useChatThreadController）の消し口径路を試験で保護する。送信時に ReplyComposer は本文を空にして
+    // onChangeBody('') を呼ぶため、その側だけでは上の「onSent 呼び出し」を外しても試験が通ってしまう。
+    // ここでは onChangeBody を変化を反映しない敵対的な上位にして、onSent→保持の消去が効くことを見る。
+    writeReplyDraft('t1', '<p>書きかけ</p>');
+    const onSent = vi.fn(() => clearReplyDraftForTest('t1'));
+    const { rerender } = render(
+      <ReplyComposer
+        onReply={onReplyMock()}
+        accounts={[]}
+        value="<p>書きかけ</p>"
+        onChangeBody={vi.fn()}
+        onSent={onSent}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+    expect(onSent).toHaveBeenCalledTimes(1);
+    expect(readReplyDraft('t1')).toBeUndefined();
+
+    rerender(
+      <ReplyComposer
+        onReply={onReplyMock()}
+        accounts={[]}
+        value=""
+        onChangeBody={vi.fn()}
+        onSent={onSent}
+      />,
+    );
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
   });
 });
 

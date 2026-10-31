@@ -14,6 +14,7 @@ import { usePendingAttachments } from '@/features/desk/hooks/use-pending-attachm
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { TagIcon } from '@/components/tags/tag-icon';
+import { Badge } from '@/components/ui/badge';
 import { SelectDropdown } from '@/components/tags/select-dropdown';
 import type { UseTagMasterResult } from '@/hooks/use-tag-master';
 import { useAnnouncementAttachments } from '../hooks/use-announcement-attachments';
@@ -48,6 +49,7 @@ interface AnnouncementFormProps {
    */
   tagMaster?: UseTagMasterResult;
   saving: boolean;
+  canEdit?: boolean;
   onCancel: () => void;
   /**
    * 確定。title/body/tagIds と、create 時の保留添付 fileId 群を渡す。
@@ -112,6 +114,7 @@ export function AnnouncementForm({
   initialTagIds,
   tagMaster,
   saving,
+  canEdit = true,
   onCancel,
   onSubmit,
 }: AnnouncementFormProps) {
@@ -180,7 +183,7 @@ export function AnnouncementForm({
   }, [confirmOpen, attemptCancel]);
 
   const handleSubmit = async () => {
-    if (saving) return; // 二重送信ガード（disabled 同期に依存しない）。
+    if (saving || !canEdit) return;
     const t = title.trim();
     if (!t) {
       toast.error('タイトルを入力してください');
@@ -234,13 +237,18 @@ export function AnnouncementForm({
             type="submit"
             variant="sp-primary"
             size="sp-compact"
-            disabled={saving}
+            disabled={saving || !canEdit}
             loading={saving}
             aria-busy={saving}
           >
             {submitLabel}
           </Button>
         </div>
+        {!canEdit && (
+          <p role="alert" className="text-sm text-[var(--sp-accent-red)]">
+            編集権限がありません
+          </p>
+        )}
 
         {/* mdl-0025: 本フォームは compact 密度（入力 32px=.settings-input）のためラベル間隔・ラベル見た目も compact で統一。 */}
         <FormField label="タイトル" htmlFor={titleId} required compact>
@@ -332,13 +340,10 @@ export function AnnouncementForm({
                 .filter(Boolean)
                 .map((t) => t!)
                 .map((t) => (
-                  <span
-                    key={t.id}
-                    className="inline-flex items-center gap-0.5 rounded-sm bg-[var(--sp-card)] px-1.5 py-0.5 text-xs text-[var(--sp-text-warm-2)]"
-                  >
+                  <Badge key={t.id} variant="outline">
                     <TagIcon name={t.icon} size={12} color={t.color} />
                     <span>{t.name}</span>
-                  </span>
+                  </Badge>
                 ))}
             </div>
           </div>

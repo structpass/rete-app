@@ -1,10 +1,4 @@
-import { TAG_ASSIGN_MAX, TagIdSetDto } from './tag-assignment.dto';
-
-/**
- * 1 ファイルへ同時付与できるタグ数の上限（互換エイリアス）。
- * 値の単一ソースは tag-assignment.dto の TAG_ASSIGN_MAX（file / folder 共通の上限）。
- */
-export const FILE_TAGS_MAX = TAG_ASSIGN_MAX;
+import { TagIdSetDto } from './tag-assignment.dto';
 
 /**
  * ファイルのタグ付与集合の置換入力（PUT /files/files/:id/tags）。

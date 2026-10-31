@@ -15,6 +15,17 @@ export const ANNOUNCEMENT_KINDS = ['board', 'faq'] as const;
 export type AnnouncementKind = (typeof ANNOUNCEMENT_KINDS)[number];
 
 /**
+ * お知らせタグの種別の許可集合（ホームのカレンダーが付ける 'calendar' を含む・d743）。
+ * お知らせ本体は `ANNOUNCEMENT_KINDS` の 2 種だけだが、タグは予定にも付くため種別が 1 つ多い。
+ * DB 側の CHECK 制約（`announcement_tags_kind_check`）と一致させ、手書き CHECK との照合
+ * （`scripts/check-constraint-drift`）のコード側正本にする。
+ */
+export const ANNOUNCEMENT_TAG_KINDS = ['board', 'calendar', 'faq'] as const;
+
+/** お知らせタグ種別のリテラル union（ANNOUNCEMENT_TAG_KINDS の要素型）。 */
+export type AnnouncementTagKindValue = (typeof ANNOUNCEMENT_TAG_KINDS)[number];
+
+/**
  * お知らせに付与されたタグの Response 形（rete-home-0043）。形状は TagDto と同一だが、
  * 別マスタ（GET /announcement-tags）という意味づけのためドメイン名だけを分ける。
  */

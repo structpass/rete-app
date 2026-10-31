@@ -75,22 +75,24 @@ describe('LoginSettingsService', () => {
     });
 
     it('全て正当なら全置換し、検出 currentIp を同梱して返す', async () => {
+      // d827 以降、保存できるのは自分の IP を含むリストだけ（外に出る保存は断る）。
+      // ここで見たいのは全置換と返り値なので、自分を含む 2 件で確かめる。
       mockRepo.replaceIpWhitelist.mockResolvedValue([
         { id: 'e1', cidr: '203.0.113.0/24', note: '本社', sortOrder: 0, createdAt: new Date() },
-        { id: 'e2', cidr: '2001:db8::/48', note: '', sortOrder: 1, createdAt: new Date() },
+        { id: 'e2', cidr: '198.51.100.0/24', note: 'VPN', sortOrder: 1, createdAt: new Date() },
       ]);
       const res = await service.updateIpWhitelist(
         {
           entries: [
             { cidr: '203.0.113.0/24', note: '本社' },
-            { cidr: '2001:db8::/48', note: '' },
+            { cidr: '198.51.100.0/24', note: 'VPN' },
           ],
         } as never,
         '198.51.100.7',
       );
       expect(mockRepo.replaceIpWhitelist).toHaveBeenCalledWith([
         { cidr: '203.0.113.0/24', note: '本社' },
-        { cidr: '2001:db8::/48', note: '' },
+        { cidr: '198.51.100.0/24', note: 'VPN' },
       ]);
       expect(res.data.entries).toHaveLength(2);
       expect(res.data.currentIp).toBe('198.51.100.7');
@@ -146,10 +148,10 @@ describe('LoginSettingsService', () => {
 
     it('重複が無い通常の保存は従来どおり成功する', async () => {
       mockRepo.replaceIpWhitelist.mockResolvedValue([
-        { id: 'e1', cidr: '203.0.113.0/24', note: '', sortOrder: 0, createdAt: new Date() },
+        { id: 'e1', cidr: '198.51.100.0/24', note: '', sortOrder: 0, createdAt: new Date() },
       ]);
       const res = await service.updateIpWhitelist(
-        { entries: [{ cidr: '203.0.113.0/24', note: '' }] } as never,
+        { entries: [{ cidr: '198.51.100.0/24', note: '' }] } as never,
         '198.51.100.7',
       );
       expect(res.success).toBe(true);
@@ -171,6 +173,55 @@ describe('LoginSettingsService', () => {
           '198.51.100.7',
         ),
       ).rejects.toThrow(/不正な CIDR/);
+      expect(mockRepo.replaceIpWhitelist).not.toHaveBeenCalled();
+    });
+
+    // d827: 遮断の入口（IpAllowlistGuard）と同じ判定で、自分の IP を外に出る保存は断る。
+    // 断らないと、保存した瞬間に管理セッションごと 403 になり、戻す PUT も遮断されて API からは戻せない。
+    it('自分の IP を含まないリストは保存せず断る（管理画面の締め出しを防ぐ）', async () => {
+      await expect(
+        service.updateIpWhitelist(
+          { entries: [{ cidr: '203.0.113.0/24', note: '本社' }] } as never,
+          '198.51.100.7',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockRepo.replaceIpWhitelist).not.toHaveBeenCalled();
+    });
+
+    it('断る理由の文言に、保存すると遮断されることと自分の IP が出る', async () => {
+      await expect(
+        service.updateIpWhitelist(
+          { entries: [{ cidr: '203.0.113.0/24', note: '' }] } as never,
+          '198.51.100.7',
+        ),
+      ).rejects.toThrow(/198\.51\.100\.7/);
+    });
+
+    it('自分の IP がリストの範囲に含まれていれば通す（/24 の中の 1 つ）', async () => {
+      mockRepo.replaceIpWhitelist.mockResolvedValue([
+        { id: 'e1', cidr: '198.51.100.0/24', note: '', sortOrder: 0, createdAt: new Date() },
+      ]);
+      await expect(
+        service.updateIpWhitelist(
+          { entries: [{ cidr: '198.51.100.0/24', note: '' }] } as never,
+          '198.51.100.7',
+        ),
+      ).resolves.toBeTruthy();
+      expect(mockRepo.replaceIpWhitelist).toHaveBeenCalledTimes(1);
+    });
+
+    it('空のリスト（制限の解除）は自分の IP を求めずに通す（出口を塞がない）', async () => {
+      mockRepo.replaceIpWhitelist.mockResolvedValue([]);
+      await expect(
+        service.updateIpWhitelist({ entries: [] } as never, '198.51.100.7'),
+      ).resolves.toBeTruthy();
+      expect(mockRepo.replaceIpWhitelist).toHaveBeenCalledTimes(1);
+    });
+
+    it('自分の IP を検出できない時は保存しない（外に出るか判定できない側に倒す）', async () => {
+      await expect(
+        service.updateIpWhitelist({ entries: [{ cidr: '203.0.113.0/24', note: '' }] } as never, ''),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(mockRepo.replaceIpWhitelist).not.toHaveBeenCalled();
     });
   });

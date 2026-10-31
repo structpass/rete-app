@@ -14,7 +14,6 @@
     "**/node_modules/**"
   ],
   "minTokens": 50,
-  "threshold": 100,
   "reporters": ["console"],
   "absolute": false,
   "gitignore": true

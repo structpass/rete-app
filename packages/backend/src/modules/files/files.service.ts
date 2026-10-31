@@ -38,12 +38,14 @@ import {
   FOLDER_DEPTH_EXCEEDED_MESSAGE,
   FOLDER_MOVE_CYCLE_MESSAGE,
   FOLDER_MOVE_SELF_MESSAGE,
+  REF_PATH_SEP,
   SEARCH_RESULT_LIMIT,
   SINGLE_TARGET_NOT_FOUND_MESSAGE,
   resolveUploadTempDir,
 } from './files.constants';
 import { formatFileSize } from '../../common/text/file-size';
 import { checkUploadSignature } from './upload-signature';
+import { collectRefAncestors, parseRefIds, refPath, spaceIdOfRef } from './refpath2';
 
 /**
  * File タブの操作主体（ADR 0063）。可視性判定に要るのは accountId だけになった
@@ -349,6 +351,97 @@ export class FilesService {
     ]);
 
     return ok(toFolderContent(folder, subfolders, files, buildCrumb(folder, siblings)));
+  }
+
+  /**
+   * 構造参照の解決（GET /files/refs・FL+1・設計 §2.3）。参照ノードの `data-id` をまとめて引き、
+   * **可視かつ存在する対象だけ**を現在のパス表記つきで返す。
+   *
+   * 存在秘匿（ADR 0038）: 不在・非可視・削除済み・失効は**結果から欠落**させ、個別の status も理由も
+   * 付けない（別の状態として返すと、見えない Space の実体の存在が漏れる）。その帰結として
+   * 「削除済み」「権限なし」「失効」はすべて同じ「返ってこない」になる（設計 §5.1・§5.4）。
+   *
+   * コスト: 可視 space 1 回 + 対象 2 クエリ（フォルダ・ファイル）+ 祖先 1 クエリ。入力は
+   * REF_RESOLVE_MAX で切り捨てる（本文 1 本の参照 10 件に対して余裕を見た固定上限）。
+   */
+  async resolveRefs(rawIds: string | undefined, user: FileUser) {
+    const ids = parseRefIds(rawIds);
+    if (ids.length === 0) {
+      return ok({ items: [] });
+    }
+    // 可視範囲の取得を対象取得より先に済ませる（不在と非可視で応答経路のコストを揃える・fil-0146）。
+    const spaces = await this.visibleSpaceIds(user);
+    if (spaces.size === 0) {
+      return ok({ items: [] });
+    }
+    const { folders, files } = await this.repo.findRefTargets(ids);
+
+    const visibleFolders = folders.filter((f) => spaces.has(f.spaceId));
+    // ファイルの帰属 space は所属フォルダの spaceId で決まる（1 クエリでまとめて引く）。
+    const fileFolderRows: {
+      id: string;
+      name: string;
+      parentFolderId: string | null;
+      spaceId?: string;
+    }[] = await this.repo.findRefAncestors([...new Set(files.map((f) => f.folderId))], [...spaces]);
+    const ancestors = await collectRefAncestors(
+      [...visibleFolders.map((f) => f.id), ...fileFolderRows.map((f) => f.id)],
+      visibleFolders,
+      fileFolderRows,
+      (frontier) => this.repo.findRefAncestors(frontier, [...spaces]),
+    );
+    // 祖先の並び（refpath の素材）と、所属フォルダの行を id で引くための索引を揃える。
+    const ancestorRows: {
+      id: string;
+      name: string;
+      parentFolderId: string | null;
+      spaceId?: string;
+    }[] = ancestors;
+    const fileFolderById = new Map<
+      string,
+      { id: string; name: string; parentFolderId: string | null }
+    >();
+    for (const parent of fileFolderRows) fileFolderById.set(parent.id, parent);
+
+    const byId = new Map<
+      string,
+      {
+        id: string;
+        kind: 'file' | 'folder';
+        path: string;
+        parentFolderId: string | null;
+        spaceId: string;
+      }
+    >();
+    for (const folder of visibleFolders) {
+      byId.set(folder.id, {
+        id: folder.id,
+        kind: 'folder',
+        path: refPath(ancestors, folder.id, folder.name),
+        parentFolderId: folder.parentFolderId,
+        spaceId: folder.spaceId,
+      });
+    }
+    for (const file of files) {
+      const parent = fileFolderById.get(file.folderId);
+      if (!parent) continue; // 所属フォルダが可視でない＝ファイルも返さない（存在秘匿）
+      const spaceId = spaceIdOfRef(ancestors, parent.id);
+      if (!spaceId) continue;
+      // ファイルのパスは「所属フォルダの現在のパス＋ファイル名」。
+      // refPath は folderId 自身の名前を含まない（名前を別に受けるため）ので、
+      // 所属フォルダの名前を落とさないよう、フォルダのフルパスを先に組んでから足す。
+      byId.set(file.id, {
+        id: file.id,
+        kind: 'file',
+        path: `${refPath(ancestors, parent.id, parent.name)}${REF_PATH_SEP}${file.name}`,
+        parentFolderId: parent.id,
+        spaceId,
+      });
+    }
+
+    // 要求された順（重複は先頭の 1 回）で返し、返らない id は「表示できない」に倒す。
+    const items = ids.map((id) => byId.get(id)).filter((i) => i !== undefined);
+    return ok({ items });
   }
 
   /**

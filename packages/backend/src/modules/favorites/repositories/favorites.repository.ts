@@ -110,7 +110,7 @@ export class FavoritesRepository {
    * 並び替えを 1 つの interactive transaction で永続化し、反映後の一覧を返す。
    * - 現存全件の読み取り・集合検証・更新・再読込をすべて tx 内で行う（並走 add/delete による
    *   TOCTOU を封じる。検証後〜更新前に別操作が割り込んでも同一 snapshot で整合する）。
-   * - updateMany を accountId スコープで撃つため、他人の id が紛れても一致 0 件で無害（IDOR 防止）。
+   * - 一括 UPDATE も accountId スコープに限定する（IDOR 防止）。
    * - Serializable で直列化し、並行 reorder の lost update（順序混在）を防ぐ。競合 abort（P2034）は
    *   Serializable の仕様上正常に起こり得るため、指数を持たせず数回まで自動リトライする。
    * orderedIds == 現存全件 を満たさなければ更新せず set-mismatch を返す（service が 400 に翻訳）。
@@ -133,15 +133,25 @@ export class FavoritesRepository {
         return { ok: false, reason: 'set-mismatch' as const };
       }
 
-      // cmn-0050(C4): sortOrder は「リクエスト順での添字」で確定させ、行更新の発行順は id 昇順に固定する
-      // （announcement.reorder / categories.reorder と同じ規約）。並行 reorder 同士が逆順の id 列で行ロックを
-      // 取り合うと不要な競合 abort になるため、ロック取得順だけを一定化する（accountId スコープは維持）。
-      const sortOrderById = new Map(orderedIds.map((id, index) => [id, index]));
-      for (const id of [...orderedIds].sort()) {
-        await tx.userFavorite.updateMany({
-          where: { id, accountId },
-          data: { sortOrder: sortOrderById.get(id)! },
-        });
+      if (orderedIds.length > 0) {
+        // JSON 1 パラメータで全件を渡し、件数に依存する往復とバインド数を避ける。
+        // 添字は要求順、ロックは id 昇順（cmn-0050(C4)）。MATERIALIZED CTE でロック済み行を
+        // 一括 UPDATE へ渡す。raw SQL は Prisma の @updatedAt を通らないため明示更新する。
+        await tx.$executeRaw(Prisma.sql`
+          WITH ordered AS MATERIALIZED (
+            SELECT favorite.id, (requested.position - 1)::integer AS sort_order
+            FROM user_favorites AS favorite
+            JOIN jsonb_array_elements_text(${JSON.stringify(orderedIds)}::jsonb)
+              WITH ORDINALITY AS requested(id, position) ON requested.id = favorite.id
+            WHERE favorite.account_id = ${accountId}
+            ORDER BY favorite.id
+            FOR UPDATE OF favorite
+          )
+          UPDATE user_favorites AS favorite
+          SET sort_order = ordered.sort_order, updated_at = ${new Date()}
+          FROM ordered
+          WHERE favorite.id = ordered.id AND favorite.account_id = ${accountId}
+        `);
       }
 
       const items = await tx.userFavorite.findMany({

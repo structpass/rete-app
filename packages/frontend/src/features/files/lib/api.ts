@@ -5,6 +5,8 @@ import type {
   CategoryDto,
   CreatedFolderResponseDto as _CreatedFolderResponseDto,
   FileMetaResponseDto as _FileMetaResponseDto,
+  FileRefResolutionDto as _FileRefResolutionDto,
+  FileRefResolveResponseDto as _FileRefResolveResponseDto,
   FileRowDto as _FileRowDto,
   FileSettingsResponseDto as _FileSettingsResponseDto,
   FolderContentResponseDto as _FolderContentResponseDto,
@@ -53,6 +55,9 @@ export type CreatedFolderResponseDto = _CreatedFolderResponseDto;
 export type FileMetaResponseDto = _FileMetaResponseDto;
 /** 旧 frontend 名（backend FileSettingsResponseDto と同形・shared 集約で 1 本化・cmn-0216）。 */
 export type FileSettingsDto = _FileSettingsResponseDto;
+/** 構造参照の解決結果 1 件（GET /files/refs・FL+2 の描画時解決）。 */
+export type FileRefResolutionDto = _FileRefResolutionDto;
+export type FileRefResolveResponseDto = _FileRefResolveResponseDto;
 
 /** 設定オーバーレイのフォーム表示型（サイズは MB 単位で扱う・編集 UX 優先）。 */
 export interface FileSettingsForm {
@@ -216,20 +221,45 @@ export async function searchFiles(q: string): Promise<SearchResultItem[]> {
 }
 
 /**
+ * 構造参照の解決（GET /files/refs?ids=a,b・FL+1 / 設計 §2.3）。
+ *
+ * 返るのは**可視かつ存在する対象だけ**で、不在・非可視・削除済み・失効は配列に現れない（存在秘匿）。
+ * 呼び出し側は「返らなかった id ＝ 表示できない参照」として扱う（設計 §5.1）。
+ * 本文 1 本あたりの参照は 10 件上限だが、多くても 1 リクエストにまとめる（設計 §2.2）。
+ */
+export async function fetchFileRefs(ids: string[]): Promise<FileRefResolutionDto[]> {
+  const unique = [...new Set(ids.filter((id) => id !== ''))];
+  if (unique.length === 0) return [];
+  const res = await apiClient.get<ApiResponse<FileRefResolveResponseDto>>('/files/refs', {
+    params: { ids: unique.join(',') },
+  });
+  return res.data.data.items;
+}
+
+/**
  * ファイルアップロード（POST /files/folders/:id/files・multipart）→ 追加された行（FileItem）。
- * Content-Type を undefined にして apiClient の既定 application/json を外し、ブラウザに boundary 付き
- * multipart を生成させる（axios ≥1.4 は undefined でヘッダを除去 → FormData を自動で multipart 化。
- * 本 PJ の axios は 1.16 系のため確実に動作する）。これをしないと multer がパースできない。
+ * 送り方は uploadForm（下）に任せる。Content-Type をこちらで外すと、サーバーが中身を読めなくなる。
  */
 export async function uploadFile(folderId: string, file: File): Promise<FileItem> {
+  return toFileItem(await uploadForm<FileRowDto>(`/files/folders/${folderId}/files`, file));
+}
+
+/**
+ * ファイルを 1 件 multipart で送り、返った行を返す（アップロードと新版のアップロードで共通）。
+ *
+ * 送り方はブラウザに任せる: Content-Type を指定しなければ、ブラウザが boundary 付きの multipart を付ける
+ * （サーバーはその boundary で中身を切り分ける）。指定すると中身と食い違い、サーバーは中身を読めない。
+ * axios 1.20 は POST のたびに「空なら application/x-www-form-urlencoded を補う」ため、指定しない指定
+ * （`undefined`）では埋められてしまう（実測 2026-10-26: 画面のアップロードが 400 で全件失敗）。そこで
+ * multipart を明示して、boundary だけをブラウザに足させる。
+ */
+async function uploadForm<T>(path: string, file: File): Promise<T> {
   const form = new FormData();
   form.append('file', file);
-  const res = await apiClient.post<ApiResponse<FileRowDto>>(
-    `/files/folders/${folderId}/files`,
-    form,
-    { headers: { 'Content-Type': undefined } },
-  );
-  return toFileItem(res.data.data);
+  const res = await apiClient.post<ApiResponse<T>>(path, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data.data;
 }
 
 /**
@@ -245,19 +275,10 @@ export async function fetchFileMeta(fileId: string): Promise<FileMetaResponseDto
  * 既存ファイルへの新版アップロード（POST /files/files/:id/versions・multipart）→ 追加された行（FileItem）。
  * 同名一致でなくファイル id を着地点にするため、ローカル編集時に OS がリネームしても（"report (1).docx" 等）
  * 別ファイルを誤生成せず、FB-2 版管理の新版として積む（FF お気に入り編集の「DL→編集→再アップ」着地点）。
- * Content-Type を undefined にして multipart 自動生成させるのは uploadFile と同方針。
+ * 送り方は uploadForm と同じ（boundary はブラウザが足す）。
  */
 export async function uploadFileVersion(fileId: string, file: File): Promise<FileItem> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await apiClient.post<ApiResponse<FileRowDto>>(
-    `/files/files/${fileId}/versions`,
-    form,
-    {
-      headers: { 'Content-Type': undefined },
-    },
-  );
-  return toFileItem(res.data.data);
+  return toFileItem(await uploadForm<FileRowDto>(`/files/files/${fileId}/versions`, file));
 }
 
 /**

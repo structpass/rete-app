@@ -7,6 +7,7 @@ import type { PathLink, ShareTarget } from '../lib/types';
 import { buildShareDescription } from '../lib/path-link';
 import { OverlayCloseButton, OverlayDialog } from '@/components/ui/overlay-dialog';
 import { OverlayHeader } from '@/components/ui/overlay-header';
+import { RequiredMark } from '@/components/ui/required-mark';
 import { useFileShare } from '../hooks/use-file-share';
 import { RichTextEditor } from '@/features/desk/components/rich-text-editor';
 import { isRichTextEmpty } from '@/features/desk/lib/validations';
@@ -20,40 +21,57 @@ import { isRichTextEmpty } from '@/features/desk/lib/validations';
  * - task: categoryId が必須のため、サンプル宛先セレクトを実カテゴリ選択に差し替える。
  * focus trap・ESC・背景 inert 隔離は共通部品 OverlayDialog に委譲する（fil-0059/fil-0062）。
  */
-export function SendOverlay({
-  target,
-  links,
-  overflow,
-  onClose,
-}: {
+export interface SendOverlayProps {
   target: ShareTarget;
   /** 既に上限件数に丸めたパス付きリンク。 */
   links: PathLink[];
   /** 上限超過で落とした件数（0 なら注意書きを出さない）。 */
   overflow: number;
   onClose: () => void;
-}) {
-  const { categories, categoriesLoading, categoriesError, submitting, submit } =
-    useFileShare(target);
+  /**
+   * 破棄確認を挟むか（mdl-0034 規約②）。中身（SendOverlayBody）が自前で同じ判定を持つため、
+   * 枠（SendOverlay）へは光らない値を渡す（2 箇所で数えない）。
+   */
+  dirty?: boolean;
+  /** 送信中は閉じる操作を止める。中身が自前の送信状態で止めるので、枠へは false を渡す。 */
+  submitting?: boolean;
+}
+
+export function SendOverlay(props: SendOverlayProps) {
+  return (
+    <OverlayDialog
+      open
+      onClose={() => {
+        if (!props.submitting) props.onClose();
+      }}
+      ariaLabel={props.target === 'task' ? 'タスク共有' : 'チャット共有'}
+      width="min(560px, 92vw)"
+      dirty={props.dirty}
+    >
+      <SendOverlayBody {...props} />
+    </OverlayDialog>
+  );
+}
+
+/**
+ * オーバーレイの中身（見た目と動き）。破棄確認の判定を受け取るのはこの層で、
+ * 枠（OverlayDialog）は外側の SendOverlay に任せる（試験で中身だけを描けるようにする）。
+ */
+export function SendOverlayBody({ target, links, overflow, onClose }: SendOverlayProps) {
+  const {
+    categories,
+    categoriesLoading,
+    categoriesError,
+    categoriesErrorReason,
+    submitting,
+    submit,
+  } = useFileShare(target);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState('');
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
   // 説明（自由記述）は Desk チャット明細と同じ RichTextEditor（Tiptap）で編集する（rete-files-0017）。
   // 値は HTML 文字列。空判定は isRichTextEmpty（<p></p> 等を空とみなす）。
   const [body, setBody] = useState('');
-
-  // 送信中は Esc / backdrop クリックいずれでも閉じない（rete-desk-0161 の挙動を維持）。
-  const handleClose = () => {
-    if (!submitting) onClose();
-  };
-
-  // タイトル・本文・chip の取り外し・カテゴリ選び直し（既定=先頭）のいずれかがある間だけ破棄確認を挟む（mdl-0034 規約②）。
-  const categoryDirty =
-    target === 'task' &&
-    categoryId !== undefined &&
-    categories.length > 0 &&
-    categoryId !== categories[0].id;
-  const dirty = title.trim() !== '' || !isRichTextEmpty(body) || removed.size > 0 || categoryDirty;
 
   // カテゴリ取得後、未選択なら先頭を既定に（タスク共有は categoryId 必須のため空送信を避ける）。
   useEffect(() => {
@@ -91,135 +109,135 @@ export function SendOverlay({
       toast.error('説明が長すぎます（パスと本文を減らしてください）');
       return;
     }
+    // d754: 運ぶ側が遭った理由（権限・上限・宛先の不正など）をそのまま出す。
+    // 一律の「作成に失敗しました」は、直せる理由まで見えなくする（v2-198 と同じ扱い）。
     const created = await submit({ title: t, description, categoryId });
-    if (created) {
+    if (created.ok) {
       toast.success(target === 'task' ? 'タスクを作成しました' : 'チャットスレッドを作成しました');
       onClose();
     } else {
-      toast.error('作成に失敗しました');
+      toast.error(created.reason);
     }
   };
 
   return (
-    <OverlayDialog
-      open
-      onClose={handleClose}
-      ariaLabel={titleText}
-      width="min(560px, 92vw)"
-      dirty={dirty}
-    >
-      <div className="file-overlay-panel">
-        <OverlayHeader
-          icon={<MessageSquare className="h-4 w-4" aria-hidden="true" />}
-          title={titleText}
-        />
-        <div className="file-overlay-body">
-          {target === 'task' && (
-            <label className="fo-field">
-              <span className="fo-label">カテゴリ</span>
-              <select
-                className="fo-input"
-                value={categoryId ?? ''}
-                disabled={categoriesLoading || categories.length === 0}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  // option の value は妥当なカテゴリ id のみだが、空 option / 異常値は undefined に倒す。
-                  setCategoryId(Number.isInteger(v) && v > 0 ? v : undefined);
-                }}
-              >
-                {categoriesLoading ? (
-                  <option value="">読み込み中…</option>
-                ) : categories.length === 0 ? (
-                  <option value="">カテゴリがありません</option>
-                ) : (
-                  categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              {!categoriesLoading && categoriesError && (
-                <span className="fo-field-error">
-                  カテゴリの取得に失敗しました。タスクで共有できません。
-                </span>
-              )}
-              {!categoriesLoading && !categoriesError && categories.length === 0 && (
-                <span className="fo-field-error">
-                  カテゴリがありません。先に Desk でカテゴリを作成してください。
-                </span>
-              )}
-            </label>
-          )}
+    <div className="file-overlay-panel">
+      <OverlayHeader
+        icon={<MessageSquare className="h-4 w-4" aria-hidden="true" />}
+        title={titleText}
+      />
+      <div className="file-overlay-body">
+        {target === 'task' && (
           <label className="fo-field">
-            <span className="fo-label">タイトル</span>
-            <input
+            <span className="fo-label">カテゴリ</span>
+            <select
               className="fo-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={titlePlaceholder}
-              maxLength={500}
-              autoComplete="off"
-            />
+              value={categoryId ?? ''}
+              disabled={categoriesLoading || categories.length === 0}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                // option の value は妥当なカテゴリ id のみだが、空 option / 異常値は undefined に倒す。
+                setCategoryId(Number.isInteger(v) && v > 0 ? v : undefined);
+              }}
+            >
+              {categoriesLoading ? (
+                <option value="">読み込み中…</option>
+              ) : categories.length === 0 ? (
+                <option value="">カテゴリがありません</option>
+              ) : (
+                categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {/* d754: 取得に失敗した理由を捨てず、そのまま出したうえで共有不能を伝える。 */}
+            {!categoriesLoading && categoriesError && (
+              <span className="fo-field-error">
+                {categoriesErrorReason}。タスクで共有できません。
+              </span>
+            )}
+            {!categoriesLoading && !categoriesError && categories.length === 0 && (
+              <span className="fo-field-error">
+                カテゴリがありません。先に Desk でカテゴリを作成してください。
+              </span>
+            )}
           </label>
-          <div className="fo-field">
-            <span className="fo-label">説明</span>
-            {/* 説明コンポーザーは Desk チャット明細のメッセージ入力欄をそのまま流用する（rete-files-0017・
+        )}
+        <label className="fo-field">
+          {/* タイトルはサーバが必須（CreateTaskDto.title = IsNotEmpty）＝正本 comp-form-field の必須バッジを出す。 */}
+          <span className="fo-label">
+            タイトル
+            <RequiredMark />
+          </span>
+          <input
+            className="fo-input"
+            type="text"
+            aria-required="true"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={titlePlaceholder}
+            maxLength={500}
+            autoComplete="off"
+          />
+        </label>
+        <div className="fo-field">
+          <span className="fo-label">説明</span>
+          {/* 説明コンポーザーは Desk チャット明細のメッセージ入力欄をそのまま流用する（rete-files-0017・
                 開発統括指示「チャット明細のメッセージ入力欄をそのまま使って」）。Desk と同じ枠
                 （.desk-global-input-composer）＋書式ツールバー付き RichTextEditor で意匠・操作を一致させる。
                 共有特有のパス付きリンク chip 群はエディタ直上に置く（reply-composer の保留添付チップ行と同型）。 */}
-            <div className="desk-global-input-composer">
-              <div className="fo-links">
-                {shown.map((link) => (
-                  <div key={link.path} className="fo-link">
-                    <span className="fo-link-glyph">
-                      <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    </span>
-                    <span className="fo-link-path">{link.path}</span>
-                    <span className="fo-link-kind">{link.label}</span>
-                    <button
-                      type="button"
-                      className="fo-link-remove"
-                      aria-label="リンクを削除"
-                      onClick={() => setRemoved((prev) => new Set(prev).add(link.path))}
-                    >
-                      <X className="h-3 w-3" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <RichTextEditor
-                value={body}
-                onChange={setBody}
-                ariaLabel="説明"
-                placeholder="確認してほしい点など、補足があれば入力…"
-                minRows={3}
-                onSubmitShortcut={() => void handleSubmit()}
-              />
+          <div className="desk-global-input-composer">
+            <div className="fo-links">
+              {shown.map((link) => (
+                <div key={link.path} className="fo-link">
+                  <span className="fo-link-glyph">
+                    <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  <span className="fo-link-path">{link.path}</span>
+                  <span className="fo-link-kind">{link.label}</span>
+                  <button
+                    type="button"
+                    className="fo-link-remove"
+                    aria-label="リンクを削除"
+                    onClick={() => setRemoved((prev) => new Set(prev).add(link.path))}
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
             </div>
-            {overflow > 0 && (
-              <p className="fo-overflow">
-                選択 {links.length + overflow} 件のうち先頭 {links.length} 件をリンク化しました（1
-                回の送信は {links.length} 件まで）。
-              </p>
-            )}
+            <RichTextEditor
+              value={body}
+              onChange={setBody}
+              ariaLabel="説明"
+              placeholder="確認してほしい点など、補足があれば入力…"
+              minRows={3}
+              onSubmitShortcut={() => void handleSubmit()}
+            />
           </div>
-        </div>
-        <div className="file-overlay-foot">
-          <OverlayCloseButton className="fo-btn-ghost" disabled={submitting}>
-            キャンセル
-          </OverlayCloseButton>
-          <button
-            type="button"
-            className="fo-btn-primary"
-            onClick={handleSubmit}
-            disabled={submitting || taskBlocked}
-          >
-            {submitting ? '送信中…' : '送信'}
-          </button>
+          {overflow > 0 && (
+            <p className="fo-overflow">
+              選択 {links.length + overflow} 件のうち先頭 {links.length} 件をリンク化しました（1
+              回の送信は {links.length} 件まで）。
+            </p>
+          )}
         </div>
       </div>
-    </OverlayDialog>
+      <div className="file-overlay-foot">
+        <OverlayCloseButton className="fo-btn-ghost" disabled={submitting}>
+          キャンセル
+        </OverlayCloseButton>
+        <button
+          type="button"
+          className="fo-btn-primary"
+          onClick={handleSubmit}
+          disabled={submitting || taskBlocked}
+        >
+          {submitting ? '送信中…' : '送信'}
+        </button>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CircleCheckBig,
@@ -84,6 +84,13 @@ function httpStatus(err: unknown): number | undefined {
   return (err as { response?: { status?: number } })?.response?.status;
 }
 
+/**
+ * サーバが「メールが未設定」を返す時の文言（invite.service の isConfigured 判定）。
+ * 503 は送信失敗と同じ番号で返るため、この文言で設定の無い場合だけを切り分ける。
+ */
+const SMTP_NOT_CONFIGURED_MESSAGE =
+  'メールが未設定のため招待を送信できません。SMTP 設定を確認してください';
+
 /** CSV インポートのスキップ理由を日本語に変換（論点4・set-0143: shared union で型付けし値域ズレを機械検出）。 */
 const SKIP_REASON_LABEL: Record<InviteSkipReason, string> = {
   invalid_email: '形式不正',
@@ -117,7 +124,10 @@ function SpaceField({
   return (
     <>
       <div style={{ marginBottom: '0.875rem' }}>
-        <FormLabel htmlFor={`${idPrefix}-space`}>初期 Space（受諾時に参加）</FormLabel>
+        {/* 初期 Space は受諾先なのでサーバが必須（CreateInviteDto.spaceId）＝必須バッジを出す。 */}
+        <FormLabel htmlFor={`${idPrefix}-space`} required>
+          初期 Space（受諾時に参加）
+        </FormLabel>
         <Select value={spaceId} onValueChange={onSpaceChange} disabled={disabled}>
           <SelectTrigger id={`${idPrefix}-space`} className="sp-select-compact">
             <SelectValue placeholder="選択してください" />
@@ -145,6 +155,7 @@ function IssueForm({
   spaceId,
   spaces,
   issuing,
+  error,
   onEmailChange,
   onSpaceChange,
   onIssue,
@@ -154,6 +165,11 @@ function IssueForm({
   spaceId: string;
   spaces: SpaceDto[];
   issuing: boolean;
+  /**
+   * 送信の失敗理由。オーバーレイ表示中は背面が inert + aria-hidden で隔離されるため、
+   * 画面の下の理由は読み上げにも届かない。理由は見ている場所（このフォームの中）へ出す（d535）。
+   */
+  error: string | null;
   onEmailChange: (v: string) => void;
   onSpaceChange: (v: string) => void;
   onIssue: () => void;
@@ -168,10 +184,14 @@ function IssueForm({
     <OverlayDialog open onClose={onCancel} ariaLabel="招待メールを発行" dirty={dirty}>
       <FormCard icon={<Mail className="h-4 w-4" aria-hidden="true" />} title="招待メールを発行">
         <div style={{ marginBottom: '0.875rem' }}>
-          <FormLabel htmlFor="issue-email">招待先メールアドレス</FormLabel>
+          {/* 招待先メールはサーバが必須（CreateInviteDto.email）＝正本 comp-form-field の必須バッジを出す。 */}
+          <FormLabel htmlFor="issue-email" required>
+            招待先メールアドレス
+          </FormLabel>
           <input
             id="issue-email"
             type="email"
+            aria-required="true"
             value={email}
             className="sp-input"
             onChange={(e) => onEmailChange(e.target.value)}
@@ -190,6 +210,11 @@ function IssueForm({
           onSpaceChange={onSpaceChange}
           disabled={issuing}
         />
+        {error && (
+          <p role="alert" className="mt-2 text-sm text-[var(--sp-accent-red)]">
+            {error}
+          </p>
+        )}
         <FormActions>
           <OverlayCancelButton disabled={issuing} />
           <FormButton variant="primary" onClick={onIssue} loading={issuing} disabled={!canIssue}>
@@ -365,6 +390,11 @@ export function InvitesScreen() {
 
   const [invites, setInvites] = useState<InviteDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // 一覧の取得失敗を領域内に残す（d592・正本 ui.ts:109）。toast だけで消すと、0 件と失敗が読み分けられない。
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 発行・再送の失敗も同じ領域に残す（d535）。一覧の読み込み失敗と混ぜないのは、空の一覧の行に
+  // 「招待の読み込みに失敗しました」と出ると、取得の失敗と読めてしまうため（d655）。
+  const [operationError, setOperationError] = useState<string | null>(null);
   /** SMTP 未設定（mail-status configured=false / 503）なら true。発行 UI を graceful に無効化する。 */
   const [smtpDisabled, setSmtpDisabled] = useState(false);
   /** set-0126: SMTP が Mailpit 等のローカル catch-all を指しているか。true の時、開発環境案内バナーを表示。 */
@@ -401,19 +431,54 @@ export function InvitesScreen() {
 
   const { run } = useAsyncAction();
 
+  /**
+   * メール設定の有無を引き直す（初期表示と同じ判定へ寄せる）。
+   * 送信の一時障害と「設定が無い」は同じ 503 で返るため、送信の失敗後は案内を実態に合わせる（d535）。
+   */
+  function refreshMailStatus(after?: (configured: boolean) => void) {
+    void fetchMailStatus()
+      .then((s) => {
+        setSmtpDisabled(!s.configured);
+        setSmtpCatchAll(!!s.catchAll);
+        after?.(!!s.configured);
+      })
+      .catch(() => {
+        // 引き直しに失敗しても画面は止めない（既存の表示をそのまま残す）。
+        // 分からない時に「設定無し」の案内を立てると、実際は送信失敗でもそう読めてしまう。
+        // 案内は立てず、送信失敗として理由を領域内に残す側へ倒す（d535・d687）。
+        after?.(true);
+      });
+  }
+
   // ── 初回ロード（一覧 / SMTP 状態 / GROUP Space）──
   // 一覧(fetchInvites)を主、SMTP/Space を補助とし allSettled で分離する。
   // 補助 API の一時障害が一覧閲覧ごと潰すのを防ぐ（code-review HIGH）。補助が落ちた時は
   // 該当 UI を degraded（選択肢空・SMTP 既定有効扱い）にしつつトーストで警告する。
+  // d659: 取得失敗の表示から再試行できるよう、一覧の取り直しを名付けて初回ロードと再試行の両方から呼ぶ。
+  const loadInvites = useCallback(async (alive: () => boolean) => {
+    setIsLoading(true);
+    try {
+      const list = await fetchInvites();
+      if (alive()) {
+        setInvites(list);
+        setLoadError(null);
+      }
+    } catch {
+      if (alive()) {
+        setLoadError('招待一覧の読み込みに失敗しました');
+        toast.error('招待一覧の読み込みに失敗しました');
+      }
+    } finally {
+      if (alive()) setIsLoading(false);
+    }
+  }, []);
+
   useMountedFetch(
     async (alive) => {
       if (!isAdmin) return; // set-0057: 非 ADMIN はフェッチしない
-      try {
-        const list = await fetchInvites();
-        if (alive()) setInvites(list);
-      } catch {
-        if (alive()) toast.error('招待一覧の読み込みに失敗しました');
-      }
+      // 一覧の取り直し（再試行からも呼ぶ）。補助 API とは分離したまま、一覧の結果を先に描く。
+      await loadInvites(alive);
+      if (!alive()) return;
 
       const [mailRes, spaceRes] = await Promise.allSettled([fetchMailStatus(), fetchGroupSpaces()]);
       if (!alive()) return;
@@ -428,8 +493,6 @@ export function InvitesScreen() {
           '一部の設定情報の取得に失敗しました（招待発行に必要な項目が表示されない場合があります）',
         );
       }
-
-      if (alive()) setIsLoading(false);
     },
     [isAdmin],
   );
@@ -464,20 +527,43 @@ export function InvitesScreen() {
         toast.success(`${email} へ招待メールを送信しました`);
         setIssueOpen(false);
         resetIssueForm();
+        // 失敗表示は、届いた成功で解く（次の再読込まで古い失敗を残さない）。
+        setLoadError(null);
+        setOperationError(null);
+        // 送信の一時障害で立てた「設定が無い」案内も、設定を引き直して解く（d535）。
+        refreshMailStatus();
       },
       {
         onBusyChange: setIssuing,
         onError: (err) => {
           const status = httpStatus(err);
+          const message = extractErrorMessage(err, '招待の発行に失敗しました');
           if (status === 503) {
-            setSmtpDisabled(true);
-            toast.error('メールサーバーが設定されていないため招待を送信できません');
-            setIssueOpen(false);
-            resetIssueForm();
+            // 503 は 2 通り（送信そのものの失敗／設定が無い）。送信の一時障害で案内を立てると
+            // 「設定が無い」と誤って見えるため、案内は設定を引き直してから出す（d535）。
+            // 引き直した結果で約束を決める（先に「設定が無い」と通知すると、実際は送信失敗でも
+            // そう読めてしまう）。
+            refreshMailStatus((configured) => {
+              // 設定が無い／引き直せず分からない時だけ、理由を欄内に出す（フォームは閉じない）。
+              // 閉じると理由の行き先が無い（バナーは出ず、通知が消えると何も残らない・d535）。
+              if (!configured) {
+                setOperationError(
+                  message === SMTP_NOT_CONFIGURED_MESSAGE
+                    ? `${message}（メールサーバーが設定されていません）`
+                    : message,
+                );
+              } else {
+                // 送信そのものの失敗は、成功時と同じ画面（一覧に元の行）に戻るため、
+                // 理由を領域内に残さないと送れたのか分からない。
+                setOperationError(message);
+              }
+            });
           } else if (status === 400) {
             toast.error('このメールアドレスは既に招待中です');
           } else {
-            toast.error(extractErrorMessage(err, '招待の発行に失敗しました'));
+            // 通知は消えるため、理由を領域内にも残す（一覧の読込失敗と同じ扱い・d535）。
+            setOperationError(message);
+            toast.error(message);
           }
         },
       },
@@ -492,17 +578,33 @@ export function InvitesScreen() {
         setInvites((cur) => cur.map((inv) => (inv.id === updated.id ? updated : inv)));
         toast.success('招待メールを再送しました');
         setResendTarget(null);
+        setLoadError(null);
+        setOperationError(null);
+        refreshMailStatus();
       },
       {
         onBusyChange: setActing,
         onError: (err) => {
           const status = httpStatus(err);
+          const message = extractErrorMessage(err, '再送に失敗しました');
           if (status === 503) {
-            setSmtpDisabled(true);
-            toast.error('メールサーバーが設定されていないため招待を送信できません');
             setResendTarget(null);
+            refreshMailStatus((configured) => {
+              // 設定が無い／分からない時も理由を領域内に残す。再送は行の操作でフォームが無く、
+              // 案内を出さないと通知が消えた後に何も残らない（d535）。
+              if (!configured) {
+                setOperationError(
+                  message === SMTP_NOT_CONFIGURED_MESSAGE
+                    ? `${message}（メールサーバーが設定されていません）`
+                    : message,
+                );
+              } else {
+                setOperationError(message);
+              }
+            });
           } else {
-            toast.error(extractErrorMessage(err, '再送に失敗しました'));
+            setOperationError(message);
+            toast.error(message);
           }
         },
       },
@@ -656,6 +758,15 @@ export function InvitesScreen() {
           インポート/サンプル/招待のボタンが表の右端から外れて宙に浮く（実測 393px ずれ）。
           アクション行と TableCard を同じ max-width の枠へ入れて右端を揃える（実測: 自然幅721px・700px で折り返しなし）。 */}
       <div style={{ maxWidth: 760 }}>
+        {/* 発行・再送の失敗は、一覧の取得失敗（0 件の行に出す）と書き分ける。一覧が空のままだと理由が
+            どこにも残らないため、操作バーの下に出す（d535 の「領域内に理由を残す」・d655）。 */}
+        {/* 発行フォームが開いている間は、同じ理由をフォームの中に出す（背面は inert で隔離され、
+            読み上げにも届かない）。二重に出さないため、ここはフォームが閉じている時だけ（d535）。 */}
+        {operationError && !issueOpen && (
+          <p role="alert" className="mt-2 text-sm text-[var(--sp-accent-red)]">
+            {operationError}
+          </p>
+        )}
         <ListActionRow>
           {/* 隠し file input（CSV インポート・設定フォームの「選択」から起動） */}
           <input
@@ -789,12 +900,20 @@ export function InvitesScreen() {
                 isLoading={isLoading}
                 empty={rows.length === 0}
                 emptyLabel={search ? '招待が見つかりませんでした' : '招待がありません'}
+                // 取得失敗は「見つかりませんでした」（0 件の文言）へ落とさない（空一覧と区別する表示）。
+                errorLabel={loadError ? '招待一覧の読み込みに失敗しました' : null}
+                onRetry={() => void loadInvites(() => true)}
               />
             </tbody>
           </table>
 
           <Pagination
-            total={`全 ${rows.length} 件 (招待中 ${rowsPending} / 期限切れ ${rowsExpired})`}
+            // 取得に失敗した時に「全 0 件」と出すと、本当に 0 件の一覧と読み分けられない（メンバー・操作ログと同じ扱い）。
+            total={
+              loadError
+                ? '全 — 件'
+                : `全 ${rows.length} 件 (招待中 ${rowsPending} / 期限切れ ${rowsExpired})`
+            }
           />
         </TableCard>
       </div>
@@ -806,6 +925,7 @@ export function InvitesScreen() {
           spaceId={issueSpaceId}
           spaces={spaces}
           issuing={issuing}
+          error={issueOpen ? operationError : null}
           onEmailChange={setIssueEmail}
           onSpaceChange={setIssueSpaceId}
           onIssue={handleIssue}

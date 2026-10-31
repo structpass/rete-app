@@ -48,6 +48,8 @@ export class MembersController {
   // ':id' より前に宣言する（'export' を UUID パラメータとして拾わせないため）。
   // export は findAll + 全件 CSV 文字列展開とコスト高のため、
   // list（グローバル制限のみ）より厳しい個別 @Throttle を付与する（ST-6 audit export の 5/60s と境界揃え・rete-settings-0018）。
+  // 読み取りでも一覧（メールアドレスを含む）を持ち出す操作だが、記録は横断 interceptor が担う
+  // （audit-log.interceptor の GET_EXPORT_PATHS・d534）。ここで記録すると二重になる。
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Get('export')
   @ApiOperation({ summary: 'メンバー一覧 CSV エクスポート（UTF-8 BOM・ADMIN 限定）' })

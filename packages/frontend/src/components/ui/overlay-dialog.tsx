@@ -87,7 +87,8 @@ export function OverlayCloseButton(
   return <button type="button" {...props} onClick={requestClose} />;
 }
 
-export interface OverlayDialogProps {
+// 利用側は Props 型を取り込まず components だけを使う（公開面の使われない型は出さない・d611）。
+interface OverlayDialogProps {
   /** 表示状態。false で何も描画しない。 */
   open: boolean;
   /** 背景クリック・ESC・閉じる操作で呼ばれる。 */

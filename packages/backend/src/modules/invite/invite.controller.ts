@@ -7,9 +7,11 @@ import {
   Header,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   Res,
   UploadedFile,
   UseFilters,
@@ -17,11 +19,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { ApiConsumes, ApiOperation, ApiParam, ApiProduces, ApiTags } from '@nestjs/swagger';
 import { Role } from '@rete/shared';
 import { UploadErrorFilter } from '../../common/filters';
+import { clientIp, clientUserAgent } from '../../common/net/client-ip';
 import { InviteService } from './invite.service';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
@@ -30,6 +33,8 @@ import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuditRecorderService } from '../audit-logs/audit-recorder.service';
+import { AUDIT_RETE_SYSTEM_NAME } from '../audit-logs/audit-logs.constants';
 
 /**
  * 招待 CSV 取り込みの容量上限（multipart 層・1 MB）。
@@ -55,7 +60,12 @@ const INVITE_CSV_MAX_BYTES = 1024 * 1024;
 @ApiTags('invites')
 @Controller('invites')
 export class InviteController {
-  constructor(private readonly service: InviteService) {}
+  private readonly logger = new Logger(InviteController.name);
+
+  constructor(
+    private readonly service: InviteService,
+    private readonly auditRecorder: AuditRecorderService,
+  ) {}
 
   // -----------------------------------------------------------------------
   // ADMIN 管理系（AuthenticatedGuard + RolesGuard(ADMIN) で保護）
@@ -156,12 +166,36 @@ export class InviteController {
    * 招待受諾（未ログインユーザーが招待リンクから実行）。
    * login と同等の throttle（5/60s）でブルートフォース抑制。
    * 全失敗ケースは曖昧なエラー（列挙防止）。
+   *
+   * 記録（d559）: この経路は認証前のため横断の操作ログ interceptor の対象外。受諾でアカウントが
+   * できた事実は、作成された当人を actor にして actionType='create' で明示記録する（login と同型）。
+   * 失敗（4xx）は operational-policy §6 の方針どおり記録しない。
    */
   @Post('accept')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: '招待受諾（公開・throttle 付き・token 照合 + Account 作成）' })
-  accept(@Body() dto: AcceptInviteDto) {
-    return this.service.accept(dto.token, dto.name, dto.password);
+  async accept(@Body() dto: AcceptInviteDto, @Req() req: Request) {
+    const { accepted, response } = await this.service.accept(dto.token, dto.name, dto.password);
+    // best-effort（recorder は reject しない・§3 止めない側）。
+    void this.auditRecorder
+      .record({
+        actorAccountId: accepted.accountId,
+        actorName: dto.name,
+        actorEmail: accepted.email,
+        systemId: null,
+        systemName: AUDIT_RETE_SYSTEM_NAME,
+        actionType: 'create',
+        feature: '招待',
+        summary: '招待を受諾してアカウントを作成しました',
+        ipAddress: clientIp(req),
+        userAgent: clientUserAgent(req),
+      })
+      .catch((err: unknown) => {
+        // recorder 内部 catch の漏れに備えたフォールバック。
+        const detail = err instanceof Error ? err.message : String(err);
+        this.logger.error(`InviteController: audit record failed: ${detail}`);
+      });
+    return response;
   }
 }

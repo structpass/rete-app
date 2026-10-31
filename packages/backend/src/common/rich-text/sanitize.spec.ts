@@ -5,6 +5,10 @@ import { sanitizeRichText } from './sanitize';
  * 許可書式が保たれること、リンクが安全化されることを検証する。
  */
 describe('sanitizeRichText', () => {
+  it('discarded iframe fallback is bounded while ordinary rich text remains intact', () => {
+    expect(() => sanitizeRichText('<iframe>'.repeat(2500))).not.toThrow();
+    expect(sanitizeRichText('<p><strong>本文</strong></p>')).toBe('<p><strong>本文</strong></p>');
+  });
   it('null / undefined / 空はそのまま素通しする', () => {
     expect(sanitizeRichText(null)).toBeNull();
     expect(sanitizeRichText(undefined)).toBeUndefined();

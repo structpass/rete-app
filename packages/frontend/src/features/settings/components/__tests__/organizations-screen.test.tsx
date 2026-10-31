@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { flush } from '@/test-utils/flush';
-import { SpaceKind, type OrganizationDto, type ProjectDto, type SpaceDto } from '@rete/shared';
+import { makeOrganizationDto, makeProjectDto, makeSpaceDto } from '@/test-utils/fixtures';
+import type { OrganizationDto } from '@rete/shared';
 import { OrganizationsScreen } from '../organizations-screen';
 
 // ── API モック ──
@@ -57,44 +58,17 @@ vi.mock('@/components/ui/overlay-dialog', () => {
   };
 });
 
-// ── フィクスチャ ──
-const org = (over: Partial<OrganizationDto> = {}): OrganizationDto => ({
-  id: 'org-1',
-  name: 'Acme',
-  sortOrder: 1,
-  archived: false,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-  ...over,
+// ── フィクスチャ（d596: 組織の組み立ては test-utils/fixtures が正本）──
+const org1 = makeOrganizationDto({ id: 'org-1', name: 'Acme' });
+const org2 = makeOrganizationDto({ id: 'org-2', name: 'Beta', archived: true });
+
+const project1 = makeProjectDto({
+  id: 'project-1',
+  name: 'Project One',
+  canManageChannels: true,
 });
 
-const org1 = org({ id: 'org-1', name: 'Acme' });
-const org2 = org({ id: 'org-2', name: 'Beta', archived: true });
-
-const project1: ProjectDto = {
-  id: 'project-1',
-  organizationId: 'org-1',
-  name: 'Project One',
-  sortOrder: 1,
-  archived: false,
-  canManageChannels: true,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-};
-
-const channel1: SpaceDto = {
-  id: 'channel-1',
-  kind: SpaceKind.CHANNEL,
-  projectId: 'project-1',
-  ownerId: null,
-  peerAccountId: null,
-  name: 'Channel One',
-  sortOrder: 1,
-  archived: false,
-  canManageMembers: false,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-};
+const channel1 = makeSpaceDto({ id: 'channel-1', projectId: 'project-1', name: 'Channel One' });
 
 /** 絞り込みチップ（状態）の選択肢を選ぶ。チップを開いてから option をクリックする。 */
 function selectArchiveFilter(label: '有効のみ' | 'アーカイブ済も表示') {
@@ -147,7 +121,7 @@ describe('OrganizationsScreen', () => {
   });
 
   it('組織作成ダイアログで組織を作成できる', async () => {
-    const created = org({ id: 'org-new', name: 'New Org' });
+    const created = makeOrganizationDto({ id: 'org-new', name: 'New Org' });
     orgsApi.createOrganization.mockResolvedValue(created);
     await renderScreen();
     fireEvent.click(screen.getByLabelText('組織を追加'));
@@ -161,7 +135,7 @@ describe('OrganizationsScreen', () => {
   });
 
   it('改名ダイアログで組織名を変更できる', async () => {
-    const updated = org({ id: 'org-1', name: 'Acme Renamed' });
+    const updated = makeOrganizationDto({ id: 'org-1', name: 'Acme Renamed' });
     orgsApi.adminUpdateOrganization.mockResolvedValue(updated);
     await renderScreen();
     fireEvent.click(screen.getByLabelText('Acme を改名'));
@@ -203,7 +177,7 @@ describe('OrganizationsScreen', () => {
 
   it('アーカイブ済組織を復元できる', async () => {
     orgsApi.adminUpdateOrganization.mockResolvedValue({ ...org2, archived: false });
-    const restored = org({ id: 'org-2', name: 'Beta', archived: false });
+    const restored = makeOrganizationDto({ id: 'org-2', name: 'Beta', archived: false });
     orgsApi.fetchOrganizationsAdmin
       .mockResolvedValueOnce([org1, org2])
       .mockResolvedValueOnce([org1, restored]);
@@ -347,7 +321,7 @@ describe('OrganizationsScreen', () => {
   });
 
   it('検索中に組織を追加すると検索語が解除され、追加した組織が一覧に見える', async () => {
-    const created = org({ id: 'org-new', name: 'New Org' });
+    const created = makeOrganizationDto({ id: 'org-new', name: 'New Org' });
     orgsApi.createOrganization.mockResolvedValue(created);
     await renderScreen();
     fireEvent.change(screen.getByLabelText('組織名で検索...'), { target: { value: 'Acme' } });
@@ -400,5 +374,16 @@ describe('OrganizationsScreen', () => {
     fireEvent.click(screen.getByText(/^(保存|追加)$/));
     await flush();
     expect(toast.error).toHaveBeenCalled();
+  });
+
+  it('組織一覧の取得失敗は領域内 role="alert" に残し、0件文言と区別する（v2-410）', async () => {
+    orgsApi.fetchOrganizationsAdmin.mockRejectedValue(new Error('Server Error'));
+    await renderScreen();
+
+    const orgPane = within(screen.getByRole('region', { name: '組織一覧' }));
+    await waitFor(() => expect(orgPane.getByRole('alert')).toBeInTheDocument());
+    expect(orgPane.getByText('組織の取得に失敗しました')).toBeInTheDocument();
+    // 取得失敗（toast だけにしない・正本 ui.ts:109）
+    expect(orgPane.queryByText('組織がありません')).not.toBeInTheDocument();
   });
 });

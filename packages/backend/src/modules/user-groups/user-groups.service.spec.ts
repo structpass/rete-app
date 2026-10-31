@@ -67,11 +67,30 @@ describe('UserGroupsService', () => {
     it('repo.create を呼び監査を記録して DTO を返す', async () => {
       mockRepo.create.mockResolvedValue(row());
       const result = await service.create({ name: '営業グループ' }, REQUESTER, {});
-      expect(mockRepo.create).toHaveBeenCalledWith('営業グループ');
+      expect(mockRepo.create).toHaveBeenCalledWith('営業グループ', {});
       expect(mockAudit.record).toHaveBeenCalledWith(
         expect.objectContaining({ actionType: 'create', feature: '管理グループ' }),
       );
       expect(result.name).toBe('営業グループ');
+    });
+
+    it('Home の設定値を repo.create へ渡す（正本に無いキーは捨てる）', async () => {
+      mockRepo.create.mockResolvedValue(row());
+      await service.create(
+        {
+          name: '営業グループ',
+          canEditHomeBoard: true,
+          canManageHomeTags: false,
+          ...({ グループ名: '細工' } as Record<string, unknown>),
+        },
+        REQUESTER,
+        {},
+      );
+
+      expect(mockRepo.create).toHaveBeenCalledWith('営業グループ', {
+        canEditHomeBoard: true,
+        canManageHomeTags: false,
+      });
     });
   });
 
@@ -88,7 +107,7 @@ describe('UserGroupsService', () => {
         expect.objectContaining({
           actionType: 'update',
           summary: '管理グループを更新（新名称）',
-          details: { groupId: 'grp-1', name: '新名称' },
+          details: { groupId: 'grp-1', name: '新名称', before: {}, after: {} },
         }),
       );
     });
@@ -99,6 +118,43 @@ describe('UserGroupsService', () => {
         service.update('grp-x', { name: '新名称' }, REQUESTER, {}),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(mockRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('Home の設定値は現れた分だけ書き、監査に前後の設定値を残す', async () => {
+      mockRepo.update.mockResolvedValue(row());
+      mockRepo.findById
+        .mockResolvedValueOnce(row({ canEditHomeBoard: false, canEditHomeFaq: false }))
+        .mockResolvedValueOnce(row({ canEditHomeBoard: true, canEditHomeFaq: false }));
+
+      await service.update('grp-1', { canEditHomeBoard: true }, REQUESTER, {});
+
+      // 入力に現れていない設定値（canEditHomeFaq）は送らない（DB の今の値が残る）。
+      expect(mockRepo.update).toHaveBeenCalledWith('grp-1', { canEditHomeBoard: true });
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'update',
+          details: {
+            groupId: 'grp-1',
+            name: '営業グループ',
+            before: { canEditHomeBoard: false, canEditHomeFaq: false },
+            after: { canEditHomeBoard: true, canEditHomeFaq: false },
+          },
+        }),
+      );
+    });
+
+    it('正本に無いキーは保存へ回さない', async () => {
+      mockRepo.update.mockResolvedValue(row());
+      mockRepo.findById.mockResolvedValueOnce(row()).mockResolvedValueOnce(row());
+
+      await service.update(
+        'grp-1',
+        { グループ名: '細工' } as unknown as UpdateUserGroupDto,
+        REQUESTER,
+        {},
+      );
+
+      expect(mockRepo.update).toHaveBeenCalledWith('grp-1', {});
     });
   });
 

@@ -1,3 +1,4 @@
+import type { HomeGroupPermissions } from './home-permissions';
 /**
  * CM-2 マルチユーザー / 組織モデル（管理対象3層）の共有型・SSOT。
  * 設計正本: docs/discover/specs/2026-06-14-cm2-org-model-design.md / ADR 0037。
@@ -184,7 +185,7 @@ export interface UpdateMembershipRoleInput {
 // ============================================================
 
 /** ユーザーグループ 1 件の Response 形。 */
-export interface UserGroupDto {
+export interface UserGroupDto extends Partial<HomeGroupPermissions> {
   id: string;
   name: string;
   sortOrder: number;
@@ -195,12 +196,12 @@ export interface UserGroupDto {
 }
 
 /** ユーザーグループ作成入力（システム ADMIN のみ）。 */
-export interface CreateUserGroupInput {
+export interface CreateUserGroupInput extends Partial<HomeGroupPermissions> {
   name: string;
 }
 
 /** ユーザーグループ更新入力（部分更新・システム ADMIN のみ）。 */
-export interface UpdateUserGroupInput {
+export interface UpdateUserGroupInput extends Partial<HomeGroupPermissions> {
   name?: string;
 }
 

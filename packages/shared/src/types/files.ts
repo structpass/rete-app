@@ -166,6 +166,26 @@ export interface FileMetaResponseDto {
 }
 
 /**
+ * 構造参照の解決結果 1 件（GET /files/refs・FL+1）。参照ノード（data-id）の解決に使う。
+ * 返すのは**可視かつ存在する対象だけ**（不在・非可視・削除済み・失効は配列に現れない・設計 §2.3）。
+ */
+export interface FileRefResolutionDto {
+  id: string;
+  kind: 'file' | 'folder';
+  /** ルートからの全パンくずを `＞` で連結した現在のパス表記（移動・改名に追従する）。 */
+  path: string;
+  /** 遷移に使う親フォルダ id（ファイルは所属フォルダ・フォルダは自身の親。ルート直下は null）。 */
+  parentFolderId: string | null;
+  /** 帰属 Space（参照先 Space への切替に使う・設計 §5.2）。 */
+  spaceId: string;
+}
+
+/** GET /files/refs のレスポンス本体（可視の対象だけ・設計 §2.3）。 */
+export interface FileRefResolveResponseDto {
+  items: FileRefResolutionDto[];
+}
+
+/**
  * 設定タブの Response DTO（cmn-0216 で集約）。BigInt（maxSizeBytes）は mapper で Number 化して載せる。
  * 未設定時は app 既定（DEFAULT_MAX_SIZE_BYTES / 全許可 / 固定の拒否拡張子 / 既定の追加拒否拡張子）を返す。
  * backend は同名 `FileSettingsResponseDto` を shared 型の別名として再公開する（cmn-0198 / cmn-0211 と同方針）。

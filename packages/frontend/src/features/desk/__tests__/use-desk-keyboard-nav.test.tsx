@@ -99,12 +99,12 @@ function press(key: string, opts: KeyboardEventInit = {}) {
 
 function harness(): Harness {
   return {
-    openThread: vi.fn(),
-    openTaskDetail: vi.fn(),
-    closeLeft: vi.fn(),
-    closeRight: vi.fn(),
-    setActiveTheme: vi.fn(),
-    setActiveTask: vi.fn(),
+    openThread: vi.fn<DeskKeyboardNavArgs['openThread']>(),
+    openTaskDetail: vi.fn<DeskKeyboardNavArgs['openTaskDetail']>(),
+    closeLeft: vi.fn<DeskKeyboardNavArgs['closeLeft']>(),
+    closeRight: vi.fn<DeskKeyboardNavArgs['closeRight']>(),
+    setActiveTheme: vi.fn<DeskKeyboardNavArgs['setActiveTheme']>(),
+    setActiveTask: vi.fn<DeskKeyboardNavArgs['setActiveTask']>(),
   };
 }
 

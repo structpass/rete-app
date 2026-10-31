@@ -28,6 +28,15 @@ interface ReplyComposerProps {
    * 入力欄を初期化するだけ＝× / ESC の「閉じる」とは別経路 / rete-desk-0165・0166）。
    */
   requestDiscard?: (dirty: boolean, proceed: () => void) => void;
+  /**
+   * 上位が保持する書きかけ本文（テーマごとの下書き / d737）。指定時は value 制御にし、入力は
+   * onChangeBody で上位へ返す。上位がテーマ切替（key の付け替え）でアンマウントしても書きかけは
+   * 上位に残り、戻った時に復元される。**保留添付はこの欄に残らない**（アンマウントで消える）。
+   */
+  value?: string;
+  onChangeBody?: (body: string) => void;
+  /** 送信に成功した時（保留添付の添付後）に呼ぶ。上位が保持する書きかけを捨てる（d737）。 */
+  onSent?: () => void;
 }
 
 /** チャット詳細スレッド（右オーバーレイ）下部の返信入力欄。Ctrl/Cmd+Enter で送信。 */
@@ -36,8 +45,14 @@ export function ReplyComposer({
   accounts,
   onDirtyChange,
   requestDiscard,
+  value,
+  onChangeBody,
+  onSent,
 }: ReplyComposerProps) {
-  const [body, setBody] = useState('');
+  // 上位が書きかけを保持する時は value 制御（d737）、未指定なら従来どおり自前で持つ。
+  const [innerBody, setInnerBody] = useState('');
+  const body = value ?? innerBody;
+  const setBody = onChangeBody ?? setInnerBody;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingAttachments = usePendingAttachments();
@@ -50,7 +65,8 @@ export function ReplyComposer({
     onDirtyChange?.(dirty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty]);
-  // アンマウント時は dirty=false を報告し、閉じた後（or テーマ切替で remount）の誤発火を防ぐ安全網。
+  // アンマウント時は dirty=false を報告し、閉じた後の誤発火を防ぐ安全網（テーマ切替の remount でも通るが、
+  // 上位はテーマごとの書きかけ基準で dirty を報告し直す / d737）。
   useEffect(() => {
     return () => onDirtyChange?.(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,6 +109,8 @@ export function ReplyComposer({
       );
       setBody('');
       pendingAttachments.clear();
+      // 送信成功で書きかけの保持も捨てる（上位がテーマごとに保持している / d737）。
+      onSent?.();
     } catch {
       setError('返信の送信に失敗しました');
     } finally {

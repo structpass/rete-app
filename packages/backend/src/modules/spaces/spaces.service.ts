@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Role, SpaceKind } from '@rete/shared';
-import { Prisma } from '@prisma/client';
+import { withUniqueConflictMessage } from '../../common/filters/unique-conflict-context';
 import { ok } from '../../common/dto';
 import { buildArchiveUpdate } from '../../common/services/container.helper';
 import { SpacesRepository } from './repositories/spaces.repository';
@@ -103,34 +103,30 @@ export class SpacesService {
   }
 
   private async createPersonalDm(dto: CreateSpaceDto, userId: string) {
-    if (!dto.peerAccountId) {
+    const { peerAccountId } = dto;
+    if (!peerAccountId) {
       throw new BadRequestException('PERSONAL_DM には peerAccountId が必要です');
     }
     // 自分自身との DM は不可（1:1 は別人前提・self-DM ガード / rete-common-0011）。
-    if (dto.peerAccountId === userId) {
+    if (peerAccountId === userId) {
       throw new BadRequestException('自分自身との DM は作成できません');
     }
     // peerAccountId の実在確認（存在しない/削除済み ID での不正な DM 作成を防ぐ / cmn-0074）。
-    const peer = await this.accountRepo.findById(dto.peerAccountId);
+    const peer = await this.accountRepo.findById(peerAccountId);
     if (!peer) {
       throw new NotFoundException('相手のアカウントが見つかりません');
     }
     // 無向ペア重複防止（ADR 0037 §2、事前チェック）
-    const existing = await this.spaceRepo.findExistingDm(userId, dto.peerAccountId);
+    const existing = await this.spaceRepo.findExistingDm(userId, peerAccountId);
     if (existing) {
       throw new ConflictException('この相手との DM は既に存在します');
     }
-    // 事前チェックと作成の間の並行 race で unique 制約（P2002）に落ちた場合も同じ Conflict へ収束させる
-    // （二重防御 / §4 エラー一元化の意図的な例外・cmn-0074、chat.service.ts:265-273 と同型）。
-    try {
-      const space = await this.spaceRepo.createPersonalDm(userId, dto.peerAccountId);
-      return ok(toSpaceDto(space));
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('この相手との DM は既に存在します');
-      }
-      throw e;
-    }
+    // 並行作成の一意制約違反も、案内文を保って共通filterへ委譲する。
+    const space = await withUniqueConflictMessage(
+      () => this.spaceRepo.createPersonalDm(userId, peerAccountId),
+      'この相手との DM は既に存在します',
+    );
+    return ok(toSpaceDto(space));
   }
 
   /**
@@ -154,18 +150,7 @@ export class SpacesService {
   ) {
     if (kind === SpaceKind.CHANNEL) {
       if (!projectId) throw new BadRequestException('CHANNEL 一覧には projectId が必要です');
-      // 可視範囲＝器のメンバーシップ1階層。CHANNEL は親 PROJECT membership で可視。
-      // 非メンバーにはチャネルの存在ごと見せない（ADR 0037 §4.2）。
-      const membership = await this.membershipRepo.findEffectiveMembership(
-        userId,
-        'PROJECT',
-        projectId,
-      );
-      if (!membership) {
-        throw new ForbiddenException('このプロジェクトのチャネルを閲覧する権限がありません');
-      }
-      const spaces = await this.spaceRepo.findChannelsByProject(projectId, includeArchived);
-      return ok(spaces.map((row) => toSpaceDto(row)));
+      return this.findVisibleChannels(userId, projectId, includeArchived);
     }
     if (kind === SpaceKind.GROUP) {
       const spaces = await this.spaceRepo.findGroupsForUser(userId);
@@ -211,6 +196,39 @@ export class SpacesService {
     // kind 未指定: 可視 space ID のみ返す（全詳細は N+1 になるため ID リストに留める）
     const ids = await this.visibilityService.resolveVisibleSpaceIds(userId);
     return ok(ids);
+  }
+
+  private async findVisibleChannels(userId: string, projectId: string, includeArchived?: boolean) {
+    // 閲覧は親 PROJECT / ORGANIZATION の実効所属、または直接 CHANNEL の可視性を
+    // 加算する（ADR 0037 / 0075）。作成・更新の PROJECT ADMIN 条件とは分ける。
+    const membership = await this.membershipRepo.findEffectiveMembership(
+      userId,
+      'PROJECT',
+      projectId,
+    );
+    if (!membership) {
+      const project = await this.projectRepo.findById(projectId);
+      const orgMembership = project
+        ? await this.membershipRepo.findEffectiveMembership(
+            userId,
+            'ORGANIZATION',
+            project.organizationId,
+          )
+        : null;
+      if (!orgMembership) {
+        // 直接 CHANNEL の所属だけなら、同じ PJ の兄弟チャネルを返さない。
+        // 可視集合は非アーカイブのみ。includeArchived でこの境界を広げない。
+        const visibleIds = new Set(await this.visibilityService.resolveVisibleSpaceIds(userId));
+        const channels = await this.spaceRepo.findChannelsByProject(projectId);
+        const visibleChannels = channels.filter((space) => visibleIds.has(space.id));
+        if (visibleChannels.length === 0) {
+          throw new ForbiddenException('このプロジェクトのチャネルを閲覧する権限がありません');
+        }
+        return ok(visibleChannels.map((row) => toSpaceDto(row)));
+      }
+    }
+    const spaces = await this.spaceRepo.findChannelsByProject(projectId, includeArchived);
+    return ok(spaces.map((row) => toSpaceDto(row)));
   }
 
   /**

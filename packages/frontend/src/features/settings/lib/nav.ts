@@ -1,5 +1,6 @@
 import {
   Building2,
+  CalendarDays,
   FileText,
   LogIn,
   Network,
@@ -67,6 +68,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     label: 'テナント',
     items: [
+      {
+        key: 'calendar-holidays',
+        label: '祝日設定',
+        href: '/settings/calendar-holidays',
+        icon: CalendarDays,
+        adminOnly: true,
+      },
       {
         key: 'tenant-settings',
         label: 'テナント設定',

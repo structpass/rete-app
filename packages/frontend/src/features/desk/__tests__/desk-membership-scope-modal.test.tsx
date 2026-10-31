@@ -158,6 +158,18 @@ describe('DeskMembershipScopeModal（dsk-0309・共通メンバー管理モー�
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  it('Escape でモーダル本体が閉じること（Esc の持ち主は共通 OverlayDialog 1つ）', async () => {
+    membershipsApi.fetchMemberships.mockResolvedValue([ms1]);
+    const { onClose } = await renderModal();
+
+    // Esc は共通 OverlayDialog（パネルの onKeyDown）が受け、desk-shell の一括クローズへは伝播しない。
+    // 局所の document capture リスナーを併設すると、ここで二重に閉じて後ろのペインまで閉じる。
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('削除確認ダイアログ表示中は Escape でモーダル本体が閉じないこと（dsk-0329 項目3）', async () => {
     membershipsApi.fetchMemberships.mockResolvedValue([ms1]);
     const { onClose } = await renderModal();
@@ -166,8 +178,7 @@ describe('DeskMembershipScopeModal（dsk-0309・共通メンバー管理モー�
     fireEvent.click(screen.getByRole('button', { name: '田中 太郎 を削除' }));
     await screen.findByRole('alertdialog');
 
-    // Escape 押下。本モーダルの capture ハンドラは removeTarget !== null で no-op となり、
-    // ConfirmDialog だけが閉じる（AlertDialog 側の標準挙動）。onClose は呼ばれない。
+    // Escape 押下は ConfirmDialog（AlertDialog）が受理して閉じる。本モーダルへは届かない（onClose は呼ばれない）。
     await act(async () => {
       fireEvent.keyDown(document, { key: 'Escape' });
     });

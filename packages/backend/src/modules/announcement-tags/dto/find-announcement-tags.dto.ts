@@ -1,6 +1,6 @@
 import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { ANNOUNCEMENT_KINDS, AnnouncementKind } from '@rete/shared';
+import { HOME_TAG_KINDS, HomeTagKind } from '@rete/shared';
 
 /** query のブールパラメータを正規化する（`?k=true` のみ true、未指定/その他は undefined）。 */
 const toBoolean = ({ value }: { value: unknown }): boolean | undefined => {
@@ -14,8 +14,8 @@ const toBoolean = ({ value }: { value: unknown }): boolean | undefined => {
  */
 export class FindAnnouncementTagsDto {
   @IsOptional()
-  @IsIn(ANNOUNCEMENT_KINDS)
-  kind?: AnnouncementKind = 'board';
+  @IsIn(HOME_TAG_KINDS)
+  kind?: HomeTagKind = 'board';
 
   @IsOptional()
   @Transform(toBoolean)

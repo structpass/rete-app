@@ -519,7 +519,12 @@ export class TasksService {
     // 兄弟挿入（afterTaskId 指定）時: client が渡す drop データを信頼せず基準兄弟を独立検証する。
     // sibling モードで解決される親（トップレベルは null）。dto.parentTaskId 未指定は null とみなす。
     if (dto.afterTaskId !== undefined) {
-      await this.assertSiblingInTargetGroup(dto.afterTaskId, categoryId, dto.parentTaskId ?? null);
+      await this.assertSiblingInTargetGroup(
+        dto.afterTaskId,
+        categoryId,
+        dto.parentTaskId ?? null,
+        spaceId,
+      );
     }
 
     const data: Prisma.TaskCreateInput = {
@@ -547,6 +552,7 @@ export class TasksService {
     };
 
     const ctx: SortOrderContext = {
+      spaceId,
       categoryId,
       parentTaskId: dto.parentTaskId ?? null,
       ...(dto.afterTaskId !== undefined && { afterTaskId: dto.afterTaskId }),
@@ -575,9 +581,10 @@ export class TasksService {
     afterTaskId: number,
     categoryId: number | null,
     parentTaskId: number | null,
+    spaceId: string,
   ): Promise<void> {
     const sibling = await this.repo.findById(afterTaskId);
-    if (!sibling) {
+    if (!sibling || (sibling.spaceId ?? DEFAULT_CHANNEL_ID) !== spaceId) {
       throw new NotFoundException('Sibling task not found');
     }
     if (sibling.categoryId !== categoryId || sibling.parentTaskId !== parentTaskId) {
@@ -762,7 +769,7 @@ export class TasksService {
    *
    * TOCTOU: 構造検証（findById / getAncestorIds / getSubtreeHeight）は tx 外で走る。並行ドロップでの
    * 検証-適用間の不整合は単一ユーザー MVP の既知制約（createWithSortOrder / moveTask と同水準）。
-   * 検証を tx 内へ移す改修はしない（create と非対称な負債を作らないため）。
+   * Space と親・兄弟の整合は Repository が保存 tx 内でも再検証する。
    */
   async move(id: number, dto: MoveTaskDto, user?: OwnerCheckUser) {
     // accountId は user.id 由来。内部経路（user 未指定）は基盤メソッド側でスキップ。
@@ -863,7 +870,11 @@ export class TasksService {
 
       // 4. 移動先 parent の存在検証。
       const parent = await this.repo.findById(dto.parentTaskId);
-      if (!parent) {
+      if (
+        !parent ||
+        (parent.spaceId ?? DEFAULT_CHANNEL_ID) !==
+          (nextSpaceId ?? task.spaceId ?? DEFAULT_CHANNEL_ID)
+      ) {
         throw new NotFoundException('Parent task not found');
       }
 
@@ -889,10 +900,16 @@ export class TasksService {
     // 7. 兄弟挿入（afterTaskId 指定）時: create と同じく基準兄弟を独立検証する（指摘[1] / §3）。
     // 兄弟グループの判定にも実効カテゴリ（クロス Space 移動でリセット済みなら null）を使う。
     if (dto.afterTaskId !== null) {
-      await this.assertSiblingInTargetGroup(dto.afterTaskId, effectiveCategoryId, dto.parentTaskId);
+      await this.assertSiblingInTargetGroup(
+        dto.afterTaskId,
+        effectiveCategoryId,
+        dto.parentTaskId,
+        nextSpaceId ?? task.spaceId ?? DEFAULT_CHANNEL_ID,
+      );
     }
 
     const moved = await this.repo.moveTask(id, {
+      expectedSpaceId: target.spaceId ?? DEFAULT_CHANNEL_ID,
       parentTaskId: dto.parentTaskId,
       categoryId: effectiveCategoryId,
       afterTaskId: dto.afterTaskId,

@@ -98,6 +98,58 @@ describe('FilesRepository', () => {
     });
   });
 
+  describe('findRefTargets / findRefAncestors（構造参照 fil-0163・d688）', () => {
+    it('id 空なら DB を叩かず空の folders / files を返す', async () => {
+      await expect(repo.findRefTargets([])).resolves.toEqual({ folders: [], files: [] });
+      expect(mockPrisma.folder.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.file.findMany).not.toHaveBeenCalled();
+    });
+
+    it('フォルダとファイルを別々に、パス組み立てに要る欄だけ select して引く', async () => {
+      mockPrisma.folder.findMany.mockResolvedValue([
+        { id: 'folder-1', name: '資料', parentFolderId: null, spaceId: 'space-1' },
+      ]);
+      mockPrisma.file.findMany.mockResolvedValue([
+        { id: 'file-1', name: 'a.pdf', folderId: 'folder-1' },
+      ]);
+
+      const res = await repo.findRefTargets(['folder-1', 'file-1']);
+
+      expect(mockPrisma.folder.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['folder-1', 'file-1'] } },
+        select: { id: true, name: true, parentFolderId: true, spaceId: true },
+      });
+      expect(mockPrisma.file.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['folder-1', 'file-1'] } },
+        select: { id: true, name: true, folderId: true },
+      });
+      expect(res).toEqual({
+        folders: [{ id: 'folder-1', name: '資料', parentFolderId: null, spaceId: 'space-1' }],
+        files: [{ id: 'file-1', name: 'a.pdf', folderId: 'folder-1' }],
+      });
+    });
+
+    it('祖先は渡した space のフォルダだけを引く（他 space の名前をパスに混ぜない）', async () => {
+      mockPrisma.folder.findMany.mockResolvedValue([
+        { id: 'folder-1', name: '資料', parentFolderId: null },
+      ]);
+
+      const rows = await repo.findRefAncestors(['folder-1'], ['space-1']);
+
+      expect(mockPrisma.folder.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['folder-1'] }, spaceId: { in: ['space-1'] } },
+        select: { id: true, name: true, parentFolderId: true },
+      });
+      expect(rows).toEqual([{ id: 'folder-1', name: '資料', parentFolderId: null }]);
+    });
+
+    it('フォルダ id か space id が空なら DB を叩かず空配列', async () => {
+      await expect(repo.findRefAncestors([], ['space-1'])).resolves.toEqual([]);
+      await expect(repo.findRefAncestors(['folder-1'], [])).resolves.toEqual([]);
+      expect(mockPrisma.folder.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findFolderSpaceIds', () => {
     it('id 空なら DB を叩かず空配列', async () => {
       await expect(repo.findFolderSpaceIds([])).resolves.toEqual([]);

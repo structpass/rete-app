@@ -1,5 +1,6 @@
 'use client';
 import { ActionButton, TableCard } from '@/features/settings/components/primitives';
+import { TableStatusRows } from '@/features/settings/components/table-status-rows';
 import type { OrganizationDto } from '@rete/shared';
 import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react';
 
@@ -11,8 +12,11 @@ export function OrgPane({
   orgs,
   selectedOrgId,
   updating,
+  isLoading,
   searching,
   includeArchived,
+  error,
+  onRetry,
   onSelect,
   onRename,
   onArchive,
@@ -22,9 +26,14 @@ export function OrgPane({
   orgs: OrganizationDto[];
   selectedOrgId: string | null;
   updating: boolean;
+  isLoading: boolean;
   searching: boolean;
   /** アーカイブ済みを含めて表示中か（空状態の文言に補足を添えるため・set-0117 項目4）。 */
   includeArchived: boolean;
+  /** 一覧取得の失敗文言。渡すと 0 件行の代わりに領域内 role="alert" を出す（v2-410）。 */
+  error?: string | null;
+  /** 取得失敗の表示から取り直す（d659）。 */
+  onRetry?: () => void;
   onSelect: (org: OrganizationDto) => void;
   onRename: (org: OrganizationDto) => void;
   onArchive: (org: OrganizationDto) => void;
@@ -117,23 +126,18 @@ export function OrgPane({
               </tr>
             );
           })}
-          {/* 空状態は「〜がありません」のラベルで示し、子ペインと揃える（v2-169）。 */}
-          {orgs.length === 0 && (
-            <tr>
-              <td
-                colSpan={2}
-                className="text-[var(--sp-text-warm-mute)]"
-                style={{ textAlign: 'center', padding: '1.25rem' }}
-              >
-                {searching ? '組織が見つかりませんでした' : '組織がありません'}
-                {searching && !includeArchived && (
-                  <span style={{ display: 'block', marginTop: '0.25rem' }}>
-                    アーカイブ済みは表示していません
-                  </span>
-                )}
-              </td>
-            </tr>
-          )}
+          <TableStatusRows
+            colSpan={2}
+            isLoading={isLoading}
+            empty={orgs.length === 0}
+            emptyLabel={searching ? '組織が見つかりませんでした' : '組織がありません'}
+            emptyDescription={
+              searching && !includeArchived ? 'アーカイブ済みは表示していません' : undefined
+            }
+            // 取得失敗は「見つかりませんでした」（0 件の文言）へ落とさない（空一覧と区別する表示）。
+            errorLabel={error ? '組織の取得に失敗しました' : null}
+            onRetry={onRetry}
+          />
         </tbody>
       </table>
     </TableCard>

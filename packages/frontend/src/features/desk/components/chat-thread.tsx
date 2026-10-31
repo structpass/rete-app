@@ -76,6 +76,7 @@ export function ChatThread({
     tenmatsuError,
     tenmatsuDirty,
     threadBodyRef,
+    onThreadScroll,
     isOwnTheme,
     canEditTheme,
     canDeleteTheme,
@@ -95,6 +96,9 @@ export function ChatThread({
     handleDeleteMessage,
     handleSaveEdit,
     handleSaveTenmatsu,
+    replyDraft,
+    handleReplyDraftChange,
+    clearReplyDraft,
   } = useChatThreadController({
     theme,
     loading,
@@ -222,7 +226,14 @@ export function ChatThread({
           />
         ) : (
           <>
-            <div className="desk-pane-body" ref={threadBodyRef}>
+            {theme && !error && !showSpinner && (
+              <div className="shrink-0 px-3 py-2">
+                <h4 className="desk-thread-head-title truncate" title={theme.title}>
+                  {theme.title}
+                </h4>
+              </div>
+            )}
+            <div className="desk-pane-body" ref={threadBodyRef} onScroll={onThreadScroll}>
               {showSpinner && (
                 <div className="flex h-full items-center justify-center">
                   <Spinner className="h-5 w-5" />
@@ -233,8 +244,7 @@ export function ChatThread({
                 高速再取得（showSpinner=false）では stale theme を保ったままちらつきなく差し替える。 */}
               {!error && theme && !showSpinner && (
                 <div className="desk-thread-view">
-                  {/* オープナー（テーマ本体）= mock .desk-thread-head 起点カード。
-                    行順（モック準拠 / 指摘 0004）: 投稿者メタ行 → 題名行 → 説明行 → リアクションバー。 */}
+                  {/* テーマ本体。題名はスクロール領域の外に1回だけ表示する。 */}
                   <ChatThreadHead
                     theme={theme}
                     onToggleThemeReaction={onToggleThemeReaction}
@@ -401,8 +411,10 @@ export function ChatThread({
             </div>
 
             {/* 編集モード中は返信入力欄を隠し、編集フォームへ集中させる（起点カード=rete-desk-0089 /
-              メッセージ=rete-desk-0155）。テーマ切替（key=theme.id）で remount し前テーマの書きかけ返信を
-              持ち越さない。返信ドラフトの dirty は reportReplyDirty 経由で破棄ガードへ合流する（rete-desk-0120）。
+              メッセージ=rete-desk-0155）。テーマ切替（key=theme.id）で remount するが、書きかけの返信は
+              テーマごとに上位（useChatThreadController / lib/reply-drafts）が保持し、戻った時に続きから書ける
+              （d737・旧「前テーマの書きかけ返信を持ち越さない」を置換）。返信ドラフトの dirty は
+              reportReplyDirty 経由で破棄ガードへ合流する（rete-desk-0120）。
               個別メッセージ編集中（editingMessageId）は unmount せず visibility:hidden で「非表示かつ高さ維持」に
               する（rete-desk-0163）。返信欄はスクロール容器の外・下にあり、display:none で外すと容器が伸びて
               明細位置が ~72px ジャンプするため。0155 の「編集中は返信欄非表示」は visibility で満たす。
@@ -418,6 +430,9 @@ export function ChatThread({
                   accounts={accounts}
                   onDirtyChange={reportReplyDirty}
                   requestDiscard={discard.request}
+                  value={replyDraft}
+                  onChangeBody={handleReplyDraftChange}
+                  onSent={clearReplyDraft}
                 />
               </div>
             )}

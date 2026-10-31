@@ -50,11 +50,14 @@ export default defineConfig({
         '**/index.ts',
         'src/test-utils/**',
       ],
-      // Vitest4 の実測: statements 77.60 / branches 73.09 / functions 73.02 / lines 79.55。
-      // 開発統括承認済みの基準で、テストケースと計測範囲を維持し、以後の低下を検知する。
+      // d703/d704: Vitest 4のAST remappingへの変更を同じ187 files/2140 testsで比較。
+      // v3 branches 87.15% → v4 74.43%。対象除外やテスト削減はしていない。
+      // branch床のみ74へ再較正（余裕0.43pt、旧87.15→83の4.15ptより厳しい）。
+      // 他の床は維持。比較出力と公式移行根拠はdocs/verification/security-20261022.md。
+      // 目標ではなく劣化検知の床。coverageThresholdは使わずthresholdsで強制する。
       thresholds: {
-        statements: 77,
-        branches: 72,
+        statements: 78,
+        branches: 74,
         functions: 68,
         lines: 78,
       },

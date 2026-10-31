@@ -256,9 +256,9 @@ test('checkDrift: レジストリに無い制約が対象マイグレーショ�
   }
 });
 
-test('checkDrift (実データ): 対象11マイグレーション×実コードで現時点はドリフト無し', () => {
+test('checkDrift (実データ): 対象12マイグレーション×実コードで現時点はドリフト無し', () => {
   const results = checkDrift();
-  assert.equal(TARGET_MIGRATIONS.length, 11);
+  assert.equal(TARGET_MIGRATIONS.length, 12);
   const bad = results.filter((r) => r.status !== 'ok');
   assert.deepEqual(
     bad,

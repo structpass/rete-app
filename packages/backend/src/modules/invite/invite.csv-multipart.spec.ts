@@ -21,6 +21,7 @@ import { Role } from '@rete/shared';
 import { AllExceptionsFilter, PrismaExceptionFilter } from '../../common/filters';
 import { InviteController } from './invite.controller';
 import { InviteService } from './invite.service';
+import { AuditRecorderService } from '../audit-logs/audit-recorder.service';
 import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/auth.service';
@@ -48,6 +49,11 @@ describe('InviteController CSV 取り込みの multipart 制限', () => {
       controllers: [InviteController],
       providers: [
         { provide: InviteService, useValue: { importCsv } },
+        // 受諾の明示記録（d559）は controller の依存。本 spec の対象外なので、記録しない置き換えを差す。
+        {
+          provide: AuditRecorderService,
+          useValue: { record: jest.fn().mockResolvedValue(undefined) },
+        },
         // 本番（app.module）と同じ順序でグローバル filter を登録する。
         { provide: APP_FILTER, useClass: AllExceptionsFilter },
         { provide: APP_FILTER, useClass: PrismaExceptionFilter },
@@ -107,7 +113,7 @@ describe('InviteController CSV 取り込みの multipart 制限', () => {
     expect(await res.json()).toEqual({
       success: false,
       error: {
-        code: 'INTERNAL_ERROR',
+        code: 'BAD_REQUEST',
         message: 'ファイルサイズが上限（1 MB）を超えています',
       },
     });

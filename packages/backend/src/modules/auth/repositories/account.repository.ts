@@ -76,7 +76,14 @@ export class AccountRepository {
   async updatePasswordAndClearFlag(id: string, passwordHash: string): Promise<void> {
     await this.prisma.account.update({
       where: { id },
-      data: { passwordHash, mustChangePassword: false },
+      data: { passwordHash, mustChangePassword: false, credentialsChangedAt: new Date() },
+    });
+  }
+
+  findOidcCredentialState(id: string) {
+    return this.prisma.account.findUnique({
+      where: { id },
+      select: { passwordHash: true, isActive: true, credentialsChangedAt: true },
     });
   }
 

@@ -15,6 +15,13 @@ export class MfaRepository {
     return this.prisma.mfaSetting.findUnique({ where: { accountId } });
   }
 
+  /** 有効化済み（enabled=true かつ confirmedAt あり）の MFA 設定を引く（未設定・未確認・無効なら null）。 */
+  findEnabledSetting(accountId: string): Promise<MfaSetting | null> {
+    return this.prisma.mfaSetting.findFirst({
+      where: { accountId, enabled: true, confirmedAt: { not: null } },
+    });
+  }
+
   /**
    * setup: 暗号化 secret を enabled=false で upsert する（既存があれば未確認状態へ巻き戻す＝再セットアップ）。
    * confirm 前の secret は何度上書きしても安全（有効化していない）。再 setup 時は確認状態をリセットする。

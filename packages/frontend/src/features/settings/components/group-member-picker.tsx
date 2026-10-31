@@ -30,7 +30,7 @@ export function GroupMemberPicker({
     <div>
       <div style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
         <select
-          className="min-w-0 flex-1 rounded border px-2 py-1 text-sm"
+          className="min-w-0 flex-1 rounded border px-2 py-1 text-sm focus:outline-none focus:border-[var(--sp-focus-border)]"
           value={pickedAccountId}
           onChange={(e) => setPickedAccountId(e.target.value)}
           aria-label="追加するユーザー"

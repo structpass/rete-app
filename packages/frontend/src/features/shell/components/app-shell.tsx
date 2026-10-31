@@ -1,4 +1,5 @@
 'use client';
+import { requestNavigation } from '@/lib/navigation-intent';
 
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -8,6 +9,7 @@ import { MFA_SETUP_PATH } from '@/features/auth/constants';
 import { resetColumnWidthsStore } from '@/features/user-table-column-widths';
 // desk barrel（DeskPage → AppShell）を経由すると shell↔desk が循環するため、フックを直接参照する。
 import { resetChatThreadCache } from '@/features/desk/hooks/use-chat-thread';
+import { clearAllReplyDrafts } from '@/features/desk/lib/reply-drafts';
 import { extractErrorMessage } from '@/lib/error-utils';
 import { Spinner } from '@/components/ui/spinner';
 import { AnnouncementUnreadProvider, AnnouncementTagMasterProvider } from '@/features/dashboard';
@@ -82,6 +84,8 @@ export function AppShell({ activeTab = 'home', sidebar, children }: AppShellProp
       // セッション失効（me の 401 で user=null）は handleLogout を通らないため、機微データを持つ
       // スレッドキャッシュはここでも破棄する（共有端末で次のログイン利用者へ残さない / dsk-0393）。
       resetChatThreadCache();
+      // 書きかけの返信本文（d737）も同じ理由で破棄する（次ログインの利用者へ渡さない）。
+      clearAllReplyDrafts();
       router.replace('/login');
       return;
     }
@@ -106,11 +110,13 @@ export function AppShell({ activeTab = 'home', sidebar, children }: AppShellProp
 
   const handleSelectTab = (tab: ResolvedTab) => {
     if (!tab.href || tab.active) return;
-    if (tab.external) {
-      window.location.href = tab.href;
-    } else {
-      router.push(tab.href);
-    }
+    requestNavigation(() => {
+      if (tab.external) {
+        window.location.href = tab.href!;
+      } else {
+        router.push(tab.href!);
+      }
+    });
   };
 
   const handleLogout = async () => {
@@ -127,6 +133,8 @@ export function AppShell({ activeTab = 'home', sidebar, children }: AppShellProp
       resetTenantInfoCache();
       // Desk のスレッド短時間キャッシュ（dsk-0393）も同様にモジュールレベル保持のため破棄する。
       resetChatThreadCache();
+      // 書きかけの返信本文（d737）も同じ理由で破棄する（次ログインの利用者へ渡さない）。
+      clearAllReplyDrafts();
       router.replace('/login');
     } catch (err) {
       toast.error(extractErrorMessage(err, 'ログアウトに失敗しました'));
@@ -150,7 +158,7 @@ export function AppShell({ activeTab = 'home', sidebar, children }: AppShellProp
                     tabs={tabs}
                     userName={user.name}
                     onSelectTab={handleSelectTab}
-                    onLogout={handleLogout}
+                    onLogout={() => requestNavigation(() => void handleLogout())}
                   />
                   {children}
                 </div>

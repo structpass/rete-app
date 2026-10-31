@@ -80,13 +80,19 @@ describe('resolveTabs', () => {
     });
   });
 
-  it('internal タブ（バックログ）は href をそのまま使い有効化される', () => {
+  it('internal タブ（モデル）は href をそのまま使い有効化される', () => {
     const tabs = resolveTabs(SHELL_TABS, [referenceItem], 'home');
-    expect(tabs.find((t) => t.key === 'backlog')).toMatchObject({
+    expect(tabs.find((t) => t.key === 'model')).toMatchObject({
       disabled: false,
-      href: '/backlog',
+      href: '/model',
       external: false,
     });
+  });
+
+  it('Board 廃止に伴い Backlog タブは無い（タブの並びは Model で終わる）', () => {
+    const keys = SHELL_TABS.map((t) => t.key);
+    expect(keys).not.toContain('backlog');
+    expect(keys[keys.length - 1]).toBe('model');
   });
 
   it('未実装タブ（モック）は常に灰色（disabled・href=null）', () => {
@@ -116,9 +122,9 @@ describe('resolveTabs', () => {
     });
   });
 
-  it('モデルタブはバックログの直前に並ぶ', () => {
+  it('モデルタブは並びの末尾に置かれる（Board 廃止でバックログの直前という条件は消えた）', () => {
     const keys = SHELL_TABS.map((t) => t.key);
-    expect(keys.indexOf('model')).toBe(keys.indexOf('backlog') - 1);
+    expect(keys[keys.length - 1]).toBe('model');
   });
 
   it('activeKey に一致するタブだけ active=true になる', () => {

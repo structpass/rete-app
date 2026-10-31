@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { AUDIT_PAGE_SIZE } from '@rete/shared';
 import { QueryAuditLogsDto } from './query-audit-logs.dto';
 
 async function errorsFor(payload: Record<string, unknown>) {
@@ -13,6 +14,14 @@ describe('QueryAuditLogsDto', () => {
     expect(errors).toHaveLength(0);
     expect(dto.page).toBe(1);
     expect(dto.limit).toBe(20);
+  });
+
+  // d756: 既定の件数は @rete/shared の 1 値を読む。DTO に写しを戻すと画面側の問い合わせと
+  // 食い違っても気づけないため、既定値が共有定数そのものであることを縛る。
+  it('limit の既定は共有定数 AUDIT_PAGE_SIZE と一致する', async () => {
+    const { dto } = await errorsFor({});
+    expect(dto.limit).toBe(AUDIT_PAGE_SIZE);
+    expect(new QueryAuditLogsDto().limit).toBe(AUDIT_PAGE_SIZE);
   });
 
   it('page / limit を数値へ変換する（クエリ文字列由来）', async () => {

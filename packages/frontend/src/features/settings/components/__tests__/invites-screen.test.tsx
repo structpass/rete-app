@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { flush } from '@/test-utils/flush';
+import { makeInviteDto } from '@/test-utils/fixtures';
 import { getListColumn, getListLayoutOrder } from '@/test-utils/list-layout';
 import { type InviteDto, type InviteImportResultDto, type SpaceDto, SpaceKind } from '@rete/shared';
 import { InvitesScreen } from '../invites-screen';
@@ -63,17 +64,13 @@ beforeEach(() => {
   mockRole = 'ADMIN';
 });
 
-// ── フィクスチャ ──
-const invite = (over: Partial<InviteDto>): InviteDto => ({
-  id: 'inv-1',
-  email: 'tanaka@struct-pass.io',
-  status: 'PENDING',
-  invitedAt: '2026-04-28T09:00:00.000Z',
-  expiresAt: '2026-05-05T09:00:00.000Z',
-  acceptedAt: null,
-  invitedByName: '管理者',
-  ...over,
-});
+// ── フィクスチャ（d596: 招待の組み立ては test-utils/fixtures が正本）──
+const invite = (over: Partial<InviteDto>): InviteDto =>
+  makeInviteDto({
+    invitedAt: '2026-04-28T09:00:00.000Z',
+    expiresAt: '2026-05-05T09:00:00.000Z',
+    ...over,
+  });
 
 const i1 = invite({ id: 'inv-1', email: 'tanaka@struct-pass.io', status: 'PENDING' });
 const i2 = invite({ id: 'inv-2', email: 'suzuki@struct-pass.io', status: 'EXPIRED' });
@@ -97,6 +94,44 @@ async function renderScreen() {
   await flush();
 }
 
+/**
+ * 発行・再送の失敗の理由（一覧の取得失敗とは別に、表の外へ出す role="alert"）。
+ *
+ * 理由の文字だけを見ると、一覧の取得失敗の表示（表の 0 件行に「招待一覧の読み込みに失敗しました」）と
+ * 区別できないので、表の外に出ていることと、一覧の失敗の文が alert に混ざっていないことを確かめる。
+ */
+function expectListAlert(text: string) {
+  const alerts = screen.queryAllByRole('alert');
+  const found = alerts.find((el) => el.textContent?.includes(text));
+  if (!found)
+    throw new Error(
+      `「${text}」の alert が無い: ${alerts.map((el) => el.textContent).join(' | ')}`,
+    );
+  expect(found.closest('tbody')).toBeNull();
+  expect(found).not.toHaveTextContent('招待一覧の読み込みに失敗しました');
+  return found;
+}
+
+/**
+ * 発行フォーム（オーバーレイ）を開いたままの失敗理由。
+ * オーバーレイ中は背面が inert + aria-hidden で隔離されるため、理由が背面にあると
+ * 読み上げにも届かない。フォームの中に出ていることを確かめる（d535）。
+ */
+function expectInFormAlert(text: string) {
+  const dialog = screen.getByRole('dialog');
+  const found = within(dialog)
+    .queryAllByRole('alert')
+    .find((el) => el.textContent?.includes(text));
+  if (!found)
+    throw new Error(
+      `フォーム内に「${text}」の alert が無い: ${within(dialog)
+        .queryAllByRole('alert')
+        .map((el) => el.textContent)
+        .join(' | ')}`,
+    );
+  return found;
+}
+
 /** 共通 Select（button trigger）を開いて option を選ぶ（set-0142・task-create-overlay と同イディオム）。 */
 async function pickOption(triggerLabel: string, optionName: string) {
   await userEvent.click(screen.getByLabelText(triggerLabel));
@@ -116,6 +151,47 @@ describe('InvitesScreen', () => {
     mockFetchInvites.mockResolvedValue([i1, i2]);
     mockFetchMailStatus.mockResolvedValue({ configured: true });
     mockFetchGroupSpaces.mockResolvedValue([space1]);
+  });
+
+  it('一覧の取得に失敗したら、空の一覧でなく領域内に失敗を残す（d592）', async () => {
+    mockFetchInvites.mockRejectedValue(new Error('network'));
+    await renderScreen();
+    expect(mockToastError).toHaveBeenCalledWith('招待一覧の読み込みに失敗しました');
+    // 0 件の「招待がありません」と読み分けられるよう、role="alert" の文言で残す（正本 ui.ts:109）。
+    expect(screen.getByRole('alert')).toHaveTextContent('招待一覧の読み込みに失敗しました');
+    expect(screen.queryByText('招待がありません')).not.toBeInTheDocument();
+  });
+
+  it('検索語を入れた状態で取得に失敗しても、0件の文言「見つかりませんでした」で失敗を隠さない（d655）', async () => {
+    mockFetchInvites.mockRejectedValue(new Error('network'));
+    await renderScreen();
+    const search = screen.getByPlaceholderText(/で検索/);
+    fireEvent.change(search, { target: { value: 'tanaka' } });
+    await flush();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('招待一覧の読み込みに失敗しました');
+    expect(screen.queryByText('招待が見つかりませんでした')).not.toBeInTheDocument();
+    // 件数も 0 件と読めない形にする（メンバー・操作ログと同じ扱い・d655）。
+    expect(screen.queryByText(/全 0 件/)).not.toBeInTheDocument();
+    expect(screen.getByText(/全 — 件/)).toBeInTheDocument();
+    expect(screen.queryByText('招待がありません')).not.toBeInTheDocument();
+  });
+
+  // d659: 取得失敗は「もう一度取る手段」までを 1 つの領域として出し、押せば本当に取り直す。
+  it('取得失敗の表示に再試行を添え、押すと取り直して失敗の表示を消す（d659）', async () => {
+    mockFetchInvites.mockRejectedValueOnce(new Error('network'));
+    mockFetchInvites.mockResolvedValue([i1]);
+
+    await renderScreen();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('招待一覧の読み込みに失敗しました');
+    fireEvent.click(within(alert).getByRole('button', { name: '再試行' }));
+    await flush();
+
+    expect(mockFetchInvites).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('招待がありません')).not.toBeInTheDocument();
   });
 
   it('招待一覧（メール・状態バッジ）を描画する', async () => {
@@ -240,6 +316,17 @@ describe('InvitesScreen', () => {
     expect(mockToastSuccess).toHaveBeenCalledWith(expect.stringContaining('new@example.com'));
   });
 
+  it('発行フォームは必須項目（招待先メール・初期 Space）を必須として出す（正本 comp-form-field）', async () => {
+    await renderScreen();
+    fireEvent.click(screen.getByRole('button', { name: '招待メールを発行' }));
+    const email = await screen.findByLabelText('招待先メールアドレス');
+
+    expect(email).toHaveAttribute('aria-required', 'true');
+    // 初期 Space も受諾先なので必須（CreateInviteDto.spaceId）。
+    expect(screen.getByLabelText('初期 Space（受諾時に参加）')).toBeInTheDocument();
+    expect(document.querySelectorAll('.sp-required-mark')).toHaveLength(2);
+  });
+
   it('mail-status が未設定なら「招待」「インポート」を無効化しバナーを出す（論点2）', async () => {
     mockFetchMailStatus.mockResolvedValue({ configured: false });
     await renderScreen();
@@ -248,15 +335,51 @@ describe('InvitesScreen', () => {
     expect(screen.getByRole('button', { name: 'CSV インポート' })).toBeDisabled();
   });
 
-  it('createInvite が 503 を返すと SMTP バナーを表示し「招待」ボタンを無効化する', async () => {
-    mockCreateInvite.mockRejectedValue({ response: { status: 503 } });
+  it('createInvite が 503 を返すと SMTP バナーを表示し、理由を領域内にも残す（d535）', async () => {
+    // 503 のうち「設定が無い」場合。バナーは、送信の失敗後に引き直した設定で決まる（d535）。
+    mockFetchMailStatus
+      .mockResolvedValueOnce({ configured: true })
+      .mockResolvedValueOnce({ configured: false });
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: {
+          error: {
+            message: 'メールが未設定のため招待を送信できません。SMTP 設定を確認してください',
+          },
+        },
+      },
+    });
     await renderScreen();
     await fillIssueForm('smtp@example.com');
     fireEvent.click(screen.getByRole('button', { name: '送信' }));
     await flush();
 
     expect(screen.getByText(/メール送信が未設定/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '招待メールを発行' })).toBeDisabled();
+    // 設定が無い時もフォームを閉じない。閉じると、バナーが出ない場合に理由が何も残らない（d535）。
+    expect(screen.getByLabelText('招待先メールアドレス')).toBeInTheDocument();
+    expectInFormAlert('メールが未設定のため招待を送信できません');
+  });
+
+  it('送信の一時障害（503・送信失敗の文言）では、設定不足のバナーに切り替えない（d535）', async () => {
+    mockFetchMailStatus.mockResolvedValue({ configured: true });
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: { error: { message: 'メール送信に失敗しました。しばらく後にお試しください' } },
+      },
+    });
+    await renderScreen();
+    await fillIssueForm('send-fail@example.com');
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+
+    expect(screen.queryByText(/メール送信が未設定/)).not.toBeInTheDocument();
+    // 入力が残っているのでキャンセルは破棄確認を挟む。閉じて一覧に戻っても理由が残る。
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+    expectListAlert('メール送信に失敗しました。しばらく後にお試しください');
   });
 
   it('createInvite が 400 を返すと「既に招待中」トーストを表示する', async () => {
@@ -267,6 +390,155 @@ describe('InvitesScreen', () => {
     await flush();
 
     expect(mockToastError).toHaveBeenCalledWith('このメールアドレスは既に招待中です');
+  });
+
+  it('発行が 503 以外の失敗をすると、通知が消えた後も領域内に理由を残す（d535）', async () => {
+    // 通知（toast）は数秒で消える。残さないと、開き直した一覧と正常な状態が見分けられない。
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 500,
+        data: { error: { message: '招待の発行に失敗しました（検証）' } },
+      },
+    });
+    await renderScreen();
+    await fillIssueForm('fail@example.com');
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+
+    expect(mockToastError).toHaveBeenCalledWith('招待の発行に失敗しました（検証）');
+    // 入力が残っているのでキャンセルは破棄確認を挟む。閉じて一覧に戻っても理由が残る。
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+    expectListAlert('招待の発行に失敗しました（検証）');
+    expect(screen.queryByText('招待がありません')).not.toBeInTheDocument();
+  });
+
+  it('再送が 503 以外の失敗をすると、領域内に理由を残し、閉じた後も続けて押せる（d535）', async () => {
+    mockResendInvite.mockRejectedValue({
+      response: { status: 500, data: { error: { message: '再送に失敗しました（検証）' } } },
+    });
+    await renderScreen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+
+    expectListAlert('再送に失敗しました（検証）');
+    // 閉じた後に押せること（押せないと、理由が出ていても次を試せない）。
+    const resend = screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' });
+    expect(resend).not.toBeDisabled();
+    fireEvent.click(resend);
+    await flush();
+    // 閉じた画面のままで、次の確認が出る（一覧の取得に戻ろうとして読み込み状態へ戻らない）。
+    expect(screen.queryByLabelText('招待先メールアドレス')).toBeNull();
+    expect(screen.getByText('tanaka@struct-pass.io')).toBeInTheDocument();
+  });
+
+  it('送信そのものの失敗（503・送信失敗の文言）は、設定が有るまま領域内に理由を残す（d535）', async () => {
+    // 503 は「設定が無い」と「送信に失敗した」の 2 通り。後者はこれまで通知だけで消えていた。
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: { error: { message: 'メール送信に失敗しました。しばらく後にお試しください' } },
+      },
+    });
+    await renderScreen();
+    await fillIssueForm('send-fail@example.com');
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+
+    // 入力が残っているのでキャンセルは破棄確認を挟む。閉じて一覧に戻っても理由が残る。
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+    expectListAlert('メール送信に失敗しました。しばらく後にお試しください');
+    // 設定は無いと誤って案内しない（設定を引き直しても「有る」）。
+    expect(screen.queryByText(/メール送信が未設定/)).not.toBeInTheDocument();
+  });
+
+  it('再送の送信失敗（503・送信失敗の文言）も領域内に理由を残す（d535）', async () => {
+    mockResendInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: { error: { message: 'メール送信に失敗しました。しばらく後にお試しください' } },
+      },
+    });
+    await renderScreen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+
+    expectListAlert('メール送信に失敗しました。しばらく後にお試しください');
+  });
+
+  it('設定が無い場合の 503 は、バナーに加えてフォームを閉じず領域内にも案内を残す（d535）', async () => {
+    // 送信後に引き直した設定が「無い」なら、従来の案内（バナー）へ切り替える。
+    mockFetchMailStatus
+      .mockResolvedValueOnce({ configured: true })
+      .mockResolvedValueOnce({ configured: false });
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: {
+          error: {
+            message: 'メールが未設定のため招待を送信できません。SMTP 設定を確認してください',
+          },
+        },
+      },
+    });
+    await renderScreen();
+    await fillIssueForm('not-configured@example.com');
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+
+    expect(screen.getByText(/メール送信が未設定/)).toBeInTheDocument();
+    // バナーはページ上部、理由は欄内。通知が消えた後に何も残らないと、送れたのか分からない（d535）。
+    expectInFormAlert('メールが未設定のため招待を送信できません');
+    // フォームは閉じない（閉じると理由の行き先が無い）。
+    expect(screen.getByLabelText('招待先メールアドレス')).toBeInTheDocument();
+  });
+
+  it('設定は足りているのに 503（送信失敗）が返る時も、理由を領域内に残す（d535）', async () => {
+    // 実環境では、設定はあるが送信に失敗する時にこの形で返る。前回はここでフォームだけ閉じ、
+    // バナーは出さず理由も残さずに消えていた（サイレント失敗）。
+    mockFetchMailStatus.mockResolvedValue({ configured: true });
+    mockCreateInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: {
+          error: {
+            message: 'メールが未設定のため招待を送信できません。SMTP 設定を確認してください',
+          },
+        },
+      },
+    });
+    await renderScreen();
+    await fillIssueForm('configured-but-failed@example.com');
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+
+    expect(screen.queryByText(/メール送信が未設定/)).not.toBeInTheDocument();
+    expectInFormAlert('メールが未設定のため招待を送信できません');
+  });
+
+  it('失敗の表示は、次の成功（再送が通る）で解ける（d535）', async () => {
+    mockResendInvite.mockRejectedValueOnce({
+      response: { status: 500, data: { error: { message: '再送に失敗しました（検証）' } } },
+    });
+    await renderScreen();
+    fireEvent.click(screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+    expectListAlert('再送に失敗しました（検証）');
+
+    mockResendInvite.mockResolvedValueOnce({ ...i1, invitedAt: '2026-05-10T09:00:00.000Z' });
+    fireEvent.click(screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    await flush();
+
+    expect(screen.queryByText('再送に失敗しました（検証）')).not.toBeInTheDocument();
   });
 
   it('行のゴミ箱から削除確認→OK で deleteInvite を呼ぶ（set-0121）', async () => {
@@ -315,7 +587,20 @@ describe('InvitesScreen', () => {
   });
 
   it('resendInvite が 503 を返すと SMTP バナーを表示し「招待」ボタンを無効化する', async () => {
-    mockResendInvite.mockRejectedValue({ response: { status: 503 } });
+    // 送信後に引き直した設定が「無い」なら案内へ切り替える（フォームが無いので領域内にも残す・d535）。
+    mockFetchMailStatus
+      .mockResolvedValueOnce({ configured: true })
+      .mockResolvedValueOnce({ configured: false });
+    mockResendInvite.mockRejectedValue({
+      response: {
+        status: 503,
+        data: {
+          error: {
+            message: 'メールが未設定のため招待を送信できません。SMTP 設定を確認してください',
+          },
+        },
+      },
+    });
     await renderScreen();
 
     fireEvent.click(screen.getByRole('button', { name: 'tanaka@struct-pass.io をメール再送' }));
@@ -324,6 +609,8 @@ describe('InvitesScreen', () => {
 
     expect(screen.getByText(/メール送信が未設定/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '招待メールを発行' })).toBeDisabled();
+    // 再送はフォームが無いので、通知が消えた後に理由が残るのはこの欄だけ（d535）。
+    expectListAlert('メールが未設定のため招待を送信できません');
   });
 
   it('「サンプル」ボタンで downloadInviteTemplate を呼びファイルをダウンロードする', async () => {

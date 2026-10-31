@@ -3,6 +3,7 @@ import { useDeferredAttachments } from '@/features/desk/hooks/use-deferred-attac
 import { apiErrorMessage } from '@/features/desk/lib/api-error';
 import type { ChatThreadProps } from '@/features/desk/lib/chat-thread-types';
 import { extractMentionAccountIds } from '@/features/desk/lib/mentions';
+import { readReplyDraft, writeReplyDraft } from '@/features/desk/lib/reply-drafts';
 import { isRichTextEmpty } from '@/features/desk/lib/validations';
 import { useDelayedLoading } from '@/hooks/use-delayed-loading';
 import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
@@ -42,6 +43,10 @@ export function useChatThreadController({
   // dsk-0234: タスク詳細と一貫させ、loading 由来のスピナーフラッシュを遅延表示で抑制する
   // （高速な再取得では stale 表示を保ち、閾値超の遅い時だけスピナーを出す）。
   const showSpinner = useDelayedLoading(loading);
+
+  // 開いているテーマの id。フック先頭で固定する（この後 theme を条件で読む所と、書きかけ保持の基準とで
+  // 同じ値を使う / d737）。
+  const draftThemeId = theme?.id ?? null;
 
   const [activeTab, setActiveTab] = useState<'thread' | 'tenmatsu'>('thread');
 
@@ -116,6 +121,37 @@ export function useChatThreadController({
   // 返信ドラフトの dirty（ReplyComposer が報告 / rete-desk-0120）。編集・顛末 dirty と OR して破棄ガードへ合流。
   const replyDirtyRef = useRef(false);
 
+  // 書きかけの返信本文をテーマごとに保持する（d737）。ChatThread は開いた時しか載らず、テーマ切替で
+  // スレッド一覧→詳細の往復によりアンマウントされる。返信欄を key=theme.id で載せ替えるだけでは書きかけが
+  // 消えるため、保持は上位（このフック）が持ち、返信欄へ value/onChangeBody で渡す。モジュールスコープの
+  // 置き場なので、他テーマを開いて戻っても復元される（閉じても残る）。**保留添付はテーマ切替で復元されない**
+  // （送信されないファイルが他テーマの返信に紛れるのを防ぐ）。閉じた時と送信成功時に下書きを捨てる。
+  const replyDraftKey = draftThemeId;
+
+  const [replyDraft, setReplyDraft] = useState(() =>
+    replyDraftKey ? (readReplyDraft(replyDraftKey) ?? '') : '',
+  );
+
+  // 開いているテーマが変わったら、そのテーマの書きかけを返信欄へ読み直す（保持は捨てない）。
+  useEffect(() => {
+    setReplyDraft(replyDraftKey ? (readReplyDraft(replyDraftKey) ?? '') : '');
+  }, [replyDraftKey]);
+
+  // 入力は即時に保持へ書き戻す（切替でアンマウントされても書きかけを失わない）。
+  const handleReplyDraftChange = useCallback(
+    (body: string) => {
+      setReplyDraft(body);
+      if (replyDraftKey) writeReplyDraft(replyDraftKey, body);
+    },
+    [replyDraftKey],
+  );
+
+  // 下書きを捨てる（閉じる・送信成功）。入力欄も空へ戻す。
+  const clearReplyDraft = useCallback(() => {
+    if (replyDraftKey) writeReplyDraft(replyDraftKey, '');
+    setReplyDraft('');
+  }, [replyDraftKey]);
+
   // 顛末（スレッドの結論ノート / rete-desk-0092）。タスク詳細の顛末欄と同型。overlay ローカルでドラフトを
   // 保持し、保存時に onUpdateTheme へ合流する。baseline は dirty 判定（破棄ガード）と保存後の解消に使う。
   const [tenmatsuDraft, setTenmatsuDraft] = useState(theme?.tenmatsu ?? '');
@@ -138,6 +174,13 @@ export function useChatThreadController({
   // スレッド本文のスクロール容器（.desk-pane-body）。返信投稿で発話が増えたら最下部へ追従し、
   // 追加した発話が見えるようにする（rete-desk-0089）。初回ロード時も最新（末尾）を表示する。
   const threadBodyRef = useRef<HTMLDivElement>(null);
+  const followLatestRef = useRef(true);
+  const previousThreadRef = useRef<string | undefined>(undefined);
+  const previousTabRef = useRef(activeTab);
+  const onThreadScroll = useCallback(() => {
+    const el = threadBodyRef.current;
+    if (el) followLatestRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= 32;
+  }, []);
 
   const messageCount = theme?.messages.length ?? 0;
 
@@ -242,13 +285,18 @@ export function useChatThreadController({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 発話件数が変わったら（返信投稿の reload・初回ロード）スレッド明細を最下部へスクロールする（rete-desk-0089）。
-  // thread タブ表示時のみ。容器は thread 分岐の .desk-pane-body（threadBodyRef）。
+  // 初回・スレッド切替は最新へ。過去の発話を読んでいる間は新着で位置を変えない。
   useEffect(() => {
+    const opening = previousThreadRef.current !== theme?.id || previousTabRef.current !== activeTab;
+    previousThreadRef.current = theme?.id;
+    previousTabRef.current = activeTab;
     if (activeTab !== 'thread') return;
     const el = threadBodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messageCount, activeTab]);
+    if (el && (opening || followLatestRef.current)) {
+      el.scrollTop = el.scrollHeight;
+      followLatestRef.current = true;
+    }
+  }, [messageCount, activeTab, theme?.id]);
 
   const reportEditDirty = (dirty: boolean) => {
     editDirtyRef.current = dirty;
@@ -271,14 +319,21 @@ export function useChatThreadController({
   // 返信ドラフトの dirty 報告（ReplyComposer → onDirtyChange）。編集/顛末 dirty と OR して上位へ合流する
   // （破棄ガードの単一情報源 / rete-desk-0120）。ReplyComposer の cleanup effect（アンマウント時の
   // false 報告）が安定参照を捕捉できるよう useCallback で固定する（onDirtyChange は親で安定 / 参照のみ deps）。
+  // 起点カードの編集開始などで返信欄がアンマウントされても、**保持に書きかけが残っている間は dirty を
+  // 保つ**（d737）。載り替えの cleanup が false を報告すると、書きかけがあるのに確認なしで閉じられて消える。
   const reportReplyDirty = useCallback(
     (dirty: boolean) => {
-      replyDirtyRef.current = dirty;
+      // 保持に本文が残っているかはその場で読む（返信欄の載り替え直後に古い値を掴まない）。
+      const kept = !isRichTextEmpty(replyDraftKey ? (readReplyDraft(replyDraftKey) ?? '') : '');
+      replyDirtyRef.current = dirty || kept;
       onDirtyChange?.(
-        editDirtyRef.current || tenmatsuDirtyRef.current || dirty || messageEditDirtyRef.current,
+        editDirtyRef.current ||
+          tenmatsuDirtyRef.current ||
+          replyDirtyRef.current ||
+          messageEditDirtyRef.current,
       );
     },
-    [onDirtyChange],
+    [onDirtyChange, replyDraftKey],
   );
 
   // 破棄確認（Rete デザインダイアログ / rete-desk-0102・旧 window.confirm を置換）。dirty な時だけ
@@ -376,13 +431,17 @@ export function useChatThreadController({
 
   // × 押下でスレッドを閉じる経路。オーバーレイ全体を畳むため、編集フォーム dirty・顛末 dirty の
   // いずれかが未保存なら破棄確認を通してから閉じる（A1 状態機械は不触のため本体側でガード）。
+  // 返信の書きかけは閉じた時点で捨てる（d737: 開き直した時に前回の書きかけは戻さない）。
   const handleClose = () => {
     discard.request(
       editDirtyRef.current ||
         tenmatsuDirtyRef.current ||
         replyDirtyRef.current ||
         messageEditDirtyRef.current,
-      () => onClose(),
+      () => {
+        clearReplyDraft();
+        onClose();
+      },
     );
   };
 
@@ -397,7 +456,10 @@ export function useChatThreadController({
     setArchiveError(null);
     try {
       await onArchive(willArchive);
-      if (willArchive) onClose();
+      if (willArchive) {
+        clearReplyDraft();
+        onClose();
+      }
     } catch (e) {
       setArchiveError(
         apiErrorMessage(e, 'アーカイブ操作に失敗しました。時間をおいて再試行してください。'),
@@ -554,6 +616,7 @@ export function useChatThreadController({
     tenmatsuError,
     tenmatsuDirty,
     threadBodyRef,
+    onThreadScroll,
     isOwnTheme,
     canEditTheme,
     canDeleteTheme,
@@ -573,5 +636,8 @@ export function useChatThreadController({
     handleDeleteMessage,
     handleSaveEdit,
     handleSaveTenmatsu,
+    replyDraft,
+    handleReplyDraftChange,
+    clearReplyDraft,
   };
 }

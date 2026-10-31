@@ -91,12 +91,13 @@ export function TaskCreateOverlay({
 
   // deferred-flush 添付（FL-3b）: 作成前はファイルをローカル保留し、作成成功後に確定 id へ一括添付する。
   const pendingAttachments = usePendingAttachments();
+  const dirty = isDirty || pendingAttachments.pending.length > 0;
 
   // 編集状態を上位（desk-shell）へ報告。アンマウント時は false に戻し、次回オープンへ持ち越さない。
   useEffect(() => {
-    onDirtyChange?.(isDirty);
+    onDirtyChange?.(dirty);
     return () => onDirtyChange?.(false);
-  }, [isDirty, onDirtyChange]);
+  }, [dirty, onDirtyChange]);
 
   const isCreate = variant === 'create';
   // promote（昇格）の確定ボタンも「保存」に統一（rete-desk-0176・開発統括指示。旧「タスク化」）。
@@ -162,9 +163,18 @@ export function TaskCreateOverlay({
                     <input
                       className="desk-global-input-title"
                       aria-label="題名"
+                      aria-required={isCreate ? 'true' : undefined}
                       placeholder="タイトル"
                       {...register('title')}
                     />
+                    {/* 正本 comp-form-field: サーバが空を拒否する題名は「* 必須」を出す。新規登録だけが出す
+                        （昇格は元チャットの題名で埋まり、編集は既存値がある＝FormField の required なし扱い）。
+                        ラベル要素を持たない題名欄なので、マークは題名行の右側に添える。 */}
+                    {isCreate && (
+                      <span className="desk-ticket-required" aria-hidden="true">
+                        * 必須
+                      </span>
+                    )}
                   </div>
                   {errors.title && (
                     <p className="mt-1 text-xs text-[var(--sp-accent-red)]">

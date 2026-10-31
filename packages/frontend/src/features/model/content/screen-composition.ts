@@ -16,7 +16,7 @@ export const SCREEN_COMPOSITION_THEMES: ModelTheme[] = [
     summary:
       '上部ツールバー（検索/フィルタ/主要アクション）＋ 均一密度の行リスト。0件は既定＝リスト骨格残置＋明示文言（意図的特例あり）。',
     sources: [
-      'features: files 一覧 / desk タスク明細 / backlog 一覧',
+      'features: files 一覧 / desk タスク明細',
       'features/settings/components/members-screen.tsx（tbody 空行＋文言＝既定の代表）',
       'features/files/components/file-list.tsx（フォルダ真0＝tbody silent・rete-files-0007/0008）',
       'features/desk/components/task-tree.tsx（タスク真0＝EmptyTreeDropZone・絞り込み0＝DOM残置＋文言）',
@@ -63,12 +63,16 @@ export const SCREEN_COMPOSITION_THEMES: ModelTheme[] = [
     status: 'active',
     summary:
       '1 レコードの詳細表示 + 編集。ヘッダ（タイトル/操作）と本文（属性/タブ）を分離する画面型。',
-    sources: ['features: desk タスク詳細オーバーレイ（task-detail-overlay.tsx）'],
+    sources: [
+      'features: desk タスク詳細オーバーレイ（task-detail-overlay.tsx）',
+      'features/dashboard/components/dashboard-view.tsx（固定見出し＋本文スクロール）',
+      '19df47e2（Desk 詳細の起点カードと属性更新帯を分離した既存構成）',
+    ],
     purpose: '詳細・編集画面のヘッダと本文の分離、保存/破棄の確認経路を統一する。',
     spec: [
       {
         type: 'p',
-        text: '構成は「ヘッダ（タイトル＋操作）＋ 本文（属性/タブ）」の上下分離。ヘッダは常時見える位置に固定し、本文側のスクロールに追従させない。',
+        text: '既定の構成は「ヘッダ（タイトル＋操作）＋ 本文（属性/タブ）」の上下分離。ヘッダは常時見える位置に固定し、本文側のスクロールに追従させない。Desk のスレッド型は下記の分離構成を使う。',
       },
       {
         type: 'list',
@@ -77,6 +81,10 @@ export const SCREEN_COMPOSITION_THEMES: ModelTheme[] = [
           '編集を始めたら保存/破棄の経路を必ず用意する（保存ボタンとキャンセル/破棄ボタンを対で置く）。',
           '閉じる操作（Esc・背景クリック・閉じるボタン）時、書きかけの変更があれば破棄確認を出す（無編集なら確認なしで閉じてよい）。',
         ],
+      },
+      {
+        type: 'note',
+        text: 'Desk のスレッド型詳細は、固定タブ・右列の属性更新帯と、本文内の起点カード（題名・説明・投稿者自身の編集操作）に分かれる。起点カードはコメントと同じスクロール領域に置く（19df47e2）。題名カード全体を固定する変更は行わない。属性編集と起点カード編集の双方に保存・キャンセルと未保存変更の破棄確認を用意する。',
       },
       {
         type: 'note',
@@ -101,16 +109,17 @@ export const SCREEN_COMPOSITION_THEMES: ModelTheme[] = [
     title: '一覧＋詳細画面',
     category: 'screen-composition',
     status: 'active',
-    summary: '一覧を保持したまま詳細をオーバーレイ画面で重ねる併置型（Desk 方式）。',
+    summary: '一覧を保持したまま詳細を開く併置型。Desk・Files はオーバーレイ、Home は固定2ペイン。',
     sources: [
       'features: desk-shell.tsx（ChatList＋ChatThread＋TaskDetailOverlay 併置）',
       'features: files-shell.tsx（FileList＋各種 Overlay 併置）',
+      'features/dashboard/components/dashboard-view.tsx（通知一覧と詳細・編集を固定2ペインで併置）',
     ],
     purpose: '一覧の文脈を失わずに詳細へ入る導線（オーバーレイ・二重オーバーレイ禁止）を統一する。',
     spec: [
       {
         type: 'p',
-        text: '一覧画面はそのまま表示し続け、詳細は一覧の上にオーバーレイ画面（重ねる小窓）として開く。一覧を別画面へ遷移させたり一覧 DOM を差し替えたりしない。',
+        text: 'Desk・Files は一覧画面をそのまま保持し、詳細をオーバーレイ画面（重ねる小窓）として開く。Home は下記の固定2ペイン型を使う。いずれも詳細の表示によって一覧を別画面へ遷移させたり一覧 DOM を差し替えたりしない。',
       },
       {
         type: 'list',
@@ -119,6 +128,14 @@ export const SCREEN_COMPOSITION_THEMES: ModelTheme[] = [
           '二重オーバーレイ禁止：詳細オーバーレイが開いている間は別のオーバーレイ画面を同時に開かない（排他）。',
           '一覧の文脈（絞り込み・並び順・スクロール位置）は詳細を開閉しても保持する。',
         ],
+      },
+      {
+        type: 'note',
+        text: 'Home（掲示板・FAQ）は既存の固定2ペイン型を使う。一覧を左に残し、右ペイン内で詳細表示と新規・編集フォームを排他で切り替える（dashboard-view.tsx）。詳細を別の小窓へ移す変更は行わない。一覧の絞り込み・並び順・スクロール位置を保持する原則は同じ。独立ルートを持つ Settings の作成・編集ページは「フォーム画面」の対象とする。',
+      },
+      {
+        type: 'note',
+        text: 'Homeのカレンダーは左に月2か月または選択週を保持し、右で予定一覧・参照・新規・編集を切り替える。右一覧もDOMと検索・選択・スクロール状態を保持する。日付は日本時間で扱い、予定と一覧は同じ期間データから描画する。常設の操作説明や重複ラベルを追加せず、入力項目と操作の名称、必要時のエラー・確認に絞る。',
       },
       {
         type: 'note',

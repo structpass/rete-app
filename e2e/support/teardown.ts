@@ -31,3 +31,35 @@ export function resolveTeardownMethod(urlPath: string): 'DELETE' | 'PATCH' {
     .filter((s) => s !== '');
   return segments.length === 1 && ARCHIVE_TEARDOWN_RESOURCES.has(segments[0]) ? 'PATCH' : 'DELETE';
 }
+
+/**
+ * 予定（calendar-events）の消し口は「id だけ」では足りない（d793）。
+ *
+ * DELETE /api/v1/calendar-events/:id は楽観ロックの `?revision=` を要求し、無い・古い revision は 400 で
+ * 断られる。id から組み立てた後始末の path をそのまま撃つと 400 になり、作った予定が開発 DB に
+ * 残り続けた（2026-10-25/26 の実行で 19 件残留）。作った直後の応答が返す revision を添えて消す。
+ *
+ * 予定の id は UUID のため、「直前の応答の id」として数字（タスク等）が来た時は予定として扱わない。
+ */
+export function buildCreatedResourceTeardown(
+  createdUrlPath: string,
+  responseData: { id?: unknown; revision?: unknown } | null | undefined,
+): { method: 'DELETE' | 'PATCH'; path: string } | null {
+  const id = responseData?.id;
+  if (id === undefined || id === null || id === '') return null;
+  const path = `${createdUrlPath.replace(/\/$/, '')}/${String(id)}`;
+  const segments = createdUrlPath
+    .replace(/^\/api\/v1\//, '')
+    .split('/')
+    .filter((s) => s !== '');
+  const isCalendarEvent =
+    segments.length === 1 && segments[0] === 'calendar-events' && typeof id === 'string';
+  if (!isCalendarEvent) return { method: resolveTeardownMethod(createdUrlPath), path };
+  // revision が返らなかった時も path は作る（消し口が 400 で落ちる形は今までどおり後始末で表に出る）。
+  const revision = responseData?.revision;
+  const suffix =
+    revision === undefined || revision === null
+      ? ''
+      : `?revision=${encodeURIComponent(String(revision))}`;
+  return { method: 'DELETE', path: `${path}${suffix}` };
+}

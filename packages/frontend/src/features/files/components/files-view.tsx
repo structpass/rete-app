@@ -7,6 +7,7 @@ import { DeskSpaceProvider, useDeskSpace } from '@/features/desk/hooks/desk-spac
 import { useFileBrowser } from '../hooks/use-file-browser';
 import { useFileOverlays } from '../hooks/use-file-overlays';
 import { useFileEditLink } from '../hooks/use-file-edit-link';
+import { useFileIdFromLocation } from '../hooks/use-file-id-from-location';
 import { FilesShell } from './files-shell';
 import { FilesSidebar } from './files-sidebar';
 
@@ -29,14 +30,16 @@ import { FilesSidebar } from './files-sidebar';
  * シェルごと白化するため廃止（dsk-0372 と同型・同根の anti-pattern）。
  */
 export function FilesView({
+  initialSpaceId = null,
   initialFolderId,
   initialFileId,
 }: {
+  initialSpaceId?: string | null;
   initialFolderId: string | null;
   initialFileId: string | null;
 }) {
   return (
-    <DeskSpaceProvider>
+    <DeskSpaceProvider initialSpaceId={initialSpaceId}>
       <FilesViewBody initialFolderId={initialFolderId} initialFileId={initialFileId} />
     </DeskSpaceProvider>
   );
@@ -71,7 +74,22 @@ function FilesViewBody({
     setSelectedSpaceId(null);
   }, [treeError, treeErrorStatus, selectedSpaceId, setSelectedSpaceId]);
   // お気に入りファイル★（/files?fileId=）→ メタ解決 → 所属フォルダ遷移 → 編集オーバーレイ起動（FF）。
-  useFileEditLink(initialFileId, browser.selectFolder, overlays.openEdit);
+  //
+  // v2-505: server から渡る initialFileId だけでは足りない。Home の★は router.push で
+  // この画面へ来るため、既に /files を開いている状態では server component が再実行されず
+  // prop が古いままになる。クライアント側の URL も見て、どちらかで fileId が立ったら解決する。
+  // ready には「器が確定したか」を渡す（遷移直後に開くと直後の再構築で消えるため・実測）。
+  //
+  // d560: 優先順位は URL（クライアント）が先。initialFileId は「開いた時点の URL」で、その後
+  // 別のお気に入りへ移っても古い値が残るため、URL が fileId を持たない時だけ使う
+  // （initialFileId ?? clientFileId の順にすると、別の★を押しても古いファイルが開いてしまう）。
+  const clientFileId = useFileIdFromLocation();
+  useFileEditLink(
+    clientFileId ?? initialFileId,
+    browser.selectFolder,
+    overlays.openEdit,
+    spaceId !== null,
+  );
 
   return (
     <AppShell

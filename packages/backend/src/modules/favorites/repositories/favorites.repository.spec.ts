@@ -10,7 +10,7 @@ import { DEFAULT_MAX_WAIT_MS, DEFAULT_TIMEOUT_MS } from '../../../common/databas
  *
  * ここで検証すること:
  * - 全メソッドが accountId で行を絞ること（IDOR 防止）。特に deleteOwned が `{ id, accountId }` の
- *   deleteMany であること、reorder の updateMany に accountId が乗ること。
+ *   deleteMany であること、reorder の一括 SQL に accountId が乗ること。
  * - reorder が共通ヘルパ経由の Serializable interactive transaction 1 本で走り、集合検証（過剰 / 欠落 /
  *   件数同一で中身違い）を tx 内で行い、不一致時は write を発行しないこと。
  * - 競合 abort（P2034）で自動リトライし、それ以外のエラーはリトライせず投げること。
@@ -21,6 +21,7 @@ import { DEFAULT_MAX_WAIT_MS, DEFAULT_TIMEOUT_MS } from '../../../common/databas
 
 // tx 内で使う Prisma client モック（$transaction のコールバックに渡す）。
 const txMock = {
+  $executeRaw: jest.fn(),
   userFavorite: {
     findMany: jest.fn(),
     updateMany: jest.fn(),
@@ -244,7 +245,7 @@ describe('FavoritesRepository', () => {
   // reorder（tx 内の集合検証・Serializable 直列化・IDOR スコープ）
   // ============================================================
   describe('reorder', () => {
-    it('集合一致なら index 順に sortOrder=i の updateMany を accountId スコープで発行し、tx 内再読込を返す', async () => {
+    it('集合一致なら要求順の全件を一括 SQL で更新し、tx 内再読込を返す', async () => {
       const items = [
         { id: 'f1', sortOrder: 0 },
         { id: 'f2', sortOrder: 1 },
@@ -252,7 +253,7 @@ describe('FavoritesRepository', () => {
       txMock.userFavorite.findMany
         .mockResolvedValueOnce([{ id: 'f2' }, { id: 'f1' }])
         .mockResolvedValueOnce(items);
-      txMock.userFavorite.updateMany.mockResolvedValue({ count: 1 });
+      txMock.$executeRaw.mockResolvedValue(2);
 
       const result = await repo.reorder(ACCOUNT, ['f1', 'f2']);
 
@@ -260,20 +261,22 @@ describe('FavoritesRepository', () => {
         where: { accountId: ACCOUNT },
         select: { id: true },
       });
-      expect(txMock.userFavorite.updateMany).toHaveBeenNthCalledWith(1, {
-        where: { id: 'f1', accountId: ACCOUNT },
-        data: { sortOrder: 0 },
-      });
-      expect(txMock.userFavorite.updateMany).toHaveBeenNthCalledWith(2, {
-        where: { id: 'f2', accountId: ACCOUNT },
-        data: { sortOrder: 1 },
-      });
+      const query = txMock.$executeRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(query.values).toEqual([
+        JSON.stringify(['f1', 'f2']),
+        ACCOUNT,
+        expect.any(Date),
+        ACCOUNT,
+      ]);
+      expect(query.text).toContain('favorite.account_id = $2');
+      expect(query.text).toContain('favorite.account_id = $4');
       expect(txMock.userFavorite.findMany).toHaveBeenNthCalledWith(2, {
         where: { accountId: ACCOUNT },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       });
       // 回数まで固定する（Nth だけだと二重ループ等で余計な write / read を撃つ実装でも緑のまま通る）。
-      expect(txMock.userFavorite.updateMany).toHaveBeenCalledTimes(2);
+      expect(txMock.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
       expect(txMock.userFavorite.findMany).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ ok: true, items });
     });
@@ -298,6 +301,7 @@ describe('FavoritesRepository', () => {
 
       expect(result).toEqual({ ok: false, reason: 'set-mismatch' });
       expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
+      expect(txMock.$executeRaw).not.toHaveBeenCalled();
       expect(txMock.userFavorite.findMany).toHaveBeenCalledTimes(1);
     });
 
@@ -308,6 +312,7 @@ describe('FavoritesRepository', () => {
 
       expect(result).toEqual({ ok: false, reason: 'set-mismatch' });
       expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
+      expect(txMock.$executeRaw).not.toHaveBeenCalled();
       expect(txMock.userFavorite.findMany).toHaveBeenCalledTimes(1);
     });
 
@@ -318,25 +323,24 @@ describe('FavoritesRepository', () => {
 
       expect(result).toEqual({ ok: false, reason: 'set-mismatch' });
       expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
+      expect(txMock.$executeRaw).not.toHaveBeenCalled();
     });
 
-    it('sortOrder はリクエスト順の添字だが、更新の発行順は id 昇順に固定される（cmn-0050(C4) ロック取得順の一定化）', async () => {
+    it('200 件でも SQL は 1 回で、リクエスト順と id 昇順のロックを区別する', async () => {
+      const ids = Array.from({ length: 200 }, (_, index) => `f${199 - index}`);
       txMock.userFavorite.findMany
-        .mockResolvedValueOnce([{ id: 'f1' }, { id: 'f2' }])
+        .mockResolvedValueOnce(ids.map((id) => ({ id })))
         .mockResolvedValueOnce([]);
-      txMock.userFavorite.updateMany.mockResolvedValue({ count: 1 });
+      txMock.$executeRaw.mockResolvedValue(200);
 
-      await repo.reorder(ACCOUNT, ['f2', 'f1']);
+      await repo.reorder(ACCOUNT, ids);
 
-      // 発行順は id 昇順（f1→f2）。値はリクエスト順の添字（f2=0 / f1=1）。
-      expect(txMock.userFavorite.updateMany).toHaveBeenNthCalledWith(1, {
-        where: { id: 'f1', accountId: ACCOUNT },
-        data: { sortOrder: 1 },
-      });
-      expect(txMock.userFavorite.updateMany).toHaveBeenNthCalledWith(2, {
-        where: { id: 'f2', accountId: ACCOUNT },
-        data: { sortOrder: 0 },
-      });
+      expect(txMock.$executeRaw).toHaveBeenCalledTimes(1);
+      const query = txMock.$executeRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(query.values[0]).toBe(JSON.stringify(ids));
+      expect(query.text).toMatch(/ORDER BY favorite.id\s+FOR UPDATE OF favorite/);
+      expect(query.text).toContain('(requested.position - 1)::integer');
+      expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
     });
 
     it('同じ id が重複していれば set-mismatch で write を発行しない（Set 化で潰れる穴を塞ぐ・repository 単体の契約）', async () => {
@@ -346,6 +350,7 @@ describe('FavoritesRepository', () => {
 
       expect(result).toEqual({ ok: false, reason: 'set-mismatch' });
       expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
+      expect(txMock.$executeRaw).not.toHaveBeenCalled();
       expect(txMock.userFavorite.findMany).toHaveBeenCalledTimes(1);
     });
 
@@ -356,6 +361,7 @@ describe('FavoritesRepository', () => {
 
       expect(result).toEqual({ ok: true, items: [] });
       expect(txMock.userFavorite.updateMany).not.toHaveBeenCalled();
+      expect(txMock.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('競合 abort（P2034）は共通ヘルパが自動リトライし、2 回目で解決する', async () => {

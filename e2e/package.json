@@ -4,25 +4,21 @@
   "private": true,
   "description": "rete E2E tests — 権限境界・業務シナリオ退行ガード",
   "scripts": {
-    "postinstall": "node ../scripts/apply-e2e-braces-patch.mjs",
-    "test:security": "node ../scripts/apply-e2e-braces-patch.mjs --test && node --test ../scripts/check-e2e-playwright.test.cjs ../scripts/check-e2e-uuid.test.cjs ../scripts/check-e2e-playwright-proxy.test.cjs",
     "pretest": "pnpm --filter @rete/backend run reset:e2e-fixtures",
-    "test": "node ../scripts/apply-e2e-braces-patch.mjs && bddgen test && playwright test --config playwright.config.ts --project=authz",
-    "test:fast": "node ../scripts/apply-e2e-braces-patch.mjs && node scripts/fast-test.mjs",
-    "test:fast:report": "node ../scripts/apply-e2e-braces-patch.mjs && node scripts/fast-test.mjs --report",
+    "test": "bddgen test && playwright test --config playwright.config.ts --project=authz",
+    "test:fast": "node scripts/fast-test.mjs",
+    "test:fast:report": "node scripts/fast-test.mjs --report",
     "pretest:authz": "pnpm --filter @rete/backend run reset:e2e-fixtures",
-    "test:authz": "node ../scripts/apply-e2e-braces-patch.mjs && bddgen test && playwright test --config playwright.config.ts --project=authz",
-    "test:ui": "node ../scripts/apply-e2e-braces-patch.mjs && playwright test --config playwright.config.ts --project=ui-sso",
-    "generate": "node ../scripts/apply-e2e-braces-patch.mjs && bddgen test",
-    "report": "node ../scripts/apply-e2e-braces-patch.mjs && playwright show-report .report",
+    "test:authz": "bddgen test && playwright test --config playwright.config.ts --project=authz",
+    "test:ui": "playwright test --config playwright.config.ts --project=ui-sso",
+    "test:startup-login": "playwright test --config startup-login.config.ts login.spec.ts",
+    "generate": "bddgen test",
+    "report": "playwright show-report .report",
     "type-check": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "node ../scripts/apply-e2e-braces-patch.mjs && node --experimental-strip-types --test support/__tests__/*.test.ts"
-  },
-  "overrides": {
-    "uuid": "11.1.1"
+    "test:unit": "node --experimental-strip-types --test support/__tests__/*.test.ts"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.1",
+    "@playwright/test": "^1.49.0",
     "@types/node": "^20.17.10",
     "otplib": "^13.4.1",
     "playwright-bdd": "^8.2.0",

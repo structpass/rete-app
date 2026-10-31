@@ -12,6 +12,8 @@ import type {
 import { useSession } from '@/features/auth';
 import { cn } from '@/lib/utils';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 import { FilterBar, FilterSearchInput } from '@/components/shared/filter-bar';
 import { FormButton, PageTitle } from './primitives';
 import { fetchPermissionMatrix } from '../lib/memberships-api';
@@ -156,6 +158,7 @@ function HeaderDivider() {
 
 /** 所属管理（system ADMIN 専用）。縦=組織/PJ/チャネル、横=activeな管理グループ。 */
 export function MembershipsAdminScreen() {
+  const discard = useDiscardConfirm();
   const { user, loading: sessionLoading } = useSession();
   const isAdmin = user?.role === Role.ADMIN;
   const [matrix, setMatrix] = useState<PermissionMatrixDto | null>(null);
@@ -178,14 +181,14 @@ export function MembershipsAdminScreen() {
     setDraft(nextSnapshot);
   }, []);
 
-  useMountedFetch(
-    async (alive) => {
-      if (!isAdmin) {
-        setLoading(false);
-        return;
-      }
+  // d659: 取得失敗の表示から再試行できるよう、失敗の受け止め込みで呼べる形にする。
+  // 取れたら失敗の表示を消す（取れているのに失敗の文言が残ると成功と失敗が両方出る）。
+  const loadMatrixOrError = useCallback(
+    async (alive: () => boolean = () => true) => {
+      setLoading(true);
       try {
         await loadMatrix(alive);
+        if (alive()) setLoadError(null);
       } catch (error) {
         // v2-233: 取得失敗は toast で消さず領域内（role="alert"）に残す（0件と区別できるようにする）。
         if (alive()) setLoadError(apiErrorMessage(error, '所属設定の読み込みに失敗しました'));
@@ -193,7 +196,18 @@ export function MembershipsAdminScreen() {
         if (alive()) setLoading(false);
       }
     },
-    [isAdmin, loadMatrix],
+    [loadMatrix],
+  );
+
+  useMountedFetch(
+    async (alive) => {
+      if (!isAdmin) {
+        setLoading(false);
+        return;
+      }
+      await loadMatrixOrError(alive);
+    },
+    [isAdmin, loadMatrixOrError],
   );
 
   const columns = useMemo<MatrixColumn[]>(() => {
@@ -373,11 +387,23 @@ export function MembershipsAdminScreen() {
           </div>
         ) : loadError ? (
           // v2-233: 取得失敗は表を描かず領域内に残す（真0件の「条件に一致するスコープがありません」と区別する）。
+          // d659: 再試行を添える（これが無いと、失敗が続く間は画面を開き直すまで戻れない）。
           <div
             role="alert"
             className="grid h-48 place-items-center px-4 text-center text-sm text-[var(--sp-accent-red)]"
           >
-            {loadError}
+            <span>
+              {loadError}
+              <span className="ml-2 inline-block">
+                <FormButton
+                  variant="secondary"
+                  loading={loading}
+                  onClick={() => void loadMatrixOrError()}
+                >
+                  再試行
+                </FormButton>
+              </span>
+            </span>
           </div>
         ) : (
           <table className="min-w-max border-separate border-spacing-0 text-[0.8125rem]">
@@ -510,7 +536,7 @@ export function MembershipsAdminScreen() {
       <div className="mt-auto flex justify-end gap-2 border-t border-[var(--sp-line-warm-2)] pt-3">
         <FormButton
           variant="ghost"
-          onClick={() => setDraft(snapshot)}
+          onClick={() => discard.request(dirtyKeys.length > 0, () => setDraft(snapshot))}
           disabled={saving || dirtyKeys.length === 0}
         >
           キャンセル
@@ -524,6 +550,11 @@ export function MembershipsAdminScreen() {
           更新
         </FormButton>
       </div>
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
     </main>
   );
 }

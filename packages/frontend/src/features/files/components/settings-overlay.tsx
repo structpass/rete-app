@@ -4,6 +4,7 @@ import { Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { OverlayCloseButton, OverlayDialog } from '@/components/ui/overlay-dialog';
 import { OverlayHeader } from '@/components/ui/overlay-header';
+import { RequiredMark } from '@/components/ui/required-mark';
 import { Spinner } from '@/components/ui/spinner';
 import { useFileSettings } from '../hooks/use-file-settings';
 import { ExtensionListEditor, FixedExtensionList } from './extension-list-editor';
@@ -42,8 +43,9 @@ export function SettingsOverlay({ onClose }: { onClose: () => void }) {
           title="アップロード設定"
         />
         <div className="file-overlay-body">
+          {/* d754: 読み込みに失敗した理由を捨てずに出す（設定タブの同名画面と扱いを揃える）。 */}
           {s.error ? (
-            <div className="file-empty">設定の読み込みに失敗しました</div>
+            <div className="file-empty">{s.loadErrorReason || '設定の読み込みに失敗しました'}</div>
           ) : s.loading ? (
             <div className="file-empty">
               <Spinner className="h-4 w-4 inline-block" />
@@ -51,11 +53,17 @@ export function SettingsOverlay({ onClose }: { onClose: () => void }) {
           ) : (
             <div className="settings-form">
               <label className="settings-field">
-                <span className="settings-label">最大ファイルサイズ（MB）</span>
+                {/* 最大サイズは未入力で保存できない（1〜100 の必須項目）＝正本 comp-form-field の必須バッジを出す。
+                    設定タブの同名画面（file-upload-settings-screen）と同じマークを使い、出し方を揃える。 */}
+                <span className="settings-label">
+                  最大ファイルサイズ（MB）
+                  <RequiredMark />
+                </span>
                 <input
                   type="number"
                   min={1}
                   max={100}
+                  aria-required="true"
                   className="settings-input"
                   value={s.maxSizeMb}
                   onChange={(e) =>

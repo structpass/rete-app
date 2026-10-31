@@ -14,7 +14,7 @@ import type {
  * set-0188: アーカイブ/復元を撤去（includeArchived 廃止・物理削除を追加）。
  * GET    /user-groups                     — グループ一覧（現役のみ）
  * POST   /user-groups                     — グループ作成
- * PATCH  /user-groups/:id                — 更新（改名）
+ * PATCH  /user-groups/:id                — 更新（名前・Home編集権限）
  * DELETE /user-groups/:id                — 削除（所属設定・メンバーも連鎖削除）
  * GET    /user-groups/:id/members        — メンバー一覧
  * POST   /user-groups/:id/members        — メンバー追加
@@ -36,7 +36,7 @@ export async function createUserGroup(input: CreateUserGroupInput): Promise<User
   return res.data.data;
 }
 
-/** グループ更新（PATCH /user-groups/:id・改名）。 */
+/** グループ更新（PATCH /user-groups/:id・名前とHome編集権限）。 */
 export async function updateUserGroup(
   id: string,
   input: UpdateUserGroupInput,

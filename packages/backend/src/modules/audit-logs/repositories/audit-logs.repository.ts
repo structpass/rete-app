@@ -72,19 +72,29 @@ export interface AuditLogPage {
   cursors: { next: string | null; prev: string | null };
 }
 
-/** keyset カーソルの復号後の値（createdAt, id の複合境界）。 */
+/**
+ * keyset カーソル（(createdAt, id) と、その行を含めるかどうか）。
+ *
+ * d701: 境目を「行そのもの＋外す向き」で持つ。以前は戻り先の id に `\uFFFF` を足して
+ * 「その行のすぐ後ろ側」を表していたが、実表の照合順序（locale / collation）は `\uFFFF` を最大と
+ * みなさない（実測: en_US.utf8 で `019\uFFFF` が `020` と同じ並びに入る）ため、同じ時刻の行が
+ * 頁いっぱいに並ぶと境目が正しく決まらなかった。
+ */
 interface DecodedCursor {
   createdAt: Date;
   id: string;
+  /** true なら境界の行そのものを含める（含めない側は lt / gt で外す）。 */
+  include: boolean;
 }
 
 /**
  * keyset カーソルの符号化 / 復号（(createdAt, id) を base64 の不透明トークンにする）。
  * OFFSET を使わないため、カーソルは「このページの端の行」を指す座標そのものとして持ち運ぶ。
+ * include を省くと false（その行は含めない = 従来の「行より先」を意味する）。
  */
-export function encodeCursor(row: Pick<AuditLog, 'createdAt' | 'id'>): string {
+export function encodeCursor(row: Pick<AuditLog, 'createdAt' | 'id'>, include = false): string {
   return Buffer.from(
-    JSON.stringify({ c: row.createdAt.toISOString(), id: row.id }),
+    JSON.stringify({ c: row.createdAt.toISOString(), id: row.id, x: include ? 1 : 0 }),
     'utf8',
   ).toString('base64url');
 }
@@ -94,7 +104,7 @@ export function encodeCursor(row: Pick<AuditLog, 'createdAt' | 'id'>): string {
  * DB クエリへ素通りさせない（Invalid Date は Prisma の比較で静かに空/不定結果を返し得るため 400 で弾く）。
  */
 export function decodeCursor(token: string): DecodedCursor {
-  let parsed: { c?: unknown; id?: unknown };
+  let parsed: { c?: unknown; id?: unknown; x?: unknown };
   try {
     parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
   } catch {
@@ -107,7 +117,11 @@ export function decodeCursor(token: string): DecodedCursor {
   if (Number.isNaN(createdAt.getTime())) {
     throw new BadRequestException('cursor の形式が不正です');
   }
-  return { createdAt, id: parsed.id };
+  // x は省略可（従来のカーソルは「行を含めない」）。1/0 以外は壊れた入力として弾く。
+  if (parsed.x !== undefined && parsed.x !== 0 && parsed.x !== 1) {
+    throw new BadRequestException('cursor の形式が不正です');
+  }
+  return { createdAt, id: parsed.id, include: parsed.x === 1 };
 }
 
 /** (createdAt, id) が cursor より「古い」行（= createdAt 降順で cursor より後ろ）を選ぶ複合条件。 */
@@ -115,7 +129,10 @@ function beforeCursor(cursor: DecodedCursor): Prisma.AuditLogWhereInput {
   return {
     OR: [
       { createdAt: { lt: cursor.createdAt } },
-      { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+      {
+        createdAt: cursor.createdAt,
+        id: cursor.include ? { lte: cursor.id } : { lt: cursor.id },
+      },
     ],
   };
 }
@@ -125,7 +142,10 @@ function afterCursor(cursor: DecodedCursor): Prisma.AuditLogWhereInput {
   return {
     OR: [
       { createdAt: { gt: cursor.createdAt } },
-      { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+      {
+        createdAt: cursor.createdAt,
+        id: cursor.include ? { gte: cursor.id } : { gt: cursor.id },
+      },
     ],
   };
 }
@@ -193,10 +213,11 @@ export class AuditLogsRepository {
 
   /**
    * フィルタ + keyset カーソルで操作ログを引く（createdAt, id の複合順で OFFSET を使わない）。
-   * direction='next'/'prev' は cursor 必須（欠けば first と同義に倒す）。'last' は末尾から昇順で
-   * limit 件取り、表示順（降順）に戻すため配列を反転する。total は監査ログ画面の「全 N 件」
-   * 表示（set-0150 で設定タブの語彙へ統一・意味は絞り込み後の件数のまま）とページ数計算に使うため、
-   * keyset 化後も count クエリは維持する。
+   * direction='next'/'prev' は cursor 必須（欠けば first と同義に倒す）。'last' は最終頁の先頭行を
+   * 1 行の読み飛ばしで求め、その行から降順で limit 件採る（頁の先頭行から並ぶので反転しない）。
+   * 'last' の先頭行は「総件数を limit で割った端数」の位置へ揃え、次で辿った頁と行の境界を一致させる
+   * （d653）。total は監査ログ画面の「全 N 件」表示（set-0150 で設定タブの語彙へ統一・意味は絞り込み後の
+   * 件数のまま）とページ数計算に使うため、keyset 化後も count クエリは維持する。
    */
   async search(
     filter: AuditLogFilter,
@@ -210,7 +231,7 @@ export class AuditLogsRepository {
     let orderBy: Prisma.AuditLogOrderByWithRelationInput[];
     let reverseResult = false;
     // 実際に採った分岐（direction 指定だが cursor 欠落時は 'first' 相当に倒れる点を cursors 算出にも反映する）。
-    let mode: 'first' | 'next' | 'prev' | 'last' = 'first';
+    let mode: 'first' | 'next' | 'prev' = 'first';
 
     if (direction === 'next' && decoded) {
       scopedWhere = { AND: [where, beforeCursor(decoded)] };
@@ -222,9 +243,7 @@ export class AuditLogsRepository {
       reverseResult = true;
       mode = 'prev';
     } else if (direction === 'last') {
-      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
-      reverseResult = true;
-      mode = 'last';
+      return this.searchLastPage(where, limit);
     } else {
       orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
     }
@@ -234,30 +253,95 @@ export class AuditLogsRepository {
       this.prisma.auditLog.findMany({ where: scopedWhere, orderBy, take: limit + 1 }),
       this.prisma.auditLog.count({ where }),
     ]);
-    const hasExtra = rows.length > limit;
-    const trimmed = hasExtra ? rows.slice(0, limit) : rows;
+    // 降順（次へ・先頭頁）は先頭 limit 件、昇順（前へ）も採った向きの先頭 limit 件が頁になる。
+    // どちらも「採った向きの先頭から limit 件」で、余りの 1 行は採った向きの末尾（= 遠い側）に
+    // 付く（d713: 前へ を古い側の端から落としていたため、前へ で戻った頁が 1 行ずれていた）。
+    const trimmed = rows.slice(0, limit);
     const data = reverseResult ? [...trimmed].reverse() : trimmed;
+    if (data.length === 0) return { data, total, cursors: { next: null, prev: null } };
 
-    // 「到達済み方向」（cursor で辿り着いた側）は必ず戻れることが保証済みなので常に non-null。
-    // 「未踏方向」（これから進む側）は limit+1 先読みの hasExtra が無ければ null（それ以上先が無い）。
-    const cursors: { next: string | null; prev: string | null } =
-      data.length === 0
-        ? { next: null, prev: null }
-        : mode === 'first'
-          ? { next: hasExtra ? encodeCursor(data[data.length - 1]) : null, prev: null }
-          : mode === 'last'
-            ? { next: null, prev: hasExtra ? encodeCursor(data[0]) : null }
-            : mode === 'next'
-              ? {
-                  next: hasExtra ? encodeCursor(data[data.length - 1]) : null,
-                  prev: encodeCursor(data[0]),
-                }
-              : {
-                  next: encodeCursor(data[data.length - 1]),
-                  prev: hasExtra ? encodeCursor(data[0]) : null,
-                };
+    const start = data[0];
+    const end = data[data.length - 1];
+    // 前の頁があるかは、先頭行より新しい側に 1 行でも残っているかで決める（総件数 25・20 件の
+    // 最終頁から前の頁へ戻れるように）。次の頁があるかは、末尾行より古い側に 1 行でも残っているか
+    // で決める（どの向きから来た頁でも同じ判定。先読みの余りは採る向きで付く側が変わるため、
+    // 続きの判定に使うと 前へ で戻った頁の 次へ がずれた）。
+    const hasNext = await this.hasRowBefore(where, end);
+    const hasPrev = mode !== 'first' && (await this.hasRowAfter(where, start));
+
+    // 戻り先は、この頁の先頭行そのもの（含めない）。前へは「その行より新しい側」を昇順に採り、
+    // 反転するので、戻った頁は手前の頁の末尾までがちょうど limit 件になる。
+    // 先頭行を含める形にすると 1 行重なる（d701: 以前は id に接尾辞 `\uFFFF` を足していたが、
+    // 実表の照合順序では接尾辞が最大にならず、同じ時刻の行が並ぶと境目が崩れた）。
+    // 進み先は「今の頁の末尾行のすぐ古い側」を降順 limit 件なので、境目は末尾行そのもの（d668）。
+    // どの向きから来た頁でも 次へ は末尾行そのもの（含めない）で持つ（d713）。前へ で戻った頁だけ
+    // 境目を「1 つ先の頁の先頭行を含める」形にすると、総件数が頁件数の倍数でない時（21・25 件）に
+    // 最終頁の頭がずれた。末尾行を含めない形なら、次へ は末尾行の次から始まるので、どの経路から
+    // 戻ってきても次へ で辿った頁と行の境目が揃う。
+    const cursors: { next: string | null; prev: string | null } = {
+      next: hasNext ? encodeCursor(end) : null,
+      prev: hasPrev ? encodeCursor(start) : null,
+    };
 
     return { data, total, cursors };
+  }
+
+  /**
+   * 最終頁（'last'）を返す。末尾から固定件数を採ると、総件数が limit の倍数でない時に
+   * 「次」で辿った最終頁と行の境界が揃わない（総件数 25・20 件なら last が 6〜25 行目・next 経由が
+   * 21〜25 行目）。総ページ数（切り上げ）から求めた最終頁の先頭を読み飛ばしで求め、そこから降順で
+   * limit 件採る（頁の先頭行から並ぶので反転しない）。切り捨てで割ると、総件数が頁件数の倍数の時に
+   * 1 頁過ぎて空になる（20 件・20 件表示で 0 行）ため切り上げる（d653）。
+   */
+  private async searchLastPage(
+    where: Prisma.AuditLogWhereInput,
+    limit: number,
+  ): Promise<AuditLogPage> {
+    const counted = await this.prisma.auditLog.aggregate({ where, _count: { _all: true } });
+    const total = counted._count._all;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const offset = (pages - 1) * limit;
+    const lastRows = await this.prisma.auditLog.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: offset,
+      take: limit,
+    });
+    // 最終頁は末尾（古い側）が終端なので「次」は常に無い。戻り先は、この頁の先頭行そのもの
+    // （含めない）。前へは「その行より新しい側」を昇順に limit+1 件採って古い側の端を落とすので、
+    // 先頭行を含める形にすると 1 行重なる（d701）。
+    const prev = lastRows.length > 0 && offset > 0 ? encodeCursor(lastRows[0]) : null;
+    return { data: lastRows, total, cursors: { next: null, prev } };
+  }
+
+  /** line より新しい側（同じ時刻なら id の大きい側）に 1 行でも残っているか。前へ戻れるかの判定に使う。 */
+  private async hasRowAfter(
+    where: Prisma.AuditLogWhereInput,
+    line: Pick<AuditLog, 'createdAt' | 'id'>,
+  ): Promise<boolean> {
+    const [found] = await this.prisma.auditLog.findMany({
+      where: {
+        AND: [where, afterCursor({ createdAt: line.createdAt, id: line.id, include: false })],
+      },
+      select: { id: true },
+      take: 1,
+    });
+    return found !== undefined;
+  }
+
+  /** line より古い側（同じ時刻なら id の小さい側）に 1 行でも残っているか。次へ進めるかの判定に使う。 */
+  private async hasRowBefore(
+    where: Prisma.AuditLogWhereInput,
+    line: Pick<AuditLog, 'createdAt' | 'id'>,
+  ): Promise<boolean> {
+    const [found] = await this.prisma.auditLog.findMany({
+      where: {
+        AND: [where, beforeCursor({ createdAt: line.createdAt, id: line.id, include: false })],
+      },
+      select: { id: true },
+      take: 1,
+    });
+    return found !== undefined;
   }
 
   /**

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { CircleCheckBig, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Role } from '@rete/shared';
@@ -40,6 +40,8 @@ import {
 import { apiErrorMessage } from '../lib/api-error';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OverlayDialog } from '@/components/ui/overlay-dialog';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 import { useFileDownload } from '@/hooks/use-file-download';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
 import { useAsyncAction } from '@/hooks/use-async-action';
@@ -194,11 +196,17 @@ function MemberEditor({
   // set-0097: email 変更の確認ダイアログ判定。set-0178 HIGH 修正で backend の正規化
   // （trim + 小文字化・members.service.ts:147）と揃え、case-only 変更で偽の確認ダイアログを出さない。
   const emailChanged = editor.email.trim().toLowerCase() !== editor.initial.email;
+  const discard = useDiscardConfirm();
+  const dirty =
+    editor.familyName !== editor.initial.familyName ||
+    editor.givenName !== editor.initial.givenName ||
+    editor.email !== editor.initial.email ||
+    editor.isActive !== editor.initial.isActive;
 
   // set-0069: 画面下インラインではなく中央オーバーレイ（OverlayDialog）で編集する。
   // 保存中は Esc / 背景クリックでの閉じを抑止（criteria・従来どおり）。
   const handleClose = () => {
-    if (!saving) onCancel();
+    if (!saving) discard.request(dirty, onCancel);
   };
 
   // 保存ボタン押下: email 変更ありなら確認ダイアログを先に出す（confirm 後→onSave で実 PATCH）。
@@ -212,6 +220,11 @@ function MemberEditor({
 
   return (
     <OverlayDialog open onClose={handleClose} ariaLabel="メンバーの編集" width="min(520px, 92vw)">
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
       {/* set-0119 rework: ヘッダの氏名ライブ計算（メール非表示・入力欄と重複するメールは出さない）。
         familyName/givenName から都度算出し、編集中に追従する（editor.name は編集開始時固定値で
         追従しない設計のため再計算式を採用・詳細は plan_notes 参照）。 */}
@@ -401,21 +414,29 @@ export function MembersScreen() {
   const { run } = useAsyncAction();
 
   // ── 初回ロード（メンバー + 契約システム）── set-0057: 非 ADMIN はフェッチしない
+  // d659: 取得失敗の表示から再試行できるよう、取り直しを名付けて useMountedFetch と再試行の両方から呼ぶ。
+  const loadMembers = useCallback(async (alive: () => boolean) => {
+    setIsLoading(true);
+    try {
+      const memberList = await fetchMembers();
+      if (!alive()) return;
+      setMembers(memberList);
+      // 前の失敗の表示を残さない（再試行で取れた画面に失敗の文言を残すと、成功と失敗の両方が出る）。
+      setLoadError(null);
+    } catch {
+      // v2-233: 取得失敗は toast で消さず領域内（role="alert"）に残す（0件と区別できるようにする）。
+      if (alive()) setLoadError('メンバーの読み込みに失敗しました');
+    } finally {
+      if (alive()) setIsLoading(false);
+    }
+  }, []);
+
   useMountedFetch(
     async (alive) => {
       if (!isAdmin) return;
-      try {
-        const memberList = await fetchMembers();
-        if (!alive()) return;
-        setMembers(memberList);
-      } catch {
-        // v2-233: 取得失敗は toast で消さず領域内（role="alert"）に残す（0件と区別できるようにする）。
-        if (alive()) setLoadError('メンバーの読み込みに失敗しました');
-      } finally {
-        if (alive()) setIsLoading(false);
-      }
+      await loadMembers(alive);
     },
-    [isAdmin],
+    [isAdmin, loadMembers],
   );
 
   // set-0180: system タブ撤去後は「全アカウント」1枚のみの装飾タブとなり、PageTabs ごと削除した。
@@ -712,11 +733,20 @@ export function MembersScreen() {
                 isLoading={isLoading}
                 empty={rows.length === 0}
                 emptyLabel={search ? 'メンバーが見つかりませんでした' : 'メンバーがいません'}
-                errorLabel={loadError}
+                // 取得失敗は「見つかりませんでした」（0 件の文言）へ落とさない（空一覧と区別する表示）。
+                errorLabel={loadError ? 'メンバーの読み込みに失敗しました' : null}
+                onRetry={() => void loadMembers(() => true)}
               />
             </tbody>
           </table>
-          <Pagination total={`全 ${rows.length} 件 (有効 ${rowsActive} / ロック ${rowsLocked})`} />
+          {/* 取得に失敗した時に「全 0 件」と出すと、本当に 0 件の一覧と読み分けられない（d536 と同じ扱い）。 */}
+          <Pagination
+            total={
+              loadError
+                ? '全 — 件'
+                : `全 ${rows.length} 件 (有効 ${rowsActive} / ロック ${rowsLocked})`
+            }
+          />
         </TableCard>
       </div>
 

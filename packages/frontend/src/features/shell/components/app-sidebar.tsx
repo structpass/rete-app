@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
+  CalendarDays,
   Star,
   Settings,
   Package,
@@ -25,6 +26,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useRowHoverBand } from '@/hooks/use-row-hover-band';
 import { useSessionContext } from '@/features/auth';
 import { useAnnouncementUnread } from '@/features/dashboard';
+import { unlockFileLink } from '@/features/files';
 import { useFavoritesContext } from '../hooks/favorites-context';
 import { useReferenceReachableValue } from '../hooks/reference-reachable-context';
 import { useReferenceObjectTypes } from '../hooks/use-reference-object-types';
@@ -44,22 +46,47 @@ const KIND_ICON: Record<FavoriteKind, LucideIcon> = {
   space: Hash,
 };
 
+/** 未接続の案内の id（押せない行の aria-describedby と、案内の本文で共有する）。 */
+const UNAVAILABLE_NOTE_ID = 'app-sidebar-unavailable-note';
+
+/**
+ * 遷移先が未接続（準備中）の行の案内（S-HOME-09・2026-10-26 実測で確定）。
+ *
+ * 灰色の行はクリックを受け取らない（`disabled`）ため、押しても画面は何も変わらない。利用者が
+ * 「壊れている」と受け取らないよう、行の下に「開けない理由」を文字で出す。読み上げにも同じ文を
+ * 渡す（role="status"・行から aria-describedby で指す）。長い一覧でサイドバーを押し広げないよう、
+ * 表示は 2 行で切り、全文は title で読める。
+ */
+function UnavailableFavoritesNote({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  const text = labels.join('、');
+  return (
+    <p id={UNAVAILABLE_NOTE_ID} className="sidebar-note" role="status" title={text}>
+      準備中のため開けません: {text}
+    </p>
+  );
+}
+
 interface FavoriteRowProps {
   fav: FavoriteDto;
   onOpen: (fav: FavoriteDto) => void;
   /** 遷移先が未接続（灰色・クリック不可）か。 */
   disabled: boolean;
+  /** 未接続の行が 1 つでもあるか（案内の本文と行を結ぶかの判定）。 */
+  hasUnavailableNote: boolean;
 }
 
-function FavoriteRow({ fav, onOpen, disabled }: FavoriteRowProps) {
+function FavoriteRow({ fav, onOpen, disabled, hasUnavailableNote }: FavoriteRowProps) {
   const Icon = KIND_ICON[fav.kind] ?? Star;
   // mdl-0056: w-full / text-left は button.sidebar-link の共通 reset が持つ。ここで w-full を足すと
   // utilities layer が勝ち、行がホバー帯より 12px 広くなる（幅は globals.css §サイドバー行の幅が単一ソース）。
+  // 押せない行は disabled 属性で止める（案内は行の外に出す。S-HOME-09）。
   return (
     <button
       type="button"
       className={cn('sidebar-link', disabled && 'disabled')}
       aria-disabled={disabled}
+      aria-describedby={disabled && hasUnavailableNote ? UNAVAILABLE_NOTE_ID : undefined}
       disabled={disabled}
       title={disabled ? '遷移先は準備中です' : fav.label}
       onClick={() => onOpen(fav)}
@@ -109,6 +136,20 @@ export function AppSidebar({ onOpenTagMaster }: { onOpenTagMaster?: () => void }
     bandStyle,
   } = useRowHoverBand<HTMLDivElement>('.sidebar-link:not(.active)', 'vertical', true);
 
+  // 遷移先が未接続（準備中）の行の呼び名。行は押せないため、理由を下の案内にまとめて出す（S-HOME-09）。
+  // 行の判定と案内の判定で同じ解決を 2 度書かないよう、ここで 1 度だけ解いて両方が使う。
+  const favoriteLinks = items.map((fav) => ({
+    fav,
+    href: resolveFavoriteLink(
+      fav.kind,
+      fav.targetRef,
+      menuItems,
+      referenceReachable,
+      referenceObjectTypes,
+    ).href,
+  }));
+  const unavailableLabels = favoriteLinks.filter((l) => l.href === null).map((l) => l.fav.label);
+
   const handleOpenFavorite = (fav: FavoriteDto) => {
     const link = resolveFavoriteLink(
       fav.kind,
@@ -120,9 +161,12 @@ export function AppSidebar({ onOpenTagMaster }: { onOpenTagMaster?: () => void }
     if (!link.href) return;
     if (link.external) {
       window.location.href = link.href;
-    } else {
-      router.push(link.href);
+      return;
     }
+    // d560: 同じ URL への★押し直しは Next が遷移を取り消し URL が変わらないため、遷移前に
+    // 対象を直接 File 画面へ伝える（targetRef は decode 済みのまま・URL 側の読み取りと揃える）。
+    if (fav.kind === 'file') unlockFileLink(fav.targetRef);
+    router.push(link.href);
   };
 
   return (
@@ -149,14 +193,21 @@ export function AppSidebar({ onOpenTagMaster }: { onOpenTagMaster?: () => void }
             <LayoutDashboard className="h-4 w-4 shrink-0" />
             <span className="flex-1">掲示板</span>
             {boardUnreadCount > 0 && (
-              <span
-                aria-label={`未読 ${boardUnreadCount} 件`}
-                className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
-                style={{ background: 'var(--sp-accent-teal)' }}
-              >
+              <span aria-label={`未読 ${boardUnreadCount} 件`} className="sidebar-badge ml-auto">
                 {boardUnreadCount > 99 ? '99+' : boardUnreadCount}
               </span>
             )}
+          </Link>
+          {/* d880: カレンダーは掲示板と FAQ の間（開発統括指定の並び「掲示板 → カレンダー → FAQ → タグ管理」）。
+              d744 で入れた導線が b2fe0726 の戻しで落ちていたので戻した。選択状態は掲示板・FAQ と同じく
+              usePathname で判定する。 */}
+          <Link
+            href="/hub/calendar"
+            className={cn('sidebar-link', pathname === '/hub/calendar' && 'active')}
+            aria-current={pathname === '/hub/calendar' ? 'page' : undefined}
+          >
+            <CalendarDays className="h-4 w-4 shrink-0" />
+            <span className="flex-1">カレンダー</span>
           </Link>
           <Link
             href="/hub/faq"
@@ -166,11 +217,7 @@ export function AppSidebar({ onOpenTagMaster }: { onOpenTagMaster?: () => void }
             <HelpCircle className="h-4 w-4 shrink-0" />
             <span className="flex-1">FAQ</span>
             {faqUnreadCount > 0 && (
-              <span
-                aria-label={`未読 ${faqUnreadCount} 件`}
-                className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
-                style={{ background: 'var(--sp-accent-teal)' }}
-              >
+              <span aria-label={`未読 ${faqUnreadCount} 件`} className="sidebar-badge ml-auto">
                 {faqUnreadCount > 99 ? '99+' : faqUnreadCount}
               </span>
             )}
@@ -217,22 +264,19 @@ export function AppSidebar({ onOpenTagMaster }: { onOpenTagMaster?: () => void }
               お気に入りはまだありません
             </p>
           ) : (
-            items.map((fav) => (
-              <FavoriteRow
-                key={fav.id}
-                fav={fav}
-                onOpen={handleOpenFavorite}
-                disabled={
-                  resolveFavoriteLink(
-                    fav.kind,
-                    fav.targetRef,
-                    menuItems,
-                    referenceReachable,
-                    referenceObjectTypes,
-                  ).href === null
-                }
-              />
-            ))
+            <>
+              {favoriteLinks.map(({ fav, href }) => (
+                <FavoriteRow
+                  key={fav.id}
+                  fav={fav}
+                  onOpen={handleOpenFavorite}
+                  disabled={href === null}
+                  hasUnavailableNote={unavailableLabels.length > 0}
+                />
+              ))}
+              {/* 準備中の行は押しても何も起きないため、理由を画面に出す（S-HOME-09）。 */}
+              <UnavailableFavoritesNote labels={unavailableLabels} />
+            </>
           )}
         </div>
 

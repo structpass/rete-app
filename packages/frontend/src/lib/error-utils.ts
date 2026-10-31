@@ -3,8 +3,9 @@
  * backend の AllExceptionsFilter は `{ success: false, error: { code, message } }` を返す。
  */
 export function extractErrorMessage(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { error?: { message?: string } } } })?.response;
-  return resp?.data?.error?.message || fallback;
+  const message = (err as { response?: { data?: { error?: { message?: unknown } } } })?.response
+    ?.data?.error?.message;
+  return typeof message === 'string' && message.length > 0 ? message : fallback;
 }
 
 /**
@@ -30,6 +31,16 @@ export function extractValidationErrorMessage(err: unknown, fallback: string): s
   }
   // 詳細が無い時の message は英語の generic 文言（'Validation failed'）になり得るため、それは fallback へ倒す。
   return error?.message && error.message !== 'Validation failed' ? error.message : fallback;
+}
+
+/**
+ * API エラーの HTTP status を取り出す。取得できなければ undefined。
+ * 画面側が axios を直 import して e.response.status を読む代わりにこれを使う
+ * （status 判定の入口を 1 つに保ち、API クライアントの実装差し替えに画面を巻き込まない）。
+ */
+export function extractErrorStatus(err: unknown): number | undefined {
+  const status = (err as { response?: { status?: unknown } })?.response?.status;
+  return typeof status === 'number' ? status : undefined;
 }
 
 /**

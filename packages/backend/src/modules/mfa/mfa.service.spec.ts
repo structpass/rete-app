@@ -13,6 +13,7 @@ describe('MfaService', () => {
   const ORIGINAL = process.env.MFA_TOTP_ENC_KEY;
   let repo: {
     findSetting: jest.Mock;
+    findEnabledSetting: jest.Mock;
     findConfirmedSetting: jest.Mock;
     upsertSecret: jest.Mock;
     confirmWithBackupCodes: jest.Mock;
@@ -35,6 +36,7 @@ describe('MfaService', () => {
   beforeEach(() => {
     repo = {
       findSetting: jest.fn(),
+      findEnabledSetting: jest.fn().mockResolvedValue(null),
       findConfirmedSetting: jest.fn().mockResolvedValue(null),
       upsertSecret: jest.fn().mockResolvedValue(undefined),
       confirmWithBackupCodes: jest.fn().mockResolvedValue(undefined),
@@ -111,12 +113,15 @@ describe('MfaService', () => {
   describe('verifyLoginChallenge', () => {
     it('有効化済み + 正しい TOTP で true', async () => {
       const secret = generateSecret();
-      repo.findSetting.mockResolvedValue({
+      const setting = {
         accountId: 'acc-1',
         totpSecret: encryptSecret(secret),
         enabled: true,
+        confirmedAt: new Date(),
         lastUsedCounter: null,
-      });
+      };
+      repo.findSetting.mockResolvedValue(setting);
+      repo.findEnabledSetting.mockResolvedValue(setting);
       expect(await service.verifyLoginChallenge('acc-1', await currentToken(secret))).toBe(true);
     });
 
@@ -130,14 +135,53 @@ describe('MfaService', () => {
       expect(await service.verifyLoginChallenge('acc-1', '123456')).toBe(false);
     });
 
-    it('TOTP 不一致でもバックアップコード一致なら true・consume される（single-use）', async () => {
+    it('暗号鍵が未設定なら MFA を課さない・コードも受け付けない（fail closed・d21）', async () => {
+      const original = process.env.MFA_TOTP_ENC_KEY;
+      delete process.env.MFA_TOTP_ENC_KEY;
+      try {
+        repo.findSetting.mockResolvedValue({
+          accountId: 'acc-1',
+          totpSecret: 'x',
+          enabled: true,
+          confirmedAt: new Date(),
+          lastUsedCounter: null,
+        });
+        expect(await service.verifyHasEnabledMfa('acc-1')).toBe(false);
+        expect(await service.verifyLoginChallenge('acc-1', '123456')).toBe(false);
+        // 鍵で読めない行を照合対象にしない（未確認行の照合拒否とは別の経路で確かめる）。
+        expect(repo.findEnabledSetting).not.toHaveBeenCalled();
+      } finally {
+        process.env.MFA_TOTP_ENC_KEY = original;
+      }
+    });
+
+    it('enabled でも確認済みでない行は照合しない（d21・確認前の secret 上書きで印だけ残る穴を塞ぐ）', async () => {
       const secret = generateSecret();
+      // enabled=true だが confirmedAt なし（未確認の印だけを立てた状態）。
       repo.findSetting.mockResolvedValue({
         accountId: 'acc-1',
         totpSecret: encryptSecret(secret),
         enabled: true,
+        confirmedAt: null,
         lastUsedCounter: null,
       });
+      repo.findEnabledSetting.mockResolvedValue(null);
+
+      expect(await service.verifyLoginChallenge('acc-1', await currentToken(secret))).toBe(false);
+      expect(repo.consumeBackupCode).not.toHaveBeenCalled();
+    });
+
+    it('TOTP 不一致でもバックアップコード一致なら true・consume される（single-use）', async () => {
+      const secret = generateSecret();
+      const setting = {
+        accountId: 'acc-1',
+        totpSecret: encryptSecret(secret),
+        enabled: true,
+        confirmedAt: new Date(),
+        lastUsedCounter: null,
+      };
+      repo.findSetting.mockResolvedValue(setting);
+      repo.findEnabledSetting.mockResolvedValue(setting);
       const backup = 'ABCDEFGHJK';
       repo.findUnusedBackupCodes.mockResolvedValue([{ id: 'bc-1', codeHash: await hash(backup) }]);
 
@@ -286,14 +330,18 @@ describe('MfaService', () => {
   // 単一 choke point 経由のため verifyLoginChallenge で代表検証し、他 3 経路は構造的に同じ振る舞いに
   // なる（confirm / disable / regenerate は verifyLoginChallenge と同じく checkTotp を経由するため）。
   describe('TOTP replay 対策 (cmn-0094)', () => {
+    /** verifyLoginChallenge が読む確認済み（enabled + confirmedAt）の行。lastUsedCounter だけ差し替える。 */
+    const confirmedSetting = (totpSecret: string, lastUsedCounter: number | null = null) => ({
+      accountId: 'acc-1',
+      totpSecret: encryptSecret(totpSecret),
+      enabled: true,
+      confirmedAt: new Date(),
+      lastUsedCounter,
+    });
+
     it('検証成功で updateLastUsedCounterIfNewer が (accountId, usedCounter) で呼ばれ true が返る', async () => {
       const secret = generateSecret();
-      repo.findSetting.mockResolvedValue({
-        accountId: 'acc-1',
-        totpSecret: encryptSecret(secret),
-        enabled: true,
-        lastUsedCounter: null,
-      });
+      repo.findEnabledSetting.mockResolvedValue(confirmedSetting(secret));
 
       expect(await service.verifyLoginChallenge('acc-1', await currentToken(secret))).toBe(true);
       expect(repo.updateLastUsedCounterIfNewer).toHaveBeenCalledTimes(1);
@@ -309,12 +357,7 @@ describe('MfaService', () => {
 
     it('並行 race で updateLastUsedCounterIfNewer が false を返したら checkTotp は false（並列 1 件化・M1）', async () => {
       const secret = generateSecret();
-      repo.findSetting.mockResolvedValue({
-        accountId: 'acc-1',
-        totpSecret: encryptSecret(secret),
-        enabled: true,
-        lastUsedCounter: null,
-      });
+      repo.findEnabledSetting.mockResolvedValue(confirmedSetting(secret));
       // 他経路で先に書き込まれた想定（並列他リクエストが同 step の counter を記録済）
       repo.updateLastUsedCounterIfNewer.mockResolvedValueOnce(false);
       // backup 経路を走らせない
@@ -328,24 +371,14 @@ describe('MfaService', () => {
       const token = await currentToken(secret);
 
       // 1回目: 成功経路で lastUsedCounter=null → 真の replay 防御が効く状態
-      repo.findSetting.mockResolvedValueOnce({
-        accountId: 'acc-1',
-        totpSecret: encryptSecret(secret),
-        enabled: true,
-        lastUsedCounter: null,
-      });
+      repo.findEnabledSetting.mockResolvedValueOnce(confirmedSetting(secret));
       expect(await service.verifyLoginChallenge('acc-1', token)).toBe(true);
       const firstCallCalls = repo.updateLastUsedCounterIfNewer.mock.calls.length;
       expect(firstCallCalls).toBeGreaterThanOrEqual(1);
 
       // 2回目: 1回目で書き込まれた lastUsedCounter を返却（findSetting が DB を読む想定）
       const recordedCounter = repo.updateLastUsedCounterIfNewer.mock.calls[0][1];
-      repo.findSetting.mockResolvedValueOnce({
-        accountId: 'acc-1',
-        totpSecret: encryptSecret(secret),
-        enabled: true,
-        lastUsedCounter: recordedCounter,
-      });
+      repo.findEnabledSetting.mockResolvedValueOnce(confirmedSetting(secret, recordedCounter));
       // backup 経路も走らないようバックアップコードは空に固定
       repo.findUnusedBackupCodes.mockResolvedValueOnce([]);
 
@@ -357,12 +390,7 @@ describe('MfaService', () => {
     it('既存の lastUsedCounter が usedCounter 以上の状態で正しいコードを送ると false', async () => {
       const secret = generateSecret();
       // 大きすぎる lastUsedCounter を入れて、ある TOTP は全て replay と判定される状態を作る
-      repo.findSetting.mockResolvedValue({
-        accountId: 'acc-1',
-        totpSecret: encryptSecret(secret),
-        enabled: true,
-        lastUsedCounter: Number.MAX_SAFE_INTEGER,
-      });
+      repo.findEnabledSetting.mockResolvedValue(confirmedSetting(secret, Number.MAX_SAFE_INTEGER));
       // backup 経路を走らせない
       repo.findUnusedBackupCodes.mockResolvedValue([]);
 

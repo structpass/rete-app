@@ -1,4 +1,5 @@
 'use client';
+import type { HomeTagKind } from '@rete/shared';
 
 import { useCallback } from 'react';
 import { useTagMaster, type UseTagMasterResult } from '@/hooks/use-tag-master';
@@ -7,7 +8,6 @@ import {
   createAnnouncementTag,
   updateAnnouncementTag,
   deleteAnnouncementTag,
-  type AnnouncementTagKind,
 } from '../lib/api';
 
 /**
@@ -22,7 +22,7 @@ import {
  * AnnouncementTagMasterProvider が board/faq 2 インスタンスを生成し、フィルタバー / マスタ管理 / 付与フォームで共有する。
  */
 export function useAnnouncementTagMaster(
-  kind: AnnouncementTagKind = 'board',
+  kind: HomeTagKind = 'board',
   includeArchived = false,
 ): UseTagMasterResult {
   // cmn-0044: fetch/create は useTagMaster 内で reload の identity 依存になるため、kind を deps にした

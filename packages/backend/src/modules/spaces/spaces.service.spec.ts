@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { getUniqueConflictMessage } from '../../common/filters/unique-conflict-context';
 import { Role, SpaceKind } from '@rete/shared';
 import { SpacesService } from './spaces.service';
 import { SpacesRepository } from './repositories/spaces.repository';
@@ -242,18 +243,18 @@ describe('SpacesService', () => {
       expect(result.data.kind).toBe(SpaceKind.PERSONAL_DM);
     });
 
-    it('事前チェックをすり抜けた並行作成が P2002 なら ConflictException へ変換する（二重防御 / cmn-0074）', async () => {
+    it('事前チェックをすり抜けた並行作成が P2002 と専用の案内文を共通filterへ渡す', async () => {
       mockSpaceRepo.findExistingDm.mockResolvedValue(null);
-      mockSpaceRepo.createPersonalDm.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-          code: 'P2002',
-          clientVersion: 'test',
-        }),
-      );
+      const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      });
+      mockSpaceRepo.createPersonalDm.mockRejectedValue(error);
 
       await expect(
         service.create({ kind: SpaceKind.PERSONAL_DM, peerAccountId: PEER_ID }, USER_ID),
-      ).rejects.toBeInstanceOf(ConflictException);
+      ).rejects.toBe(error);
+      expect(getUniqueConflictMessage(error)).toBe('この相手との DM は既に存在します');
     });
 
     it('P2002 以外の Prisma エラーは握らず再 throw する', async () => {
@@ -279,10 +280,59 @@ describe('SpacesService', () => {
 
     it('プロジェクト非メンバーなら ForbiddenException（存在ごと見せない）', async () => {
       mockMembershipRepo.findEffectiveMembership.mockResolvedValue(null);
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow());
+      mockVisibility.resolveVisibleSpaceIds.mockResolvedValue([]);
+      mockSpaceRepo.findChannelsByProject.mockResolvedValue([makeSpaceRow()]);
       await expect(service.findAll(USER_ID, SpaceKind.CHANNEL, PROJECT_ID)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
-      expect(mockSpaceRepo.findChannelsByProject).not.toHaveBeenCalled();
+    });
+
+    it.each(['MEMBER', 'ADMIN'])('親組織の実効 %s 所属で配下チャネルを閲覧できる', async (role) => {
+      const project = makeProjectRow();
+      mockProjRepo.findById.mockResolvedValue(project);
+      mockMembershipRepo.findEffectiveMembership.mockImplementation(
+        async (_userId: string, scopeType: string) =>
+          scopeType === 'ORGANIZATION' ? { role } : null,
+      );
+      mockSpaceRepo.findChannelsByProject.mockResolvedValue([makeSpaceRow()]);
+
+      const result = await service.findAll(USER_ID, SpaceKind.CHANNEL, PROJECT_ID, undefined, true);
+
+      expect(result.data).toHaveLength(1);
+      expect(mockMembershipRepo.findEffectiveMembership).toHaveBeenCalledWith(
+        USER_ID,
+        'ORGANIZATION',
+        project.organizationId,
+      );
+      expect(mockSpaceRepo.findChannelsByProject).toHaveBeenCalledWith(PROJECT_ID, true);
+      expect(mockVisibility.resolveVisibleSpaceIds).not.toHaveBeenCalled();
+    });
+
+    it('直接 CHANNEL の可視性だけなら兄弟チャネルとアーカイブを返さない', async () => {
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow());
+      mockMembershipRepo.findEffectiveMembership.mockResolvedValue(null);
+      mockVisibility.resolveVisibleSpaceIds.mockResolvedValue(['visible-channel', 'other-project']);
+      mockSpaceRepo.findChannelsByProject.mockResolvedValue([
+        makeSpaceRow({ id: 'visible-channel' }),
+        makeSpaceRow({ id: 'hidden-sibling' }),
+      ]);
+
+      const result = await service.findAll(USER_ID, SpaceKind.CHANNEL, PROJECT_ID, undefined, true);
+
+      expect(result.data).toEqual([expect.objectContaining({ id: 'visible-channel' })]);
+      expect(mockSpaceRepo.findChannelsByProject).toHaveBeenCalledWith(PROJECT_ID);
+    });
+
+    it('他 PJ の可視チャネルがあっても対象 PJ は閲覧できない', async () => {
+      mockProjRepo.findById.mockResolvedValue(makeProjectRow());
+      mockMembershipRepo.findEffectiveMembership.mockResolvedValue(null);
+      mockVisibility.resolveVisibleSpaceIds.mockResolvedValue(['other-project']);
+      mockSpaceRepo.findChannelsByProject.mockResolvedValue([makeSpaceRow()]);
+
+      await expect(service.findAll(USER_ID, SpaceKind.CHANNEL, PROJECT_ID)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
 
     it('メンバー（MEMBER でも）ならチャネル一覧を返す', async () => {

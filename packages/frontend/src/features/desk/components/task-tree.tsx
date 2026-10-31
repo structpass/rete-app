@@ -7,6 +7,7 @@ import { ChevronDown, ListTree } from 'lucide-react';
 import { TaskStatus } from '@rete/shared';
 import { cn, formatDate } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
+import { Badge } from '@/components/ui/badge';
 import { taskStatusLabel } from '@/features/tasks/lib/status';
 import type { Category } from '@/features/tasks/lib/api';
 import type { DeskTaskTree, DeskTaskNode } from '../lib/api';
@@ -165,7 +166,11 @@ function ProvisionalTaskRow({ title, depth }: { title: string; depth: number }) 
       <span className="desk-task-id" />
       <span className="desk-task-title">
         {title}
-        <span className="desk-pending-badge">未保存</span>
+        {/* 正本 comp-badge: 状態を表す小型ラベルは Badge の variant を選ぶ（四角・独自色を作らない）。
+            「未保存」は注意喚起の一時状態なので既存の warning トーンを変えず、形だけ Badge へ寄せる。 */}
+        <Badge variant="warning" className="desk-pending-badge">
+          未保存
+        </Badge>
       </span>
       <span className="desk-task-status status-todo" />
       <span className="desk-task-due" />

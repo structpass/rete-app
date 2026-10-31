@@ -22,7 +22,7 @@ describe('PasswordChangeEnforcementGuard', () => {
   /** mustChangePassword=true の local 認証済リクエスト。 */
   const forcedReq = (path: string): Partial<Request> => ({
     user: { id: 'acc-1', mustChangePassword: true } as never,
-    session: { authMethod: 'local' } as never,
+    session: { authMethod: 'local', authOrigin: 'local' } as never,
     path,
   });
 
@@ -33,22 +33,35 @@ describe('PasswordChangeEnforcementGuard', () => {
   it('mustChangePassword=false は素通し', () => {
     const req = {
       user: { id: 'a', mustChangePassword: false } as never,
-      session: { authMethod: 'local' } as never,
+      session: { authMethod: 'local', authOrigin: 'local' } as never,
       path: '/desk',
     };
     expect(guard.canActivate(ctx(req))).toBe(true);
   });
 
-  it('SSO 経由（authMethod!=local）は素通し（ローカルPWを持たない）', () => {
+  it('外部 IdP 認証（authOrigin=external-idp）は素通し（ローカルPWを持たない）', () => {
+    const req = {
+      user: { id: 'a', mustChangePassword: true } as never,
+      session: { authOrigin: 'external-idp' } as never,
+      path: '/desk',
+    };
+    expect(guard.canActivate(ctx(req))).toBe(true);
+  });
+
+  it('旧セッション（authMethod だけが sso・authOrigin 無し）は local 相当として強制する（d955）', () => {
     const req = {
       user: { id: 'a', mustChangePassword: true } as never,
       session: { authMethod: 'sso' } as never,
       path: '/desk',
     };
-    expect(guard.canActivate(ctx(req))).toBe(true);
+    expect(() => guard.canActivate(ctx(req))).toThrow(
+      expect.objectContaining({
+        response: { code: 'PASSWORD_CHANGE_REQUIRED', message: expect.any(String) },
+      }),
+    );
   });
 
-  it('authMethod 未設定（古いセッション等）は local 相当として強制対象に含める（fail-open 修正・cmn-0083）', () => {
+  it('authOrigin 未設定（古いセッション等）は local 相当として強制対象に含める（fail-open 修正・cmn-0083）', () => {
     const req = {
       user: { id: 'a', mustChangePassword: true } as never,
       session: {} as never,

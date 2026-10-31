@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate, formatDateTime, formatDateTimeWithSeconds } from '../utils';
+import { formatDate, formatDateTime, formatDateTimeWithSeconds, toLocalYmd } from '../utils';
 
 describe('formatDate', () => {
   it('日付のみ YYYY/MM/DD に整形する', () => {
@@ -10,6 +10,43 @@ describe('formatDate', () => {
     expect(formatDate(undefined)).toBe('—');
     expect(formatDate('not-a-date')).toBe('—');
     expect(formatDate('')).toBe('—');
+  });
+});
+
+describe('toLocalYmd (d755)', () => {
+  /** 時刻帯を切り替えて検査し、必ず元の設定へ戻す（TZ=UTC 固定の試験環境を汚さない）。 */
+  function withTz<T>(tz: string, run: () => T): T {
+    const original = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      return run();
+    } finally {
+      process.env.TZ = original;
+    }
+  }
+
+  it('ローカルの年月日を 0 埋めで組む（UTC 実行下）', () => {
+    expect(new Date().getTimezoneOffset()).toBe(0);
+    expect(toLocalYmd(new Date(2026, 0, 5))).toBe('2026-01-05');
+    expect(toLocalYmd(new Date(2026, 11, 31))).toBe('2026-12-31');
+  });
+
+  it('時刻帯を JST へ変えても、ローカルの日付で組む（UTC 変換なら前日になる瞬間を固定）', () => {
+    // UTC より東の時刻帯では、ローカルの 0 時は UTC の前日 15 時。UTC の年月日で組む式
+    // （toISOString().slice(0,10)）へ差し替えると、この検査が 2026-01-04 で赤くなる（d755 の目的）。
+    const midnight = withTz('Asia/Tokyo', () => {
+      expect(new Date().getTimezoneOffset()).toBeLessThan(0);
+      return new Date(2026, 0, 5, 0, 0, 0);
+    });
+    expect(midnight.toISOString().slice(0, 10)).toBe('2026-01-04');
+    expect(withTz('Asia/Tokyo', () => toLocalYmd(new Date(2026, 0, 5)))).toBe('2026-01-05');
+    expect(withTz('Asia/Tokyo', () => toLocalYmd(new Date(2026, 0, 5, 23, 30)))).toBe('2026-01-05');
+  });
+
+  it('時刻帯を西へ変えても、ローカルの日付で組む（UTC 変換なら翌日になる側）', () => {
+    expect(withTz('America/New_York', () => toLocalYmd(new Date(2026, 0, 5, 20, 0)))).toBe(
+      '2026-01-05',
+    );
   });
 });
 

@@ -337,7 +337,7 @@ describe('TasksService', () => {
       expect(data.startDate).toBeInstanceOf(Date);
       expect(data.dueDate).toBeInstanceOf(Date);
       // トップレベル末尾追加（parentTaskId null・afterTaskId なし）
-      expect(ctx).toEqual({ categoryId: 2, parentTaskId: null });
+      expect(ctx).toEqual({ spaceId: DEFAULT_CHANNEL_ID, categoryId: 2, parentTaskId: null });
     });
 
     it('parentTaskId 指定時に parentTask を connect し、ctx に parentTaskId を渡すこと（depth=2 で許容）', async () => {
@@ -362,7 +362,12 @@ describe('TasksService', () => {
       await service.create({ title: '兄弟', categoryId: 3, afterTaskId: 42 });
 
       const ctx = mockRepo.createWithSortOrder.mock.calls[0][1];
-      expect(ctx).toEqual({ categoryId: 3, parentTaskId: null, afterTaskId: 42 });
+      expect(ctx).toEqual({
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 3,
+        parentTaskId: null,
+        afterTaskId: 42,
+      });
     });
 
     it('creatorId を渡すと owner を connect して createWithSortOrder を呼ぶこと（H4）', async () => {
@@ -564,7 +569,12 @@ describe('TasksService', () => {
       await service.create({ title: '兄弟', categoryId: 1, afterTaskId: 42 });
 
       const ctx = mockRepo.createWithSortOrder.mock.calls[0][1];
-      expect(ctx).toEqual({ categoryId: 1, parentTaskId: null, afterTaskId: 42 });
+      expect(ctx).toEqual({
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+        afterTaskId: 42,
+      });
     });
   });
 
@@ -1502,6 +1512,60 @@ describe('TasksService', () => {
     });
   });
 
+  describe('Space boundary regression', () => {
+    it('passes the originally visible source to persistence if the task changes Space between reads', async () => {
+      mockRepo.findTaskSpaceId.mockResolvedValue({ id: 100, spaceId: DEFAULT_CHANNEL_ID });
+      mockRepo.findById.mockResolvedValue(
+        makeTaskEntity({ id: 100, categoryId: null, spaceId: 'changed-space' }),
+      );
+      mockRepo.getSubtreeHeight.mockResolvedValue(1);
+      mockRepo.moveTask.mockRejectedValue(new NotFoundException('Task not found'));
+      await expect(
+        service.move(100, { parentTaskId: null, categoryId: null, afterTaskId: null }),
+      ).rejects.toThrow('Task not found');
+      expect(mockRepo.moveTask).toHaveBeenCalledWith(
+        100,
+        expect.objectContaining({ expectedSpaceId: DEFAULT_CHANNEL_ID }),
+      );
+    });
+    it.each(['create', 'move'] as const)(
+      'rejects an uncategorized foreign sibling for %s',
+      async (operation) => {
+        mockRepo.findById.mockImplementation(async (id: number) =>
+          makeTaskEntity({
+            id,
+            categoryId: null,
+            parentTaskId: null,
+            spaceId: id === 42 ? 'foreign-space' : DEFAULT_CHANNEL_ID,
+          }),
+        );
+        mockRepo.getSubtreeHeight.mockResolvedValue(1);
+        const request =
+          operation === 'create'
+            ? service.create({ title: 'new', afterTaskId: 42 }, 'acc-1')
+            : service.move(100, { parentTaskId: null, categoryId: null, afterTaskId: 42 });
+        await expect(request).rejects.toThrow('Sibling task not found');
+        expect(mockRepo.moveTask).not.toHaveBeenCalled();
+        expect(mockRepo.createWithSortOrder).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a foreign parent before traversing its ancestry', async () => {
+      mockRepo.findById.mockImplementation(async (id: number) =>
+        makeTaskEntity({
+          id,
+          categoryId: null,
+          spaceId: id === 7 ? 'foreign-space' : DEFAULT_CHANNEL_ID,
+        }),
+      );
+      await expect(
+        service.move(100, { parentTaskId: 7, categoryId: null, afterTaskId: null }),
+      ).rejects.toThrow('Parent task not found');
+      expect(mockRepo.getAncestorIds).not.toHaveBeenCalled();
+      expect(mockRepo.moveTask).not.toHaveBeenCalled();
+    });
+  });
+
   describe('move', () => {
     // 既定: 対象 id=100 が存在し、移動先 parent=7（depth=1）・category=2 が存在、サブツリー高さ=1。
     const setupHappyPath = () => {
@@ -1531,6 +1595,7 @@ describe('TasksService', () => {
 
       expect(result.success).toBe(true);
       expect(mockRepo.moveTask).toHaveBeenCalledWith(100, {
+        expectedSpaceId: DEFAULT_CHANNEL_ID,
         parentTaskId: 7,
         categoryId: 2,
         afterTaskId: null,
@@ -1874,6 +1939,7 @@ describe('TasksService', () => {
         await service.move(100, { parentTaskId: null, categoryId: 2, afterTaskId: 42 });
 
         expect(mockRepo.moveTask).toHaveBeenCalledWith(100, {
+          expectedSpaceId: DEFAULT_CHANNEL_ID,
           parentTaskId: null,
           categoryId: 2,
           afterTaskId: 42,

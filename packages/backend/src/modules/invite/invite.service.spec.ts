@@ -53,6 +53,8 @@ const mockRepo = {
   findAll: jest.fn(),
   findById: jest.fn(),
   findByTokenHash: jest.fn(),
+  findByTokenHashOfId: jest.fn(),
+  renewPendingByTokenHash: jest.fn(),
   findAccountByEmail: jest.fn(),
   findPendingEmails: jest.fn(),
   findExistingAccountEmails: jest.fn(),
@@ -294,24 +296,88 @@ describe('InviteService', () => {
   // -----------------------------------------------------------------------
   describe('resend', () => {
     it('正常系: token 再生成・expiresAt 延長・再送信して更新済み DTO を返す', async () => {
-      mockRepo.findById.mockResolvedValue(makeInviteRow());
       mockMail.send.mockResolvedValue(undefined);
-      mockRepo.update.mockResolvedValue(
-        makeInviteRow({ expiresAt: new Date(FIXED_DATE.getTime() + 2 * SEVEN_DAYS) }),
-      );
+      mockRepo.renewPendingByTokenHash.mockResolvedValue('renewed');
+      mockRepo.findByTokenHashOfId
+        .mockResolvedValueOnce(makeInviteRow())
+        .mockResolvedValueOnce(
+          makeInviteRow({ expiresAt: new Date(FIXED_DATE.getTime() + 2 * SEVEN_DAYS) }),
+        );
 
       const result = await service.resend('invite-1');
 
       expect(result.success).toBe(true);
       expect(mockMail.send).toHaveBeenCalledTimes(1);
-      expect(mockRepo.update).toHaveBeenCalledWith(
+      // 書き換えは「読んだ時の tokenHash のまま」を条件に渡す（d622）。
+      expect(mockRepo.renewPendingByTokenHash).toHaveBeenCalledWith(
         'invite-1',
+        'abc123hash',
         expect.objectContaining({ status: InviteStatus.PENDING }),
       );
     });
 
+    // d689: 再送だけ保存を先にする。保存できなかったリンクを送らない。
+    it('保存を先に行い、メール送信は保存の後に行う（persist-first）', async () => {
+      const calls: string[] = [];
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow());
+      mockRepo.renewPendingByTokenHash.mockImplementation(() => {
+        calls.push('renew');
+        return Promise.resolve('renewed');
+      });
+      mockMail.send.mockImplementation(() => {
+        calls.push('send');
+        return Promise.resolve(undefined);
+      });
+
+      await service.resend('invite-1');
+
+      expect(calls).toEqual(['renew', 'send']);
+    });
+
+    it('メール送信が失敗しても新しいリンクの保存を保ち、失敗をそのまま返す（旧リンクへ戻さない）', async () => {
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow());
+      mockRepo.renewPendingByTokenHash.mockResolvedValue('renewed');
+      mockMail.send.mockRejectedValue(new Error('SMTP down'));
+
+      await expect(service.resend('invite-1')).rejects.toThrow('SMTP down');
+
+      // 復元・巻き戻しの書き込みを足さない（保存済みの新しいリンクのまま）。
+      expect(mockRepo.renewPendingByTokenHash).toHaveBeenCalledTimes(1);
+      expect(mockRepo.update).not.toHaveBeenCalled();
+    });
+
+    // d622: 読んでから書き換えるまでの間に受諾が完了したら、受諾済みを未受諾へ巻き戻さない。
+    it('読んだ後に受諾が完了していたら PENDING へ戻さず、送らずに案内を返す（受諾は巻き戻さない）', async () => {
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow());
+      mockMail.send.mockResolvedValue(undefined);
+      mockRepo.renewPendingByTokenHash.mockResolvedValue('accepted');
+
+      const error = await service.resend('invite-1').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).message).toMatch(/受諾済み/);
+      // 保存が当たらなかったのでメールを送らない（d689）。
+      expect(mockMail.send).not.toHaveBeenCalled();
+      // 更新系は条件付き書き換えだけを通し、無条件の update は呼ばない。
+      expect(mockRepo.update).not.toHaveBeenCalled();
+    });
+
+    // d622: 同時再送で先に書き換えられた場合は、後の書き換えへ譲る（送らない）。
+    it('別の再送が先に通っていたら書き換えず、送らずに案内を返す（同時再送）', async () => {
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow());
+      mockMail.send.mockResolvedValue(undefined);
+      mockRepo.renewPendingByTokenHash.mockResolvedValue('pending_mismatch');
+
+      const error = await service.resend('invite-1').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).message).toMatch(/別の再送/);
+      expect(mockMail.send).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
+    });
+
     it('招待が存在しない場合は NotFound', async () => {
-      mockRepo.findById.mockResolvedValue(null);
+      mockRepo.findByTokenHashOfId.mockResolvedValue(null);
       await expect(service.resend('ghost-id')).rejects.toBeInstanceOf(NotFoundException);
       expect(mockMail.send).not.toHaveBeenCalled();
     });
@@ -322,18 +388,21 @@ describe('InviteService', () => {
     });
 
     it('ACCEPTED 済みの招待は再送できない（BadRequest）', async () => {
-      mockRepo.findById.mockResolvedValue(makeInviteRow({ status: InviteStatus.ACCEPTED }));
+      mockRepo.findByTokenHashOfId.mockResolvedValue(
+        makeInviteRow({ status: InviteStatus.ACCEPTED }),
+      );
 
       await expect(service.resend('invite-1')).rejects.toBeInstanceOf(BadRequestException);
       expect(mockMail.send).not.toHaveBeenCalled();
+      expect(mockRepo.renewPendingByTokenHash).not.toHaveBeenCalled();
       expect(mockRepo.update).not.toHaveBeenCalled();
     });
 
     // set-0036: space 再検証（発行時と同じ validateSpace を resend でも通す）
     it('space が有効なら従来どおり再送成功する', async () => {
-      mockRepo.findById.mockResolvedValue(makeInviteRow({ spaceId: 'space-x' }));
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow({ spaceId: 'space-x' }));
       mockMail.send.mockResolvedValue(undefined);
-      mockRepo.update.mockResolvedValue(makeInviteRow());
+      mockRepo.renewPendingByTokenHash.mockResolvedValue('renewed');
 
       const result = await service.resend('invite-1');
 
@@ -343,7 +412,7 @@ describe('InviteService', () => {
     });
 
     it('Space が無効化されている場合は「招待を作り直す」案内で再送を止める', async () => {
-      mockRepo.findById.mockResolvedValue(makeInviteRow({ spaceId: 'space-x' }));
+      mockRepo.findByTokenHashOfId.mockResolvedValue(makeInviteRow({ spaceId: 'space-x' }));
       mockRepo.findGroupSpaceById.mockResolvedValue(null); // Space 不在
 
       const error = await service.resend('invite-1').catch((e: unknown) => e);
@@ -351,6 +420,7 @@ describe('InviteService', () => {
       expect((error as BadRequestException).message).toMatch(/作り直/);
       // 無効なまま招待を飛ばさない
       expect(mockMail.send).not.toHaveBeenCalled();
+      expect(mockRepo.renewPendingByTokenHash).not.toHaveBeenCalled();
       expect(mockRepo.update).not.toHaveBeenCalled();
     });
   });
@@ -387,11 +457,16 @@ describe('InviteService', () => {
         makeInviteRow({ status: InviteStatus.PENDING, expiresAt: FUTURE }),
       );
       mockRepo.findAccountByEmail.mockResolvedValue(null);
-      mockRepo.acceptInTransaction.mockResolvedValue(undefined);
+      mockRepo.acceptInTransaction.mockResolvedValue({
+        accountId: 'acc-1',
+        email: 'new@example.com',
+      });
 
       const result = await service.accept(VALID_TOKEN, '新メンバー', 'Password1!');
 
-      expect(result.success).toBe(true);
+      expect(result.response.success).toBe(true);
+      // 受諾の成立（作ったアカウント）は呼び出し側へ返す＝公開経路の明示記録に使う（d559）。
+      expect(result.accepted).toEqual({ accountId: 'acc-1', email: 'new@example.com' });
       // AcceptInviteData は { tokenHash, name, passwordHash }。inviteId/email は TX 内再取得。
       expect(mockRepo.acceptInTransaction).toHaveBeenCalledWith(
         expect.objectContaining({

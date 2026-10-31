@@ -2,6 +2,7 @@ import { PrismaExceptionFilter } from './prisma-exception.filter';
 import type { ArgumentsHost } from '@nestjs/common';
 import { HttpStatus } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { withUniqueConflictMessage } from './unique-conflict-context';
 
 describe('PrismaExceptionFilter', () => {
   let filter: PrismaExceptionFilter;
@@ -22,6 +23,69 @@ describe('PrismaExceptionFilter', () => {
         getRequest: () => ({}),
       }),
     } as unknown as ArgumentsHost;
+  });
+
+  it.each([
+    'メールアドレス「taken@rete.local」は既に使用されています',
+    'この相手との DM は既に存在します',
+  ])('サーバー指定の案内文を409の統一応答へ載せる: %s', async (message) => {
+    const error = new Prisma.PrismaClientKnownRequestError('private database details', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: { target: ['private_constraint'] },
+    });
+    await withUniqueConflictMessage(() => Promise.reject(error), message).catch(
+      (caught: unknown) => {
+        expect(caught).toBe(error);
+        filter.catch(error, mockHost);
+      },
+    );
+    expect(mockResponse.status).toHaveBeenCalledWith(409);
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      success: false,
+      error: { code: 'CONFLICT', message },
+    });
+  });
+
+  it('他のエラーを同一のまま通し、P2002以外の写像を上書きしない', async () => {
+    const error = new Prisma.PrismaClientKnownRequestError('foreign key', {
+      code: 'P2003',
+      clientVersion: 'test',
+    });
+    await expect(withUniqueConflictMessage(() => Promise.reject(error), '使わない文')).rejects.toBe(
+      error,
+    );
+    filter.catch(error, mockHost);
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      success: false,
+      error: { code: 'CONFLICT', message: '関連データが存在するため削除できません' },
+    });
+    const unknown = new Error('unexpected');
+    await expect(
+      withUniqueConflictMessage(() => Promise.reject(unknown), '使わない文'),
+    ).rejects.toBe(unknown);
+  });
+
+  it('成功値はそのまま返し、案内文は別の例外に漏れない', async () => {
+    const value = { id: 'created' };
+    await expect(withUniqueConflictMessage(() => Promise.resolve(value), '案内文')).resolves.toBe(
+      value,
+    );
+    const error = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    await expect(withUniqueConflictMessage(() => Promise.reject(error), '個別の文')).rejects.toBe(
+      error,
+    );
+    filter.catch(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'test' }),
+      mockHost,
+    );
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      success: false,
+      error: { code: 'CONFLICT', message: '指定された値は既に使用されています' },
+    });
   });
 
   it('P2002（一意制約違反, target あり）を汎用メッセージで409 CONFLICT に変換し、target をレスポンスに含めないこと', () => {

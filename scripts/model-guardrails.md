@@ -21,6 +21,6 @@
 1. Edit と Write（既存ファイルの上書きを含む）の前に対象ファイルを必ず Read する。old_string は直前の Read 出力から一字一句コピーする（記憶や推測で書かない。行番号プレフィックスは除く）。
 2. Bash は Git Bash（POSIX）。PowerShell/cmd 構文（Select-Object・Get-ChildItem・2>$null・dir /s /b 等）は書かない。パスは D:\ でなく /d/Claude/... の forward slash。git のパス指定も同様。
 3. 横断検索は Grep/Glob ツールを使う。Bash での rg・grep -r・find -name は使わない。
-4. 一時ファイルは /tmp でなく scratchpad の絶対パスに置く。
+4. 一時ファイルはリポジトリ直下の tmp/ の絶対パスに置く。
 5. 自分が Edit/Write した直後のファイルは再 Read しない（成功していれば内容は把握済み）。
 ```

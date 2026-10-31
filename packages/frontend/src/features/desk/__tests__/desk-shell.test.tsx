@@ -140,6 +140,7 @@ vi.mock('../hooks/use-chat-promotion', async (importOriginal) => {
 });
 
 import { DeskShell } from '../components/desk-shell';
+import { clearAllReplyDrafts } from '../lib/reply-drafts';
 
 const themes: ChatThemeSummary[] = [
   {
@@ -221,6 +222,9 @@ const draft: PromoteDraft = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 書きかけの返信本文はモジュールスコープでテーマごとに保持される（d737）。前のテストの書きかけが
+  // 次のテストの開き直しに復元されないよう、テストごとに捨てる。
+  clearAllReplyDrafts();
   promotionState = {};
   fetchChatThemes.mockResolvedValue({
     data: themes,
@@ -436,6 +440,10 @@ describe('DeskShell — 編集破棄確認（C-編集・DBT-7）', () => {
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'キャンセル' }),
     );
     expect(screen.queryByLabelText('タスク詳細')).not.toBeNull(); // ブロックされ閉じない
+    // 取り消した後も、書き換えた内容（担当者の選択）が残っている（取り消し＝編集内容を捨てない）。
+    expect(within(screen.getByLabelText('タスク詳細')).getByLabelText('担当者')).toHaveTextContent(
+      '田中',
+    );
   });
 
   it('編集中に余白クリック → OK で閉じる（rete-desk-0102）', async () => {
@@ -794,5 +802,54 @@ describe('DeskShell — 返信ドラフトの破棄ガード（rete-desk-0120）
     fireEvent.click(within(thread).getByRole('button', { name: '閉じる' }));
     await waitFor(() => expect(screen.queryByLabelText('チャット詳細')).toBeNull());
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('画面移動（別テーマを開いて戻る）しても書きかけの返信が戻る（d737）', async () => {
+    render(<DeskShell />);
+    fireEvent.click(await screen.findByRole('button', { name: /入荷の話/ }));
+    let thread = await screen.findByLabelText('チャット詳細');
+    await waitFor(() => expect(within(thread).getByLabelText('返信')).toBeInTheDocument());
+    fireEvent.change(within(thread).getByLabelText('返信'), {
+      target: { value: '<p>画面を移っても残る書きかけ</p>' },
+    });
+
+    // 右ペインの表示先が別物（タスク詳細）になり、スレッドは unount される＝画面移動。
+    fireEvent.click(await screen.findByText('昇格済タスク'));
+    await screen.findByLabelText('タスク詳細');
+    expect(screen.queryByLabelText('チャット詳細')).toBeNull();
+
+    // スレッドへ戻ると、書きかけが続きから書ける形で戻っている。
+    fireEvent.click(screen.getByRole('button', { name: /入荷の話/ }));
+    thread = await screen.findByLabelText('チャット詳細');
+    await waitFor(() =>
+      expect((within(thread).getByLabelText('返信') as HTMLTextAreaElement).value).toBe(
+        '<p>画面を移っても残る書きかけ</p>',
+      ),
+    );
+  });
+
+  it('送信に成功すると書きかけを捨て、同じテーマを開き直しても残らない（d737）', async () => {
+    postChatMessage.mockResolvedValue({});
+    render(<DeskShell />);
+    fireEvent.click(await screen.findByRole('button', { name: /入荷の話/ }));
+    let thread = await screen.findByLabelText('チャット詳細');
+    await waitFor(() => expect(within(thread).getByLabelText('返信')).toBeInTheDocument());
+    fireEvent.change(within(thread).getByLabelText('返信'), {
+      target: { value: '<p>送る返信</p>' },
+    });
+    fireEvent.click(within(thread).getByRole('button', { name: '送信' }));
+    await waitFor(() => expect(postChatMessage).toHaveBeenCalled());
+    // 送信成功で本文が空になり dirty が降りるまで待つ（降りる前に閉じると破棄確認が挟まり閉じない）。
+    await waitFor(() =>
+      expect(within(thread).getByRole('button', { name: 'キャンセル' })).toBeDisabled(),
+    );
+
+    // 閉じる（dirty でなければ確認なし）→ 開き直す。
+    fireEvent.click(within(thread).getByRole('button', { name: '閉じる' }));
+    await waitFor(() => expect(screen.queryByLabelText('チャット詳細')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /入荷の話/ }));
+    thread = await screen.findByLabelText('チャット詳細');
+    await waitFor(() => expect(within(thread).getByLabelText('返信')).toBeInTheDocument());
+    expect((within(thread).getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
   });
 });

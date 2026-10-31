@@ -4,8 +4,9 @@
   // check:unused に付けた --no-exit-code（検出件数を終了コードへ反映しない・設定エラーや
   // クラッシュは非 0 のまま＝ツールが動いていない時は CI が赤くなる）。ブロック化＝この引数を外す。
   // 閾値設定と赤化は初回件数を見てから別チケットで判断する。
-  // knip は既存snapshot/schemaと整合する5系に固定する。
-  // CIと開発のNode指定は.nvmrcの24を使う。knipのメジャー更新は別途snapshotを検証する。
+  // knip は 5 系に固定する。6 系の engines は node ^20.19.0 || >=22.12.0 で、CI の Node は
+  // .nvmrc（24 系）なので今は満たす。5 系固定は、20 系の下限（20.18.1）を下回る runner へ
+  // 戻した時に非ブロック step のまま静かにクラッシュし、件数が一度もログに出ないため。
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     // ルートの scripts/*.mjs（constraint-drift 検査など）は pnpm script から呼ばれるが、
@@ -23,7 +24,9 @@
       // knip の静的解析では import も script 起動も見えず未使用依存に誤検出される。
       // lint-staged.config.mjs の存在で「使用中」とみなすプラグイン機構は knip 5.88 では
       // ルート workspace の enabler 解決に反映されない（実測済み）＝伏せて実体を正とする。
-      "ignoreDependencies": ["lint-staged"],
+      // pnpm is executed by security-audit.mjs via its bin path to avoid host CLI drift.
+      // This runtime process invocation is not a JavaScript import.
+      "ignoreDependencies": ["lint-staged", "pnpm"],
     },
     // shared は dist（ビルド生成物）経由で backend / frontend から参照される。entry を src/index.ts へ
     // 明示的に固定し、package.json の main（dist/index.js）が変わっても公開 API が一斉に
@@ -40,8 +43,14 @@
     // backend の入口は NestJS の main.ts と、pnpm script から直接叩く prisma/*.ts（seed / unlock-admin /
     // reset-e2e-fixtures）。後者を entry に入れないとファイルごと「未使用」になる。
     "packages/backend": {
-      "entry": ["src/main.ts", "prisma/*.ts"],
-      "project": ["src/**/*.ts", "prisma/**/*.ts", "*.config.{ts,mjs}", "nest-cli.json"],
+      "entry": ["src/main.ts", "prisma/*.ts", "scripts/*.mjs"],
+      "project": [
+        "src/**/*.ts",
+        "prisma/**/*.ts",
+        "scripts/**/*.mjs",
+        "*.config.{ts,mjs}",
+        "nest-cli.json",
+      ],
       // project へ設定ファイルを含めても消えない偽陽性だけを、実体で裏取りしたものに限って置く（cmn-0252）。
       // 「ソースの import には現れないが実行時 / ビルド時に要る」＝knip の静的解析では原理的に見えないもの。
       // pg / @types/pg / tsconfig-paths は当初ここへ入れたが、裏取りの結果いずれも他パッケージの

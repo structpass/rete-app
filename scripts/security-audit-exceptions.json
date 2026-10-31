@@ -1,0 +1,20 @@
+[
+  {
+    "id": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces",
+    "expiresOn": "2026-11-22",
+    "reason": "No upstream fixed release. Used by trusted source build/watch glob tooling; user input is not passed as a glob. Reassess on a fixed release or new parser caller."
+  },
+  {
+    "id": "GHSA-hp3w-g68c-fv3c",
+    "package": "sprintf-js",
+    "expiresOn": "2026-11-22",
+    "reason": "No upstream fixed release. Argparse formatting is tool-owned; the existing sprintf precision-boundary regression validates the caller. Reassess on a fixed release or new caller."
+  },
+  {
+    "id": "GHSA-gcqx-w48m-w2h4",
+    "package": "deepmerge",
+    "expiresOn": "2026-11-29",
+    "reason": "No upstream fixed release (patched_versions <0.0.0). Dev-only paths: @nestjs/cli > fork-ts-checker-webpack-plugin and jest > jest-config. The production image installs with --prod, so neither ships; no request input reaches mergeObject. Reassess on a fixed release or when the plugin/CLI reads untrusted input."
+  }
+]

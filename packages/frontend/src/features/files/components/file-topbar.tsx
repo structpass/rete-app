@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ArrowRight, ChevronRight, Folder, RotateCcw, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, RotateCcw, Search } from 'lucide-react';
 import { FavoriteToggle, type FavoriteTarget } from '@/features/shell';
 import { cn } from '@/lib/utils';
 import type { FolderCrumb } from '../lib/types';
@@ -87,18 +87,19 @@ export function FileTopbar({
           <span className="tc-path">
             {crumb.map((seg, i) => {
               const isLast = i === crumb.length - 1;
+              // d524: 現在フォルダ名は★（お気に入り）と同じボタンの中へ移した（下の FavoriteToggle）。
+              // 名前とアイコンを 1 つのオブジェクトにするため、パンくず側では名前を描かない。
+              const nameInFavorite = isLast && favorite != null;
               return (
-                <span
-                  key={`${seg.id}-${i}`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
-                >
-                  {i === 0 ? (
-                    <Folder className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
-                  )}
+                <span key={`${seg.id}-${i}`} className="tc-seg">
+                  {/* d524: パンくず先頭のフォルダアイコンは置かない（開発統括指示）。
+                      現在フォルダ名の右に付くハートで対象は分かるため、行頭の飾りを削る。
+                      区切り（＞）は祖先との関係を示すので残す。 */}
+                  {i > 0 && <ChevronRight className="h-3 w-3" aria-hidden="true" />}
                   {isLast ? (
-                    <span className="tc-current">{seg.name}</span>
+                    nameInFavorite ? null : (
+                      <span className="tc-current">{seg.name}</span>
+                    )
                   ) : (
                     <button type="button" className="tc-link" onClick={() => onNavigate(seg.id)}>
                       {seg.name}
@@ -108,7 +109,10 @@ export function FileTopbar({
               );
             })}
           </span>
-          {favorite && <FavoriteToggle target={favorite} />}
+          {/* d524: 現在フォルダは「名前＋ハート」の 1 ボタン。ツールチップ・読み上げも名前込みで
+              1 行になり、何に係っているかがその場で分かる。tc-path（省略対象）の外に置く理由は
+              fil-0068（長いパスでアイコンごとクリップされる）と同じ。 */}
+          {favorite && <FavoriteToggle target={favorite} showLabel />}
         </span>
       </div>
       <div className="file-topbar-tools">

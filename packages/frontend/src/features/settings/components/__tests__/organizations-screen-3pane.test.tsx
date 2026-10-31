@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { flush } from '@/test-utils/flush';
-import { SpaceKind, type OrganizationDto, type ProjectDto, type SpaceDto } from '@rete/shared';
+import { makeOrganizationDto, makeProjectDto, makeSpaceDto } from '@/test-utils/fixtures';
 import { OrganizationsScreen } from '../organizations-screen';
 
 // ── API モック ──
@@ -59,50 +59,18 @@ vi.mock('@/components/ui/overlay-dialog', () => {
   };
 });
 
-// ── フィクスチャ ──
-const org = (over: Partial<OrganizationDto> = {}): OrganizationDto => ({
-  id: 'org-1',
-  name: 'Acme',
-  sortOrder: 1,
-  archived: false,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-  ...over,
-});
-
-const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({
-  id: 'proj-1',
+// ── フィクスチャ（d596: 組織・プロジェクト・チャネルの組み立ては test-utils/fixtures が正本）──
+const org1 = makeOrganizationDto({ id: 'org-1', name: 'Acme' });
+const org2 = makeOrganizationDto({ id: 'org-2', name: 'Beta' });
+const proj1 = makeProjectDto({ id: 'proj-1', name: 'PJ-A', canManageChannels: true });
+const proj2 = makeProjectDto({
+  id: 'proj-2',
   organizationId: 'org-1',
-  name: 'PJ-A',
-  sortOrder: 1,
-  archived: false,
+  name: 'PJ-B',
   canManageChannels: true,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-  ...over,
 });
-
-const channel = (over: Partial<SpaceDto> = {}): SpaceDto => ({
-  id: 'ch-1',
-  kind: SpaceKind.CHANNEL,
-  projectId: 'proj-1',
-  ownerId: null,
-  peerAccountId: null,
-  name: '雑談',
-  sortOrder: 1,
-  archived: false,
-  canManageMembers: false,
-  createdAt: '2026-06-01T00:00:00.000Z',
-  updatedAt: '2026-06-01T00:00:00.000Z',
-  ...over,
-});
-
-const org1 = org({ id: 'org-1', name: 'Acme' });
-const org2 = org({ id: 'org-2', name: 'Beta' });
-const proj1 = project({ id: 'proj-1', name: 'PJ-A' });
-const proj2 = project({ id: 'proj-2', organizationId: 'org-1', name: 'PJ-B' });
-const ch1 = channel({ id: 'ch-1', name: '雑談' });
-const ch2 = channel({ id: 'ch-2', name: '連絡' });
+const ch1 = makeSpaceDto({ id: 'ch-1', name: '雑談' });
+const ch2 = makeSpaceDto({ id: 'ch-2', name: '連絡' });
 
 async function renderScreen() {
   render(<OrganizationsScreen />);
@@ -290,7 +258,7 @@ describe('OrganizationsScreen 3 ペイン（set-0162）', () => {
     await renderScreen();
     spacesApi.fetchChannelsByProjectAdmin.mockClear();
     spacesApi.fetchChannelsByProjectAdmin.mockResolvedValue([
-      channel({ id: 'ch-x', name: 'PJ-B用' }),
+      makeSpaceDto({ id: 'ch-x', name: 'PJ-B用' }),
     ]);
 
     fireEvent.click(screen.getByText('PJ-B'));
@@ -363,7 +331,7 @@ describe('OrganizationsScreen 3 ペイン（set-0162）', () => {
   });
 
   it('組織を追加すると選択が新組織へは移らず、一覧に追加される', async () => {
-    const created = org({ id: 'org-new', name: 'New Org' });
+    const created = makeOrganizationDto({ id: 'org-new', name: 'New Org' });
     orgsApi.createOrganization.mockResolvedValue(created);
     await renderScreen();
     fireEvent.click(screen.getByLabelText('組織を追加'));
@@ -376,7 +344,7 @@ describe('OrganizationsScreen 3 ペイン（set-0162）', () => {
   });
 
   it('PJ を追加すると選択 PJ 配下に反映される（admin 経路・membership 非依存）', async () => {
-    const created = project({ id: 'proj-new', name: 'PJ-New' });
+    const created = makeProjectDto({ id: 'proj-new', name: 'PJ-New' });
     orgsApi.createProjectAdmin.mockResolvedValue(created);
     await renderScreen();
     fireEvent.click(screen.getByLabelText('プロジェクトを追加'));
@@ -393,7 +361,7 @@ describe('OrganizationsScreen 3 ペイン（set-0162）', () => {
   });
 
   it('チャネルを追加すると admin 経路で作成される', async () => {
-    const created = channel({ id: 'ch-new', name: '新チャネル' });
+    const created = makeSpaceDto({ id: 'ch-new', name: '新チャネル' });
     spacesApi.createChannelAdmin.mockResolvedValue(created);
     await renderScreen();
     fireEvent.click(screen.getByLabelText('チャネルを追加'));
@@ -533,5 +501,231 @@ describe('OrganizationsScreen 3 ペイン（set-0162）', () => {
     expect(screen.getByRole('heading', { name: '組織管理' })).toBeInTheDocument();
     expect(screen.queryByLabelText('組織を追加')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('プロジェクトを追加')).not.toBeInTheDocument();
+  });
+
+  // ── v2-410: 一覧取得失敗を領域内 role="alert" で残し、0件表示と区別する ──
+
+  const paneOf = (name: '組織一覧' | 'プロジェクト一覧' | 'チャネル一覧') =>
+    within(screen.getByRole('region', { name }));
+
+  it('組織一覧の取得に失敗したら組織ペインに role="alert" を出し、0件文言と区別する（v2-410）', async () => {
+    orgsApi.fetchOrganizationsAdmin.mockRejectedValue(new Error('network'));
+    await renderScreen();
+
+    const pane = paneOf('組織一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+    expect(pane.getByText('組織の取得に失敗しました')).toBeInTheDocument();
+    // 失敗を「組織がありません」と読み違えさせない
+    expect(pane.queryByText('組織がありません')).not.toBeInTheDocument();
+    expect(pane.queryByText('組織が見つかりませんでした')).not.toBeInTheDocument();
+  });
+
+  // d659: 取得失敗は「もう一度取る手段」までを 1 つの領域として出し、押せば本当に取り直す。
+  it('組織ペインの取得失敗の再試行を押すと取り直して失敗の表示を消す（d659）', async () => {
+    orgsApi.fetchOrganizationsAdmin.mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+
+    const pane = paneOf('組織一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+    fireEvent.click(pane.getByRole('button', { name: '再試行' }));
+
+    await waitFor(() => expect(pane.queryByRole('alert')).not.toBeInTheDocument());
+    expect(orgsApi.fetchOrganizationsAdmin).toHaveBeenCalledTimes(2);
+    expect(pane.queryByText('組織の取得に失敗しました')).not.toBeInTheDocument();
+  });
+
+  it('プロジェクト一覧の取得に失敗したらプロジェクトペインに role="alert" を出し、0件文言と区別する（v2-410）', async () => {
+    orgsApi.fetchProjectsAdmin.mockRejectedValue(new Error('network'));
+    await renderScreen();
+
+    const pane = paneOf('プロジェクト一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+    expect(pane.getByText('プロジェクトの取得に失敗しました')).toBeInTheDocument();
+    expect(pane.queryByText('プロジェクトがありません')).not.toBeInTheDocument();
+    // 取得失敗を操作失敗の toast だけにしない（正本 ui.ts:109）。一覧取得失敗の toast は
+    // 正本 ui.ts:118 が「現状実値・是正は rete-cross-0001 管轄」として残している既存挙動なので
+    // 本票では消さない（消す時はこの assertion も一緒に見直す）。
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it('チャネル一覧の取得に失敗したらチャネルペインに role="alert" を出し、0件文言と区別する（v2-410）', async () => {
+    spacesApi.fetchChannelsByProjectAdmin.mockRejectedValue(new Error('network'));
+    await renderScreen();
+
+    const pane = paneOf('チャネル一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+    expect(pane.getByText('チャネルの取得に失敗しました')).toBeInTheDocument();
+    expect(pane.queryByText('チャネルがありません')).not.toBeInTheDocument();
+  });
+
+  it('再取得に成功すると失敗表示が消える（v2-410）', async () => {
+    orgsApi.fetchOrganizationsAdmin
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue([org1, org2]);
+    await renderScreen();
+
+    const pane = paneOf('組織一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+
+    // 現在の filter のまま既存の再取得（絞り込みチップの切替）で再試行する
+    fireEvent.click(screen.getByRole('button', { name: '状態で絞り込み' }));
+    fireEvent.click(screen.getByRole('option', { name: 'アーカイブ済も表示' }));
+    await flush();
+
+    await waitFor(() => expect(pane.queryByRole('alert')).not.toBeInTheDocument());
+    expect(pane.getByText('Acme')).toBeInTheDocument();
+  });
+
+  it('再取得に失敗しても旧一覧を残したまま失敗表示を出す（v2-410）', async () => {
+    orgsApi.fetchOrganizationsAdmin
+      .mockResolvedValueOnce([org1, org2])
+      .mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+    expect(screen.getByText('Acme')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '状態で絞り込み' }));
+    fireEvent.click(screen.getByRole('option', { name: 'アーカイブ済も表示' }));
+    await flush();
+
+    const pane = paneOf('組織一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+    // 旧一覧は最新情報のように見せない（失敗表示を隠さない）
+    expect(pane.getByText('Acme')).toBeInTheDocument();
+    expect(pane.queryByText('組織がありません')).not.toBeInTheDocument();
+  });
+
+  it('選択が外れるとそのペインの失敗表示も消える（v2-410）', async () => {
+    spacesApi.fetchChannelsByProjectAdmin
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue([]);
+    await renderScreen();
+
+    const pane = paneOf('チャネル一覧');
+    await waitFor(() => expect(pane.getByRole('alert')).toBeInTheDocument());
+
+    // 組織を切り替える＝PJ 選択が外れる（チャネルペインの対象が消える）
+    fireEvent.click(screen.getByText('Beta'));
+    await flush();
+
+    await waitFor(() => expect(pane.queryByRole('alert')).not.toBeInTheDocument());
+    expect(pane.getByText('チャネルがありません')).toBeInTheDocument();
+  });
+
+  it('正常な0件は空文言のままで失敗表示を出さない（v2-410）', async () => {
+    orgsApi.fetchOrganizationsAdmin.mockResolvedValue([]);
+    orgsApi.fetchProjectsAdmin.mockResolvedValue([]);
+    spacesApi.fetchChannelsByProjectAdmin.mockResolvedValue([]);
+    await renderScreen();
+
+    for (const name of ['組織一覧', 'プロジェクト一覧', 'チャネル一覧'] as const) {
+      expect(paneOf(name).queryByRole('alert')).not.toBeInTheDocument();
+    }
+    expect(screen.getByText('組織がありません')).toBeInTheDocument();
+    expect(screen.getByText('プロジェクトがありません')).toBeInTheDocument();
+    expect(screen.getByText('チャネルがありません')).toBeInTheDocument();
+  });
+});
+
+describe('組織管理の一覧状態（d597）', () => {
+  for (const [region, fetchList, emptyLabel] of [
+    ['組織一覧', orgsApi.fetchOrganizationsAdmin, '組織がありません'],
+    ['プロジェクト一覧', orgsApi.fetchProjectsAdmin, 'プロジェクトがありません'],
+    ['チャネル一覧', spacesApi.fetchChannelsByProjectAdmin, 'チャネルがありません'],
+  ] as const) {
+    it(region + 'の取得中も表見出しを残し、0件と区別する', async () => {
+      let resolve!: (rows: never[]) => void;
+      fetchList.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolve = r;
+          }),
+      );
+      await renderScreen();
+      const pane = within(screen.getByRole('region', { name: region }));
+      expect(pane.getByRole('status')).toBeInTheDocument();
+      expect(pane.getAllByRole('columnheader')).toHaveLength(2);
+      expect(pane.queryByText(emptyLabel)).not.toBeInTheDocument();
+      expect(pane.queryByText('アーカイブ済みは表示していません')).not.toBeInTheDocument();
+      resolve([]);
+      await flush();
+      expect(pane.queryByRole('status')).not.toBeInTheDocument();
+      expect(pane.getByText(emptyLabel)).toBeInTheDocument();
+    });
+  }
+
+  it('3一覧の検索0件は補足を維持し、アーカイブを含めると補足を消す', async () => {
+    await renderScreen();
+    for (const [region, placeholder, label, filter] of [
+      ['組織一覧', '組織名で検索...', '組織', '状態で絞り込み'],
+      [
+        'プロジェクト一覧',
+        'プロジェクト名で検索...',
+        'プロジェクト',
+        'プロジェクトの状態で絞り込み',
+      ],
+      ['チャネル一覧', 'チャネル名で検索...', 'チャネル', 'チャネルの状態で絞り込み'],
+    ]) {
+      const pane = within(screen.getByRole('region', { name: region }));
+      fireEvent.change(pane.getByPlaceholderText(placeholder), {
+        target: { value: 'not-found-d597' },
+      });
+      await flush();
+      expect(pane.getByText(label + 'が見つかりませんでした')).toBeInTheDocument();
+      expect(pane.getByText('アーカイブ済みは表示していません')).toBeInTheDocument();
+      fireEvent.click(pane.getByRole('button', { name: filter }));
+      fireEvent.click(screen.getByRole('option', { name: 'アーカイブ済も表示' }));
+      await flush();
+      expect(pane.queryByText('アーカイブ済みは表示していません')).not.toBeInTheDocument();
+    }
+  });
+});
+
+// 一覧の読み直し中に既存行を消さないこと（d687）。
+describe('組織管理のペインの読み直し（d687）', () => {
+  it('取得し直している間も、プロジェクトの既存行を消さない', async () => {
+    await renderScreen();
+
+    // 読み直し（PJ の状態フィルタ切り替え）を、応答前の状態で止める。
+    let resolveProjects!: (rows: never[]) => void;
+    orgsApi.fetchProjectsAdmin.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveProjects = r;
+        }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトの状態で絞り込み' }));
+    fireEvent.click(screen.getByRole('option', { name: 'アーカイブ済も表示' }));
+    await flush();
+
+    const projectPane = within(screen.getByRole('region', { name: 'プロジェクト一覧' }));
+    // 取得中でも、既に持っている行は消さない（旧行を消して空にしない）。
+    expect(projectPane.getByText('PJ-A')).toBeInTheDocument();
+    expect(projectPane.getByRole('status')).toBeInTheDocument();
+    resolveProjects([]);
+    await flush();
+    expect(projectPane.queryByText('PJ-A')).not.toBeInTheDocument();
+  });
+
+  it('チャネルの取得し直し中も、既存行を消さない', async () => {
+    await renderScreen();
+
+    spacesApi.fetchChannelsByProjectAdmin.mockClear();
+    let resolveChannels!: (rows: never[]) => void;
+    spacesApi.fetchChannelsByProjectAdmin.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveChannels = r;
+        }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'チャネルの状態で絞り込み' }));
+    fireEvent.click(screen.getByRole('option', { name: 'アーカイブ済も表示' }));
+    await flush();
+
+    const channelPane = within(screen.getByRole('region', { name: 'チャネル一覧' }));
+    expect(channelPane.getByText('雑談')).toBeInTheDocument();
+    expect(channelPane.getByRole('status')).toBeInTheDocument();
+    resolveChannels([]);
+    await flush();
+    expect(channelPane.queryByText('雑談')).not.toBeInTheDocument();
   });
 });

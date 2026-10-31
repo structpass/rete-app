@@ -400,10 +400,23 @@ export class ChatRepository {
           data: mentionIds.map((accountId) => ({ messageId: message.id, accountId })),
         });
       }
-      await tx.chatTheme.update({
+      // d623: 同時投稿では古いメッセージの親更新が新しいものより後に完了し得るため、無条件代入だと
+      // lastMessageAt が後退して一覧順とページ位置が崩れる（READ COMMITTED では後勝ち）。
+      // 非キー更新の行ロックで親更新を直列化し、読み直した現在値より新しい時だけ進める（単調増加）。
+      // INSERT の外部キー検査が保持する KEY SHARE と両立させる。FOR UPDATE だと同時投稿同士の
+      // KEY SHARE → UPDATE の昇格が互いを待ち、デッドロックで片方の投稿が失われる（d726）。
+      // 実テーブル名は Prisma の @@map("chat_themes")。表名を直書きしているため schema.prisma の変更に追従すること。
+      await tx.$queryRaw`SELECT id FROM chat_themes WHERE id = ${themeId} FOR NO KEY UPDATE`;
+      const parent = await tx.chatTheme.findUniqueOrThrow({
         where: { id: themeId },
-        data: { lastMessageAt: message.createdAt },
+        select: { lastMessageAt: true },
       });
+      if (message.createdAt > parent.lastMessageAt) {
+        await tx.chatTheme.update({
+          where: { id: themeId },
+          data: { lastMessageAt: message.createdAt },
+        });
+      }
       // 宛先（mentions）を含めて再取得し、投稿レスポンスに誰宛てかを載せる（mapper が id+name へ畳む）。
       return tx.chatMessage.findUniqueOrThrow({
         where: { id: message.id },

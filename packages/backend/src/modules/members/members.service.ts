@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { withUniqueConflictMessage } from '../../common/filters/unique-conflict-context';
 import { Role } from '@rete/shared';
 import { ok } from '../../common/dto';
 import { composeDisplayName } from '../../common/display-name';
@@ -43,6 +43,8 @@ export class MembersService {
 
   /**
    * メンバー一覧を CSV（UTF-8 BOM 付き）でエクスポートする。CSV は表示用スナップショット。
+   * 出力（持ち出し）の記録は横断 interceptor が担当する（audit-log.interceptor の GET_EXPORT_PATHS・d534）。
+   * ここで記録を足すと二重になる。
    */
   async exportCsv(): Promise<string> {
     const members = await this.repo.findAll();
@@ -131,25 +133,13 @@ export class MembersService {
       // emailChanged がある時だけ email を repo.update へ渡す（既存値と同じ値の時は渡さない＝無駄打ちを排除）。
       ...(emailChanged ? { email: emailChanged.after } : {}),
     };
-    // email 重複は事前 findOtherAccountByEmail でも弾くが、並行更新（TOCTOU）で他 Admin が同じ値を
-    // 書いた直後にこちらの更新が走る場合がある。Account.email @unique が PrismaClientKnownRequestError
-    // P2002 を返すため、専用メッセージの ConflictException へ変換して 409 で返す（filter は汎用
-    // メッセージになるため email 文脈では捕捉しない＝UX 改善）。
-    let updated;
-    try {
-      updated = await this.repo.update(id, data);
-    } catch (err) {
-      if (
-        emailChanged &&
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new ConflictException(
+    // 並行更新の一意制約違反も、案内文を保って共通filterへ委譲する。
+    const updated = emailChanged
+      ? await withUniqueConflictMessage(
+          () => this.repo.update(id, data),
           `メールアドレス「${emailChanged.after}」は既に使用されています`,
-        );
-      }
-      throw err;
-    }
+        )
+      : await this.repo.update(id, data);
 
     // email 変更時のみ監査ログ（管理者操作のトレーサビリティ）。
     // actionType='admin' / feature='members' / details に変更前/変更後を保存。actor は controller から

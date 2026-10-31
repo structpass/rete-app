@@ -16,7 +16,7 @@ import {
 } from '@/features/tasks/lib/api';
 import { apiErrorMessage } from '../lib/api-error';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { OverlayDialog } from '@/components/ui/overlay-dialog';
 import { useDeleteConfirm } from '@/hooks/use-delete-confirm';
 import { useOptimisticReorder } from '@/hooks/use-optimistic-reorder';
 import { useRowHoverBand } from '@/hooks/use-row-hover-band';
@@ -66,6 +66,8 @@ export function CategorySettingsDialog({
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
+  /** 名称変更を始めた時点の名前。入力が変わったか（＝破棄確認が要るか）はこれとの比較で決める。 */
+  const [editingBase, setEditingBase] = useState('');
   /** 実行中の変更操作（多重送信ガード）。true の間は全操作ボタンを無効化する。
    *  ガード判定は busyRef（同期・run の deps 非依存）、ボタン disabled の描画は busy（state）で行う。 */
   const [busy, setBusy] = useState(false);
@@ -135,8 +137,10 @@ export function CategorySettingsDialog({
     void load();
   }, [open, load, setDeleteTarget]);
 
-  // ESC で閉じる（確認ダイアログ表示中は enabled=false でそちらが優先）。
-  useEscapeConsume(onClose, { enabled: open && deleteTarget == null, capture: true });
+  // Esc の持ち主は共通 OverlayDialog 1つだけ（パネルの onKeyDown で stopPropagation する）。
+  // ここで document capture の useEscapeConsume を併設すると、先に閉じて OverlayDialog の
+  // stopPropagation が走らず、同じキーが desk-shell の closeAll にも届いて後ろのペインまで閉じる。
+  // 削除確認（ConfirmDialog）表示中の Esc は AlertDialog 側が stopPropagation して消費する（従来どおり）。
 
   // 開閉のたびに busyRef をリセット（途中で閉じた場合の取り残しガード）。施錠の取り残しリセットも
   // フックの resetReordering() へ委ねる（往復実行中は無視し finally に解錠を委ねる・cmn-0409 MEDIUM 5）。
@@ -274,6 +278,7 @@ export function CategorySettingsDialog({
                     onClick={() => {
                       setEditingId(c.id);
                       setEditingName(c.name);
+                      setEditingBase(c.name);
                     }}
                   >
                     <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -344,16 +349,22 @@ export function CategorySettingsDialog({
     </tr>
   );
 
+  // 正本 comp-overlay-dialog: 重ね表示は共通 OverlayDialog 1枚（fixed div の手組み禁止）。
+  // backdrop の曇りガラス・z 10050・Esc・focus trap・inert 隔離・フォーカス復帰は primitive が担う。
   return (
     <>
-      <div className="desk-catset-backdrop" onClick={onClose} data-testid="catset-backdrop">
-        <div
-          className="desk-catset-card"
-          role="dialog"
-          aria-modal="true"
-          aria-label="分類設定"
-          onClick={(e) => e.stopPropagation()}
-        >
+      <OverlayDialog
+        open
+        onClose={onClose}
+        ariaLabel="分類設定"
+        width="min(480px, 92vw)"
+        className="desk-catset-overlay"
+        // 入力途中の取消に破棄確認を挟む既存規約（mdl-0034 規約②）を primitive 側の共通ガードへ揃える。
+        // 「入力途中」＝追加の名前を打ち始めた、または名称変更の入力が元の名前から変わった時だけ
+        // （名称変更モードに入っただけ・未編集の名前だけでは dirty にしない）。
+        dirty={newName.trim() !== '' || (editingId != null && editingName !== editingBase)}
+      >
+        <div className="desk-catset-card" data-testid="catset-card">
           <div className="desk-catset-head">
             <h2 className="desk-catset-title">分類設定</h2>
             <button
@@ -500,10 +511,10 @@ export function CategorySettingsDialog({
             </>
           )}
         </div>
-      </div>
+      </OverlayDialog>
 
-      {/* backdrop の外に置く: Radix portal でも React ツリー上は親の onClick へバブルするため、
-          backdrop 内に置くと確認ダイアログの OK/キャンセル クリックでモーダル全体が閉じてしまう。 */}
+      {/* OverlayDialog の外に置く: Radix portal でも React ツリー上は親の閉じ要求へバブルするため、
+          中に置くと確認ダイアログの OK/キャンセル クリックでモーダル全体が閉じてしまう。 */}
       <ConfirmDialog
         open={deleteTarget != null}
         message={`分類「${deleteTarget?.name ?? ''}」を削除しますか？元に戻せません。`}

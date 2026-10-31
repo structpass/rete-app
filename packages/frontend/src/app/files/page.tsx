@@ -9,10 +9,15 @@ import { FilesView } from '@/features/files';
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ folderId?: string; fileId?: string }>;
+  searchParams: Promise<{ folderId?: string; fileId?: string; spaceId?: string }>;
 }) {
   const params = await searchParams;
   return (
-    <FilesView initialFolderId={params.folderId ?? null} initialFileId={params.fileId ?? null} />
+    <FilesView
+      key={JSON.stringify([params.spaceId, params.folderId, params.fileId])}
+      initialSpaceId={params.spaceId ?? null}
+      initialFolderId={params.folderId ?? null}
+      initialFileId={params.fileId ?? null}
+    />
   );
 }

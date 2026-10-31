@@ -45,7 +45,33 @@ export default defineConfig({
   projects: [
     {
       name: 'authz',
+      // 画面を開くシナリオ（@screen）はブラウザで画面を順に開くため、1 枚ごとの待ちが重なる。
+      // 通信だけのシナリオはこれまでどおり 30 秒で切る（外れたまま止まったことに気づけるように）。
+      testIgnore: [
+        path.join(__dirname, '.cache/bdd/features/zz-screen.feature.spec.js'),
+        // ファイル画面の失敗の伝わり方と移動後の現在地（d821）。画面から操作するためブラウザが要る。
+        path.join(__dirname, '.cache/bdd/features/zz-files-screen.feature.spec.js'),
+        // モデルタブの deep-link（d824・S-OPS-10）。本文の題と URL のハッシュを画面で確かめる。
+        path.join(__dirname, '.cache/bdd/features/zz-ops-screen.feature.spec.js'),
+      ],
       use: {},
+    },
+    {
+      // 画面の点検（d784）: 実ブラウザで主要な画面を開き、画面そのものの破損を捕まえる。
+      // ファイル画面の操作（d821）とモデルタブの deep-link（d824）も同じブラウザの並びに置く。
+      // ブラウザの起動が要るため API のシナリオと分け、同じ並び（辞書順）の末尾で走らせる。
+      name: 'screen',
+      testMatch: [
+        path.join(__dirname, '.cache/bdd/features/zz-screen.feature.spec.js'),
+        path.join(__dirname, '.cache/bdd/features/zz-files-screen.feature.spec.js'),
+        path.join(__dirname, '.cache/bdd/features/zz-ops-screen.feature.spec.js'),
+      ],
+      timeout: 180_000,
+      // 画面の文脈にも `Content-Type: application/json` が付く（config 全体の既定は、画面の通信も覆う。
+      // 実測 2026-10-27: ファイルのアップロードに json が付き、中身が読まれず全件失敗した・d825）。
+      // 画面は自分で送り方を決める（中身に合わせてブラウザが付ける・API の口は axios が付ける）ため、
+      // ここでは外す。API のシナリオ（authz）は今までどおり json のまま。
+      use: { extraHTTPHeaders: {} },
     },
     {
       // SSO 横断ジャーニーの UI-E2E（cmn-0141）。3オリジン跨ぎのため page.goto は localhost 絶対URL。

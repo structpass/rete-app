@@ -340,6 +340,8 @@ describe('MembershipsAdminScreen', () => {
 
     // キャンセルで snapshot へ戻る
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(screen.getByRole('button', { name: '更新' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(screen.getByRole('button', { name: '更新' })).toBeDisabled();
   });
 
@@ -370,5 +372,22 @@ describe('MembershipsAdminScreen', () => {
     expect(screen.queryByText('条件に一致するスコープがありません')).not.toBeInTheDocument();
     // 取得失敗は toast へ逃がさない（正本 ui.ts:109-110 の二層: 取得失敗=領域内 / 操作失敗=toast）
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  // d659: 取得失敗の表示から、画面を開き直さずに取り直せる。
+  it('取得失敗の表示に再試行を添え、押すと取り直して失敗の表示を消す（d659）', async () => {
+    membershipsApi.fetchPermissionMatrix.mockRejectedValueOnce(new Error('network'));
+    membershipsApi.fetchPermissionMatrix.mockResolvedValue(matrix);
+
+    render(<MembershipsAdminScreen />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('所属設定の読み込みに失敗しました');
+    fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(membershipsApi.fetchPermissionMatrix).toHaveBeenCalledTimes(2);
+    // 失敗の文言が残ったまま表が出る、を防ぐ（取れたら失敗の表示は消える）
+    expect(screen.queryByText('所属設定の読み込みに失敗しました')).not.toBeInTheDocument();
   });
 });

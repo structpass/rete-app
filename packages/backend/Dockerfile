@@ -3,13 +3,12 @@
 # ============================================================
 FROM node:24-alpine AS deps
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 WORKDIR /app
 
 # Copy workspace configuration
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY patches ./patches
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
@@ -21,7 +20,7 @@ RUN pnpm install --frozen-lockfile
 # ============================================================
 FROM node:24-alpine AS build
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 WORKDIR /app
 
@@ -54,7 +53,7 @@ RUN pnpm --filter @rete/backend prisma:seed:build
 # ============================================================
 FROM node:24-alpine AS production
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 # Add non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -64,7 +63,6 @@ WORKDIR /app
 
 # Copy workspace config
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY patches ./patches
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 

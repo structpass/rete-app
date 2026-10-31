@@ -30,6 +30,7 @@ import { UpdateFileSettingsDto } from './dto/files-settings.dto';
 import { MoveFolderDto, MoveFileDto } from './dto/move.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { SearchFilesQueryDto } from './dto/search-files.dto';
+import { ResolveFileRefsQueryDto } from './dto/resolve-file-refs.dto';
 import { SetFileTagsDto } from './dto/set-file-tags.dto';
 import { BatchAssignTagsDto, SetFolderTagsDto, TagSearchQueryDto } from './dto/tag-assignment.dto';
 import { resolveUploadTempDir, UPLOAD_HARD_LIMIT_BYTES } from './files.constants';
@@ -125,6 +126,24 @@ export class FilesController {
   @ApiOperation({ summary: '横断検索（ファイル名 / フォルダ名の部分一致・全階層）' })
   async search(@Query() query: SearchFilesQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.filesService.search(query.q, user);
+  }
+
+  // 構造参照の解決（FL+1・設計 §2.3）。本文 1 本の描画ごとに最大 1 回呼ばれる読み取りで、id は 20 件上限。
+  // 返すのは可視の対象だけ（不在・非可視は結果に現れない＝存在秘匿・ADR 0038）。
+  // fileId の列挙を伴うため、既存のファイル参照と同じ 20/min に制限する。
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get('refs')
+  @ApiOperation({ summary: '構造参照の解決（可視の対象だけを現在のパス表記つきで返す）' })
+  @ApiQuery({
+    name: 'ids',
+    required: false,
+    description: '参照ノードの id（カンマ区切り・最大 20 件）',
+  })
+  async resolveRefs(
+    @Query() query: ResolveFileRefsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.filesService.resolveRefs(query.ids, user);
   }
 
   @Get('settings')

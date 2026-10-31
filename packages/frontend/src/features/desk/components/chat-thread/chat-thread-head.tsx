@@ -166,9 +166,6 @@ export function ChatThreadHead({
         />
       ) : (
         <>
-          <div className="desk-thread-head-title-row">
-            <h4 className="desk-thread-head-title">{theme.title}</h4>
-          </div>
           {/* 説明はリッチテキスト（HTML）。sanitize して描画（ADR 0019・生タグ露出/XSS 防止）。
                           backend も description を sanitize するが、描画側でも RichTextView を通す多層防御。 */}
           <RichTextView

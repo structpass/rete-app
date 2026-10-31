@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchAnnouncements,
   createAnnouncement,
@@ -50,13 +50,16 @@ export function useAnnouncements(kind: AnnouncementTagKind = 'board'): UseAnnoun
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   const load = useCallback(
     async (targetPage: number) => {
+      const generation = ++requestGeneration.current;
       setLoading(true);
       setError(null);
       try {
         const res = await fetchAnnouncements({ page: targetPage, limit: PAGE_LIMIT, kind });
+        if (generation !== requestGeneration.current) return;
         setItems(res.data);
         setTotal(res.meta.total);
         // 末尾ページの全件削除等でページが空になったら実在する最終ページへ戻す
@@ -65,9 +68,9 @@ export function useAnnouncements(kind: AnnouncementTagKind = 'board'): UseAnnoun
           setPage(Math.max(1, Math.ceil(res.meta.total / PAGE_LIMIT)));
         }
       } catch {
-        setError('通知の取得に失敗しました');
+        if (generation === requestGeneration.current) setError('通知の取得に失敗しました');
       } finally {
-        setLoading(false);
+        if (generation === requestGeneration.current) setLoading(false);
       }
     },
     [kind],
@@ -75,6 +78,10 @@ export function useAnnouncements(kind: AnnouncementTagKind = 'board'): UseAnnoun
 
   useEffect(() => {
     void load(page);
+    // ページ・kind の切替と unmount でも、まだ返っていない旧応答を無効化する。
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [load, page]);
 
   const refetch = useCallback(() => load(page), [load, page]);

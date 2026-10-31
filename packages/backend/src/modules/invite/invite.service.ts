@@ -161,6 +161,10 @@ export class InviteService {
   /**
    * 既存招待の token を再生成し expiresAt を延長して再送信する（status は PENDING に戻す）。
    * 期限切れになった PENDING 招待を復活させる主な用途。
+   *
+   * 受諾済みは巻き戻さない（d622）。書き換えは「読んだ時の tokenHash のまま PENDING」を条件に、
+   * メール送信より先に行う（d689・persist-first）。書き換えが当たらなかった時は送らずに案内を返し、
+   * 送信に失敗した時は新しいリンクの保存を保ったまま失敗を返す（旧リンクへ戻さない）。
    */
   async resend(id: string) {
     if (!this.mail.isConfigured()) {
@@ -169,11 +173,12 @@ export class InviteService {
       );
     }
 
-    const invite = await this.repo.findById(id);
-    if (!invite) {
+    // 一覧・判定・書き換え条件を揃えるため、tokenHash 込みで 1 回だけ読む。
+    const current = await this.repo.findByTokenHashOfId(id);
+    if (!current) {
       throw new NotFoundException('招待が見つかりません');
     }
-    if (invite.status === InviteStatus.ACCEPTED) {
+    if (current.status === InviteStatus.ACCEPTED) {
       throw new BadRequestException('受諾済みの招待は再送できません');
     }
 
@@ -181,9 +186,9 @@ export class InviteService {
     // 受諾 TX 内の再検証で意図 Space が付かないまま招待が飛び、UI から気づけない穴が残る。
     // 無効化を検知したら「作り直す」よう案内して再送を止める。
     // Space 未割当（legacy/null）の招待は検証対象が無いためスキップ。
-    if (invite.spaceId) {
+    if (current.spaceId) {
       try {
-        await this.validateSpace(invite.spaceId);
+        await this.validateSpace(current.spaceId);
       } catch (err) {
         // validateSpace の「不在 Space」だけ作り直し案内へ平坦化する。
         // DB 障害など他の例外（Prisma エラー等）は握り潰さず上位 filter へ委譲する
@@ -199,14 +204,30 @@ export class InviteService {
 
     const { tokenHash, expiresAt, link } = this.generateTokenSet();
 
-    // send-first: 送信成功後に DB 更新。
-    await this.sendInviteMail(invite.email, link);
-
-    const updated = await this.repo.update(id, {
+    // persist-first（再送だけ・d689）: 送信の前に、読んだ時の tokenHash のまま PENDING の行だけを書き換える。
+    // 書き換えが当たらなかった時はメールを送らない（届かないリンクを送らない）。送信を待つ間に受諾が
+    // 完了したら受諾済みを巻き戻さず、同時再送に負けたら後の書き換えへ譲る。どちらも送るものが無いので、
+    // 使える招待を案内する文言で返す。
+    const outcome = await this.repo.renewPendingByTokenHash(current.id, current.tokenHash, {
       tokenHash,
       expiresAt,
       status: InviteStatus.PENDING,
     });
+    if (outcome !== 'renewed') {
+      throw new BadRequestException(
+        'この招待は受諾済みか、別の再送で更新されています。招待一覧を読み直してください',
+      );
+    }
+
+    // 保存できた時点で古いリンクは失効する。送信が失敗・結果不明でも旧リンクへ戻さない（戻すと、届いて
+    // いるかもしれないメールのリンクを無効にする）。失敗時は一覧を読み直して再送し直すことで回復する。
+    // 例外はそのまま上位へ返し、送信に失敗した事実を呼び出し側の案内に出す。
+    await this.sendInviteMail(current.email, link);
+
+    const updated = await this.repo.findByTokenHashOfId(current.id);
+    if (!updated) {
+      throw new NotFoundException('招待が見つかりません');
+    }
     return ok(toInviteDto(updated));
   }
 
@@ -279,8 +300,9 @@ export class InviteService {
     // ⑤ インタラクティブ TX（TX 内で invite 再取得・再検証・Account 作成・Invite 更新）。
     // §4 の意図的な例外: 並行受諾の P2002（accounts.email unique 違反）をここで握り、トークン無効と同一の曖昧
     // メッセージへ変換する。それ以外は filter へ委譲（再 throw）。
+    let accepted: { accountId: string; email: string };
     try {
-      await this.repo.acceptInTransaction({ tokenHash, name, passwordHash });
+      accepted = await this.repo.acceptInTransaction({ tokenHash, name, passwordHash });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new BadRequestException('招待が無効か期限切れです');
@@ -288,7 +310,9 @@ export class InviteService {
       throw err;
     }
 
-    return ok({ message: 'アカウントを作成しました' });
+    // 受諾の成立を呼び出し側（controller）へ返す。未認証で叩ける経路のため横断の操作ログは
+    // 対象外で、記録は controller が明示的に行う（d559）。応答自体は従来どおり。
+    return { accepted, response: ok({ message: 'アカウントを作成しました' }) };
   }
 
   // -----------------------------------------------------------------------

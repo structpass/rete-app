@@ -117,7 +117,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: 'settings の FormButton（primitives/form.tsx）は本規約の存在を許容する併存実装（cva Button への統合是非は settings feature 側の判断に委ねる）。ただし色は primary=teal 塗り＝sp-primary と等価であること。reference の sp-action＋アイコン方式を rete へ波及させるかは別判断。Board(instruction-board viewer) は別実装のため対象外。',
+        text: 'settings の FormButton（primitives/form.tsx）は本規約の存在を許容する併存実装（cva Button への統合是非は settings feature 側の判断に委ねる）。ただし色は primary=teal 塗り＝sp-primary と等価であること。reference の sp-action＋アイコン方式を rete へ波及させるかは別判断。',
       },
       {
         type: 'note',
@@ -355,7 +355,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
     spec: [
       {
         type: 'p',
-        text: 'ラベル付き入力は FormField で束ねる。label / required / error / htmlFor を props で渡し、ラベルや必須マーク・エラー文言を画面側で手組みしない。htmlFor と入力の id を必ず紐付ける（クリックでフォーカス + a11y）。',
+        text: 'ラベル付き入力は FormField で束ねる。label / required / error / htmlFor を props で渡し、ラベルや必須マーク・エラー文言を画面側で手組みしない。htmlFor と入力の id を必ず紐付ける（クリックでフォーカス + a11y）。高密度一覧の面や既存の密度規約（Desk の属性フォーム・設定タブの FormLabel 等）で FormField を使えない画面は、同じ字面（赤の「* 必須」1 形・入力側は aria-required）で揃える。必須マークはラベルの文字列の外に置き、アクセシブル名（読み上げ名）を変えない。',
       },
       {
         type: 'table',
@@ -373,13 +373,17 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           ],
           [
             '必須バッジ',
-            'ラベル右に赤の「* 必須」（* は大きめ・text-base）',
-            'ml-2 text-xs text-[var(--sp-accent-red)]',
+            'ラベル右に赤の「* 必須」（* は大きめ・text-base）。ラベル要素の文字列には含めず、読み上げ名を変えない',
+            'ラベル要素の直後に並べる（行 flex の gap で 8px 空ける・text-xs text-[var(--sp-accent-red)]・aria-hidden）',
           ],
           ['エラー文言', '入力の直下に text-sm --sp-accent-red の1行', 'error prop 経由でのみ表示'],
         ],
       },
       { type: 'demo', demo: 'form-field-states', caption: 'ラベル / 必須 / エラーの3形態' },
+      {
+        type: 'note',
+        text: '「必須」はサーバが空を拒否する項目（題名・名前・メール・初期 Space・最大ファイルサイズなど）に付ける。サーバが空を許す項目は任意なので付けない。Desk タスクの分類とステータスは、分類が任意・ステータスが初期値付きで未入力が起きないため、新規登録モードでも必須マークを出さない（rete-desk-0184/0185）。',
+      },
       {
         type: 'p',
         text: 'フォームの縦間隔は密度2段階（mdl-0025・comp-input の密度規約と対）。項目間（フィールド↔フィールド）とラベル間（ラベル↔入力欄）はこの2値のみとし、画面ごとに 14px / 8px / 5px 等の中間値を作らない。compact 側は密度トークン参照で実装する。',
@@ -426,13 +430,13 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
     status: 'active',
     summary:
       '囲み面は Card + CardHeader / CardTitle / CardContent の合成。枠 --sp-line-warm・rounded-lg・shadow-sm、余白は p-6 系で固定。',
-    sources: ['components/ui/card.tsx'],
+    sources: ['components/ui/card.tsx', 'app/globals.css（.sp-panel — 高密度の面斑用）'],
     purpose:
       'カード面の枠・余白・見出し位置を揃え、一覧カードや詳細パネルが画面ごとに別の囲み（枠色・影・角丸の揺れ）にならないようにする。',
     spec: [
       {
         type: 'p',
-        text: '囲み面（カード・パネル）は Card 合成で作る。枠線色・影・角丸・内側余白を画面側で作り込まない。',
+        text: '囲み面（カード・パネル）は Card 合成で作る。枠線色・影・角丸・内側余白を画面側で作り込まない。高密度の一覧ペインのように Card の内側余白（p-6）を持ち込めない面は、枠・角丸・影だけを持つ共通クラス .sp-panel（globals.css・Card と同値）を使う。枠を border-[var(--sp-line-warm)] で手書きしない。',
       },
       {
         type: 'table',
@@ -456,7 +460,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       ],
       bad: [
         {
-          text: '枠色 hex・独自影・独自余白で囲み面を手組みする（そのカードだけ別物になる）',
+          text: '枠色 hex・独自影・独自余白で囲み面を手組みする（そのカードだけ別物になる）/ 枠だけ border-[var(--sp-line-warm)] で手書きして角丸・影を落とす',
           demo: 'card-usage-bad',
         },
       ],
@@ -476,6 +480,10 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       {
         type: 'p',
         text: 'ステータスや件数の小型ラベルは Badge を使う。タスク状態は variant（todo / progress / review / done）を選ぶだけにし、状態色の hex を画面側に持ち込まない。状態色の SSOT は globals.css の --sp-status-* トークン（desk の .desk-task-status と同一トークン参照＝画面間で同色）。',
+      },
+      {
+        type: 'p',
+        text: '適用境界: 設定の多値トーンは既存 StatusBadge（高密度10px・strong有無の余白）を維持し、Badge と部品統合しない（UI共通「CRUD共通パターン」）。サイドバー件数は comp-sidebar-link の .sidebar-badge、タブ件数は comp-tabs の .sp-page-tab-badge に従う。未読点・メンション通知・テナント識別帯・添付/タグ選択等の操作チップは、それぞれの専用語彙であり汎用状態バッジに置換しない。',
       },
       {
         type: 'table',
@@ -568,7 +576,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
         type: 'list',
         items: [
           'Esc はキャンセル扱いで閉じ、stopPropagation で背後の画面へ伝播させない（閉じた直後に背後の閉じ処理が二重発火するのを防ぐ）。',
-          'busy中だけはEscを含む取消を受け付けず、処理完了まで開いたままにする。',
+          '呼出元が busy を渡して処理中も確認画面を保持する場合は、Escを含む取消を受け付けず、処理完了まで開いたままにする。共通削除フック useDeleteConfirm の close-first（確定直後に閉じ、失敗通知は remove 側へ委譲）と、メンバーのMFAリセット・メール変更の即閉じ経路は既存契約を維持する。busy は閉じた確認画面を再表示する指定ではない。',
           '開いた時は container を先行フォーカスしてから data-autofocus 付きボタン（キャンセル）へ視覚フォーカスを移す（開いた直後から Esc が効く）。',
           '←→ / Tab でボタン間をループ巡回。Enter はフォーカス中ボタンの既定クリックに委ねる。',
           '閉じた時は開く前のフォーカス位置へ復元する（WCAG 2.4.3）。',
@@ -746,7 +754,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       'struct-pass-reference: components/shared/page-header.tsx（意匠の準拠元・30ページ超で例外なく使用）',
     ],
     purpose:
-      '画面タイトルの「ついていたりいなかったり」（Desk/Backlog の欠落・ホーム/ファイル/設定/モデルの余白と太さのバラつき）を解消し、メニューでクリックした機能名が同じ見た目で必ず左上に出る状態にする（mdl-0028）。',
+      '画面タイトルの「ついていたりいなかったり」（Desk の欠落・ホーム/ファイル/設定/モデルの余白と太さのバラつき）を解消し、メニューでクリックした機能名が同じ見た目で必ず左上に出る状態にする（mdl-0028）。',
     spec: [
       {
         type: 'p',
@@ -781,7 +789,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       },
       {
         type: 'p',
-        text: '例外（表示しない画面）: Desk＝作業机型でサイドバー最上部に「デスク」が常時表示済み・コンテンツはスレッド見出しが主役のため付けない。Backlog＝外部ツール（instruction-board）の iframe 全面表示で、rete 側に足すと内部見出しと二重になるため付けない。ログイン等の認証前画面はメニュー文脈が無いため対象外。',
+        text: '例外（表示しない画面）: Desk＝作業机型でサイドバー最上部に「デスク」が常時表示済み・コンテンツはスレッド見出しが主役のため付けない。ログイン等の認証前画面はメニュー文脈が無いため対象外。',
       },
       {
         type: 'demo',
@@ -861,7 +869,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           [
             'タブラベル',
             '英語・単数形（cmn-0114。画面内タイトルは日本語のまま）',
-            'Home / Desk / File / System / Mock / Setting / Model / Backlog（nav-config.ts）',
+            'Home / Desk / File / System / Mock / Setting / Model（nav-config.ts）',
           ],
           [
             'タブ間隔',
@@ -1098,7 +1106,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
     category: 'ui-component',
     status: 'active',
     summary:
-      'タブは下線型で統一。選択中は var(--sp-accent-ink)（#b83d6e）の 2px 下線 + 同色文字 + font-weight 増、strip 下端に var(--sp-line-warm) の 1px 線（cmn-0134 で一度 1px へ落としたが選択が見えづらく cmn-0135 で 2px へ差し戻し。Desk 等の teal 上書き系も同値）。',
+      '画面内タブは2px下線で選択を示し、strip 下端に1px線を置く。基底は ink の下線と文字。既存の Desk・設定・タグ管理は teal 下線を維持し、文字色と太さは下表の文脈別規約に従う。グローバルメニューのピルと検索モードのセグメント切替は別の語彙。',
     sources: [
       'features/settings/components/primitives/page-tabs.tsx（.sp-page-tabs / .sp-page-tab）',
       'features/desk/components/task-detail-overlay.tsx（.desk-ticket-tabs）',
@@ -1121,7 +1129,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           ],
           [
             '選択中',
-            '文字・下線とも var(--sp-accent-ink) + font-weight 増（.sp-page-tab は 500→600）',
+            '基底 .desk-ticket-tab と添付元タブは ink の下線・文字。既存 .sp-page-tab と Desk 詳細は文字/下線とも teal。サイドバー・分類設定・タグ管理は濃色文字＋teal 下線。sp-page-tab / desk-ticket-tab / サイドバー / 分類設定 / タグ管理は太さ600固定、添付元のみ500→600',
           ],
           ['非選択', '薄い文字色（hsl(var(--foreground)/0.65) 等）+ 透明下線。hover で文字を濃く'],
           [
@@ -1137,14 +1145,14 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: 'canonical component 化は将来課題。既知の揺れ: 選択中クラス名が .active（sp-page-tab）と .is-active（desk-ticket-tab）で不統一。desk のオーバーレイ文脈（[data-right-view="thread"] 等）では選択色が var(--sp-accent-teal) にオーバーライドされる。',
+        text: 'canonical component 化は将来課題。選択中クラス名は .active（sp-page-tab）と .is-active（desk-ticket-tab 等）がある。PageTabs は現時点で本番呼出しがなく、見本と将来の共通部品。添付元タブも下線型とする。既存の Desk 詳細・サイドバー・分類設定・タグ管理の配色を、この照合で基底の ink へ変更しない。',
       },
     ],
     compliesWith: [{ label: 'colorトークン直書き禁止（本タブ UI共通）' }],
     examples: {
       good: [
         {
-          text: 'タブは下線型で、選択中= ink 色の下線 + 文字にする（.sp-page-tabs へ相乗り）',
+          text: 'タブは下線型で、選択中は文脈別の共通色を使う（.sp-page-tabs へ相乗り）',
           demo: 'tabs-usage-good',
         },
       ],
@@ -1224,7 +1232,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: '旧記述の訂正: hover の --sidebar-hover は旧ダーク地時代は不透明ピンク系（336°・mdl-0007 調査当時）だったが、dsk-0376 のライトメタル反転で薄い黒透過（222 47% 11% / 0.05）へ変更済み。active は 青透過 → グレー透過（hom-0122）→ すりガラスの白ピル（hom-0131/0132 → cmn-0133 で全画面共通）と変遷し、旧トークン --sidebar-active-bg は撤去済み。Desk の .sidebar-channel / .sidebar-member-row も同じ白ピルへ統合した（旧「active 透過度 0.18 の揺れ」は解消）。canonical component 化は将来課題。既知の揺れ: バッジ実装が4系統（共通 .sidebar-badge / Home の teal インライン / model の整備中 arbitrary / desk の赤丸 unread）に分裂。',
+        text: '旧記述の訂正: hover の --sidebar-hover は dsk-0376 のライトメタル反転で薄い黒透過（222 47% 11% / 0.05）へ変更済み。active は cmn-0133 ですりガラスの白ピルへ統一し、旧 --sidebar-active-bg は撤去済み。Desk の .sidebar-channel / .sidebar-member-row も同じ白ピル。Home の未読件数は共通 .sidebar-badge を使う。Model サイドバーに整備中バッジはなく、本文見出しの整備中は Badge。Desk の未読点・赤丸とお気に入りの種別ラベルは専用通知・識別語彙として維持する。canonical component 化は将来課題。',
       },
     ],
     compliesWith: [{ label: 'colorトークン直書き禁止（本タブ UI共通）' }],
@@ -1305,6 +1313,8 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
         items: [
           '件数の言い方は「全 N 件」に固定する（set-0150）。数える対象が人なら助数詞だけ替えて「全 N 名」（所属管理）。「該当 N 件」は使わない——絞り込み条件を適用した後の件数を出す点は reference（use-client-pagination）と同じで、rete も全画面この意味で「全」と書く。「全」を総件数、「該当」を絞り込み後、と読み分ける規約は無い。',
           '明細行数が明らかに少ない固定リスト（Desk のカテゴリ設定・タグ管理等）はフッター自体を省略してよい（ヘッダーあり・フッターなし・外枠罫線ありが既存の正当なパターン）。',
+          '設定の通常一覧は取得方式に合わせる。メンバー・招待・管理グループは全件表示の静的フッター、操作ログはページ情報と移動ハンドラを持つフッターを使う。管理グループの読み込み中・取得失敗時は件数を「全 — 件」とし、未取得を0件や1ページと表示しない。',
+          '所属管理の2軸マトリクスと組織管理の階層ペインは、通常一覧の件数フッター・ページ送りの対象外とする。行・列や階層の関係を同じ画面で表示し、表の内側のスクロールで閲覧する。',
           'ファイルタブの選択件数バー（全 N 件 — 選択中 M 件）はページネーションでなく選択状態表示のため本テーマの対象外（別役割・現状のまま維持）。',
           '1ページの明細表示件数セレクタ（明細件数 50 ▾ 等）は reference にあるが、現状 rete の一覧は全件取得のためバックエンドの limit/offset 対応が要る機能追加であり、本テーマの見た目統一とは別スコープとして見送り（必要になった時に改めて検討）。',
         ],

@@ -87,7 +87,11 @@ describe('AccountRepository', () => {
       expect(mockPrisma.account.update).toHaveBeenCalledTimes(1);
       expect(mockPrisma.account.update).toHaveBeenCalledWith({
         where: { id: 'acc-1' },
-        data: { passwordHash: 'hashed', mustChangePassword: false },
+        data: {
+          passwordHash: 'hashed',
+          mustChangePassword: false,
+          credentialsChangedAt: expect.any(Date),
+        },
       });
     });
   });

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 
-export type HoverBandAxis = 'vertical' | 'horizontal';
+// 型は外へ出さない（呼び出し元は 'vertical' | 'horizontal' のリテラルを直接渡しており、公開面に使われていない・d611）。
+type HoverBandAxis = 'vertical' | 'horizontal';
 
 /**
  * 明細一覧の hover 帯スライド追従（mdl-0050・正本=モデルタブ「マウスホバー表現」）。

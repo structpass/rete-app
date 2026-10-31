@@ -56,6 +56,47 @@ describe('AuditLogInterceptor', () => {
       expect(mockRecorder.record).not.toHaveBeenCalled();
     });
 
+    it('GET でも持ち出し（/members/export）だけは read として記録する（d534）', async () => {
+      const ctx = makeContext('GET', '/api/v1/members/export');
+      await lastValueFrom(interceptor.intercept(ctx, makeHandler()));
+      expect(mockRecorder.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'read',
+          feature: 'メンバー',
+          summary: 'メンバー を出力',
+          actorAccountId: 'acc-1',
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest-test',
+        }),
+      );
+    });
+
+    it('持ち出しの記録は CSV の中身を渡さない（一覧の export は元々本文を持たない）', async () => {
+      const ctx = makeContext('GET', '/api/v1/members/export');
+      await lastValueFrom(
+        interceptor.intercept(
+          ctx,
+          makeHandler('表示名,メールアドレス\r\n山田,taro@rete.local\r\n'),
+        ),
+      );
+      const input = mockRecorder.record.mock.calls[0][0];
+      expect(JSON.stringify(input)).not.toContain('taro@rete.local');
+    });
+
+    it('GET の export でも未認証なら記録しない', async () => {
+      const ctx = makeContext('GET', '/api/v1/members/export', null);
+      await lastValueFrom(interceptor.intercept(ctx, makeHandler()));
+      expect(mockRecorder.record).not.toHaveBeenCalled();
+    });
+
+    it('GET の export でもハンドラが例外を throw したら記録しない', async () => {
+      const ctx = makeContext('GET', '/api/v1/members/export');
+      await expect(lastValueFrom(interceptor.intercept(ctx, makeErrorHandler()))).rejects.toThrow(
+        'Not Found',
+      );
+      expect(mockRecorder.record).not.toHaveBeenCalled();
+    });
+
     it('req.user が存在しない（未認証）は記録しない', async () => {
       const ctx = makeContext('POST', '/api/v1/chat/messages', null);
       await lastValueFrom(interceptor.intercept(ctx, makeHandler()));

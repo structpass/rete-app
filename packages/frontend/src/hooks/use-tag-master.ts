@@ -1,16 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isAxiosError } from 'axios';
-
-/** サーバの Nest 標準エラー形（{ message }）から表示用メッセージを取り出す（hom-0103）。 */
-function extractServerMessage(err: unknown): string | null {
-  if (isAxiosError(err)) {
-    const message = (err.response?.data as { message?: string } | undefined)?.message;
-    if (typeof message === 'string' && message.length > 0) return message.slice(0, 200);
-  }
-  return null;
-}
+import { extractErrorMessage } from '@/lib/error-utils';
 
 /**
  * タグマスタの最小形（FileTag / AnnouncementTag 共通形）。
@@ -109,7 +100,7 @@ export function useTagMaster({
         await reload();
         return true;
       } catch (err) {
-        setLastError(extractServerMessage(err));
+        setLastError(extractErrorMessage(err, '').slice(0, 200) || null);
         return false;
       } finally {
         setMutating(false);
@@ -130,7 +121,7 @@ export function useTagMaster({
         await reload();
         return true;
       } catch (err) {
-        setLastError(extractServerMessage(err));
+        setLastError(extractErrorMessage(err, '').slice(0, 200) || null);
         return false;
       } finally {
         setMutating(false);

@@ -120,12 +120,26 @@ describe('テナント情報のキャンセル（v2-171）', () => {
     await user.click(screen.getByRole('radio', { name: '赤' }));
 
     await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    // 編集中は破棄確認を挟む（規約②③）。取り消すと入力は残る。
+    await user.click(screen.getAllByRole('button', { name: 'キャンセル' }).at(-1)!);
+    expect(screen.getByLabelText('テナント名')).toHaveValue('編集中の名前');
+
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    await user.click(screen.getByRole('button', { name: 'OK' }));
 
     expect(screen.getByLabelText('テナント名')).toHaveValue('開発法人');
     expect(screen.getByRole('radio', { name: '緑' })).toBeChecked();
     expect(api.updateTenantInfo).not.toHaveBeenCalled();
     expect(tenantInfoCtx.setTenantInfo).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith('変更をキャンセルしました');
+  });
+
+  it('未編集のキャンセルは確認を挟まず、入力も変えない', async () => {
+    await renderLoaded();
+    const user = setupUser();
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('テナント名')).toHaveValue('開発法人');
   });
 
   it('更新後に編集してキャンセルすると直前の保存値へ戻す', async () => {
@@ -143,10 +157,42 @@ describe('テナント情報のキャンセル（v2-171）', () => {
     await user.type(screen.getByLabelText('テナント名'), 'また編集中');
     await user.click(screen.getByRole('radio', { name: '青' }));
     await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    await user.click(screen.getByRole('button', { name: 'OK' }));
 
     expect(screen.getByLabelText('テナント名')).toHaveValue('新法人');
     expect(screen.getByRole('radio', { name: '赤' })).toBeChecked();
     expect(api.updateTenantInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('未編集で Esc を押すと確認を挟まず、入力へ影響しない', async () => {
+    await renderLoaded();
+    const user = setupUser();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('テナント名')).toHaveValue('開発法人');
+  });
+
+  it('編集中に Esc を押すと破棄確認を挟み、閉じた Esc では破棄せず、OK で保存済みの値へ戻す', async () => {
+    await renderLoaded();
+    const user = setupUser();
+    const nameInput = screen.getByLabelText('テナント名');
+    await user.clear(nameInput);
+    await user.type(nameInput, '編集中の名前');
+    await user.click(screen.getByRole('radio', { name: '赤' }));
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('テナント名')).toHaveValue('編集中の名前');
+
+    // 確認表示中の Esc はダイアログだけを閉じる（規約④。編集は続く）。
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.getByLabelText('テナント名')).toHaveValue('編集中の名前');
+
+    await user.keyboard('{Escape}');
+    await user.click(await screen.findByRole('button', { name: 'OK' }));
+    expect(screen.getByLabelText('テナント名')).toHaveValue('開発法人');
+    expect(screen.getByRole('radio', { name: '緑' })).toBeChecked();
   });
 });
 

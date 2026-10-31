@@ -1,9 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import toast from 'react-hot-toast';
-import { extractErrorMessage } from '@/lib/error-utils';
+import { extractErrorMessage, extractErrorStatus } from '@/lib/error-utils';
 import {
   createAttachment as createAttachmentApi,
   deleteAttachment as deleteAttachmentApi,
@@ -30,9 +29,9 @@ export interface UseDeferredAttachmentsResult extends UseDeskAttachmentsResult {
   discard: () => void;
 }
 
-/** axios エラーの HTTP status 判定（commit の 409/404 許容用）。 */
+/** API エラーの HTTP status 判定（commit の 409/404 許容用）。 */
 function hasStatus(e: unknown, status: number): boolean {
-  return axios.isAxiosError(e) && e.response?.status === status;
+  return extractErrorStatus(e) === status;
 }
 
 /**

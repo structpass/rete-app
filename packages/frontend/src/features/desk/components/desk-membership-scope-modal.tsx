@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState, useMemo, useRef, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { MembershipScopeType, type SpaceDto, type MembershipDto } from '@rete/shared';
@@ -18,7 +17,7 @@ import type { Account } from '@/features/tasks/lib/api';
 import { apiErrorMessage } from '../lib/api-error';
 import { avatarClassFor, avatarChar } from '../lib/avatar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { OverlayDialog } from '@/components/ui/overlay-dialog';
 import { useDeleteConfirm } from '@/hooks/use-delete-confirm';
 import {
   Select,
@@ -177,12 +176,10 @@ export function DeskMembershipScopeModal({
     void reload();
   }, [open, reload]);
 
-  // Escape で閉じる（dialog 標準・category-settings-dialog と同型）。document body へ portal するため
-  // capture 段階で拾って desk-shell の一括クローズへ伝播させない（dsk-0306 と同方針）。
-  // dsk-0329 MEDIUM 是正: 削除確認ダイアログ（ConfirmDialog）表示中は enabled=false で
-  // リスナー未登録にし、AlertDialog 側の ESC ハンドラを優先させ本モーダルは閉じない
-  // （旧 desk-group-manage-modal と同方針だった・同ファイルは dsk-0351 で撤去済み）。
-  useEscapeConsume(onClose, { enabled: open && removeTarget === null, capture: true });
+  // Esc の持ち主は共通 OverlayDialog 1つだけ（パネルの onKeyDown で stopPropagation する）。
+  // ここで document capture の useEscapeConsume を併設すると、先に閉じて OverlayDialog の
+  // stopPropagation が走らず、同じキーが desk-shell の closeAll にも届いて後ろのペインまで閉じる。
+  // 削除確認（ConfirmDialog）表示中の Esc は AlertDialog 側が stopPropagation して消費する（dsk-0329 維持）。
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.accountId)), [members]);
   const candidates = useMemo(
@@ -244,19 +241,18 @@ export function DeskMembershipScopeModal({
 
   // document.body へ portal（desk-sidebar が position:sticky のため子孫の fixed が
   // スタッキングコンテキストに埋もれるのを避ける）。
-  const dialog = createPortal(
-    <div
-      className="desk-catset-backdrop"
-      onClick={onClose}
-      data-testid="desk-membership-scope-backdrop"
+  // 正本 comp-overlay-dialog: 重ね表示は共通 OverlayDialog 1枚（fixed div の手組み禁止）。
+  // backdrop の曇りガラス・z 10050・Esc・focus trap・inert 隔離・フォーカス復帰は primitive が担う。
+  const dialog = (
+    <OverlayDialog
+      open={open}
+      onClose={onClose}
+      ariaLabel={ariaLabel ?? title}
+      width="min(480px, 92vw)"
+      className="desk-catset-overlay"
+      dirty={busy}
     >
-      <div
-        className="desk-catset-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={ariaLabel ?? title}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="desk-catset-card" data-testid="desk-membership-scope-card">
         <div className="desk-catset-head">
           <h2 className="desk-catset-title">{title}</h2>
           <button
@@ -350,11 +346,11 @@ export function DeskMembershipScopeModal({
 
         {footerSlot}
       </div>
-    </div>,
-    document.body,
+    </OverlayDialog>
   );
 
-  // dsk-0329 項目 2: 削除確認ダイアログ。modal と同じ Portal ではなく直描（AlertDialog が内部で portal）。
+  // dsk-0329 項目 2: 削除確認ダイアログ。AlertDialog は内部で body へ portal するため
+  // OverlayDialog の上に後着で乗る（Esc は AlertDialog 側が stopPropagation して消費する）。
   return (
     <>
       {dialog}

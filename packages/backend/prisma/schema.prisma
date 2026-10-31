@@ -313,34 +313,35 @@ model TaskCommentMention {
 // membership / role / team / system は後フェーズ（最小スライスでは email + password でログインできる最小構造）。
 
 model Account {
-  id                  String    @id @default(uuid())
-  email               String    @unique
-  passwordHash        String    @map("password_hash")
-  name                String
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  passwordHash         String    @map("password_hash")
+  credentialsChangedAt DateTime? @map("credentials_changed_at") @db.Timestamptz
+  name                 String
   // 姓・名（set-0096）。name は表示名（familyName + givenName を半角スペース連結で再組み立て）として温存。
   // 既存のチャット投稿者・監査・OIDC name claim・CSV 等は name 列を読むため無改修のまま動く。
-  familyName          String    @default("") @map("family_name")
-  givenName           String    @default("") @map("given_name")
+  familyName           String    @default("") @map("family_name")
+  givenName            String    @default("") @map("given_name")
   // テナント内ロール（RBAC 最小核）。既定 MEMBER。掲示板の変更系は ADMIN のみ（Roles ガードで enforce）。
   // membership/team/system 等のより細かい権限は後フェーズ（ST-3 RBAC）。
-  role                Role      @default(MEMBER)
+  role                 Role      @default(MEMBER)
   // ロック状態（false=ロック / ログイン不可）。メンバー管理（ST-4）の「ロック/解除」はこの列を反転する
   // （新 locked 列は作らず既存の認証境界=isActive を流用。lock は即時有効で H4 enforcement を待たない）。
-  isActive            Boolean   @default(true) @map("is_active")
+  isActive             Boolean   @default(true) @map("is_active")
   // 強制パスワード変更マーク（set-0035 で再導入・現役）。true の間、PasswordChangeEnforcementGuard が
   // 保護ルートを 403 PASSWORD_CHANGE_REQUIRED で遮断し、フロントの横断ゲート（AppShell）が業務操作を
   // ブロックしてパスワード変更画面へ誘導する。AuthService.changePassword 完了時の
   // AccountRepository.updatePasswordAndClearFlag で hash 更新と同一 UPDATE 内で false へ落ちる。
   // SELECT 側（members.repository 等）は select allowlist で意図的に出さない（内部フラグ）。
-  mustChangePassword  Boolean   @default(false) @map("must_change_password")
+  mustChangePassword   Boolean   @default(false) @map("must_change_password")
   // ログイン試行ロックアウト（H6 / brute-force 防御）。失敗の連続回数を保持し、閾値到達で lockedUntil を立てる。
   // DB 保持により再起動跨ぎ・複数インスタンスで一貫する（in-memory レート制限と異なり IP 変更で回避できない）。
   // ログイン成功・ロック期限切れ後の再試行でリセットされる。
-  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
   // ロック解除時刻（null=ロックなし）。これ以降の時刻になればロック解除。
-  lockedUntil         DateTime? @map("locked_until") @db.Timestamptz
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  lockedUntil          DateTime? @map("locked_until") @db.Timestamptz
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   // チャットの投稿者は Account へ正規化（FK）。改名・無効化に追従でき、表示名文字列の重複を持たない。
@@ -358,6 +359,8 @@ model Account {
   fileVersions             FileVersion[]
   // 投稿した掲示板通知。投稿者は Account へ正規化（FK）。
   announcements            Announcement[]
+  createdCalendarEvents    CalendarEvent[]           @relation("CalendarCreatedBy")
+  updatedCalendarEvents    CalendarEvent[]           @relation("CalendarUpdatedBy")
   // 通知ごとの既読マーカー（未読判定の実データ / HM-3・ADR 0029）。Account 削除で Cascade（派生データ）。
   announcementReadStates   AnnouncementReadState[]
   // 作成した Desk 添付（FL-3）。添付者も Account へ正規化（onDelete:Restrict で帰属保護）。
@@ -422,22 +425,22 @@ model Account {
 // Account 作成 + Invite ACCEPTED への更新は単一トランザクション（$transaction）で原子的に実行する。
 
 model Invite {
-  id             String       @id @default(uuid())
-  email          String
-  status         InviteStatus @default(PENDING)
+  id          String       @id @default(uuid())
+  email       String
+  status      InviteStatus @default(PENDING)
   // 生 token の sha256 hex。受諾時に受信トークンを sha256 して照合する。生 token は保存も log もしない。
-  tokenHash      String       @unique @map("token_hash")
-  expiresAt      DateTime     @map("expires_at") @db.Timestamptz
-  invitedById    String       @map("invited_by_id")
-  acceptedAt     DateTime?    @map("accepted_at") @db.Timestamptz
+  tokenHash   String       @unique @map("token_hash")
+  expiresAt   DateTime     @map("expires_at") @db.Timestamptz
+  invitedById String       @map("invited_by_id")
+  acceptedAt  DateTime?    @map("accepted_at") @db.Timestamptz
   // 受諾時に追加する GROUP Space（ST-5 論点1）。Space 削除で SetNull（招待は残す）。null の旧招待はスキップ。
-  spaceId        String?      @map("space_id")
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  spaceId     String?      @map("space_id")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
-  invitedBy    Account         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+  invitedBy    Account @relation(fields: [invitedById], references: [id], onDelete: Cascade)
   // onDelete: SetNull — Space 削除で招待の spaceId を null 化（招待自体は残す）。
-  invitedSpace Space?          @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+  invitedSpace Space?  @relation(fields: [spaceId], references: [id], onDelete: SetNull)
 
   @@index([invitedById])
   // email + status の複合インデックス（一覧/重複チェッククエリの性能）。
@@ -692,11 +695,15 @@ model Membership {
 // 一括設定するための器。チャット用グループ（Space kind=GROUP）とは別系統（器モデル汚染防止）。
 // scopeId は Membership と同じポリモーフィック参照方式（FK は張らない・実在 cross-check は app 層）。
 model UserGroup {
-  id         String    @id @default(uuid())
-  name       String
-  sortOrder  Int       @default(0) @map("sort_order")
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  canEditHomeBoard    Boolean  @default(false) @map("can_edit_home_board")
+  canEditHomeCalendar Boolean  @default(false) @map("can_edit_home_calendar")
+  canEditHomeFaq      Boolean  @default(false) @map("can_edit_home_faq")
+  canManageHomeTags   Boolean  @default(false) @map("can_manage_home_tags")
+  id                  String   @id @default(uuid())
+  name                String
+  sortOrder           Int      @default(0) @map("sort_order")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   members UserGroupMember[]
@@ -1120,21 +1127,21 @@ model File {
 // ファイル分類タグのマスタ（rete-files-0006）。名前（任意文字列）＋ lucide アイコン名を登録し、
 // FileTag を介してファイルへ多対多で付与する。アイコン許可集合は @rete/shared TAG_ICONS（SSOT）で縛る。
 model Tag {
-  id        String   @id @default(uuid())
+  id         String    @id @default(uuid())
   // タグ名はマスタ内で一意（重複分類を防ぐ）。cmn-0038(C3): citext 化で大小無視の一意制約とし、
   // "Urgent"/"urgent" の重複登録を DB レベルで弾く（app の事前 findByName 競合窓も塞ぐ）。
-  name      String   @unique @db.Citext
+  name       String    @unique @db.Citext
   // lucide アイコン名（TAG_ICONS のいずれか）。app 層 DTO バリデーションで許可集合を強制する。
-  icon      String
+  icon       String
   // 色名（TAG_COLORS のいずれか / rete-files-0021/0022）。既存タグは default で 'slate' に倒す。
   // 自由 hex でなく許可集合（app 層 @IsIn）で縛り、frontend のカラーレジストリと一致させる。
-  color     String   @default("slate")
+  color      String    @default("slate")
   // アーカイブ日時（fil-0094・HOME タグアーカイブ hom-0083 の横展開）。非 null = アーカイブ済。
   // AnnouncementTag.archivedAt / Category.archivedAt と同じ設計判断＝真偽の生列ではなく nullable timestamp
   // を持ち、mapper 層で archived: archivedAt != null を計算する。物理削除はしない（FileTag/FolderTag 付与は保持）。
   archivedAt DateTime? @map("archived_at") @db.Timestamptz
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   files   FileTag[]
@@ -1369,7 +1376,8 @@ model AnnouncementTag {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  announcements AnnouncementTagAssignment[]
+  announcements  AnnouncementTagAssignment[]
+  calendarEvents CalendarEventTagAssignment[]
 
   @@unique([kind, name])
   @@map("announcement_tags")
@@ -1641,4 +1649,49 @@ model UserTableColumnWidth {
   // テーブル一覧取得（WHERE userId AND tableId）を index scan に載せる。
   @@index([userId, tableId])
   @@map("user_table_column_widths")
+}
+
+model CalendarEvent {
+  id             String                       @id @default(uuid())
+  title          String                       @db.VarChar(200)
+  startAt        DateTime                     @map("start_at") @db.Timestamptz
+  endAt          DateTime                     @map("end_at") @db.Timestamptz
+  allDay         Boolean                      @default(false) @map("all_day")
+  memo           String                       @default("") @db.VarChar(20000)
+  revision       Int                          @default(1)
+  createdById    String                       @map("created_by_id")
+  updatedById    String                       @map("updated_by_id")
+  createdAt      DateTime                     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime                     @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy      Account                      @relation("CalendarCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy      Account                      @relation("CalendarUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  tagAssignments CalendarEventTagAssignment[]
+
+  // 一覧の期間絞り（d883）: 「期間の中で始まる」は start_at、「期間より前から続く」は
+  // end_at の範囲で引き、どちらも 1 本の索引の先頭列を範囲として読めるようにする。
+  @@index([startAt, id])
+  @@index([endAt, id])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("calendar_events")
+}
+
+model CalendarEventTagAssignment {
+  eventId String          @map("event_id")
+  tagId   String          @map("tag_id")
+  event   CalendarEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag     AnnouncementTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, tagId])
+  @@unique([eventId])
+  @@index([tagId])
+  @@map("calendar_event_tag_assignments")
+}
+
+// Shared calendar master. Calendar dates have no timezone or time of day.
+model CalendarHoliday {
+  date DateTime @id @db.Date
+  name String   @db.VarChar(100)
+
+  @@map("calendar_holidays")
 }

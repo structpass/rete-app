@@ -1,18 +1,20 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
   HttpStatus,
   Post,
   Req,
+  Res,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { ok, okMessage } from '../../common/dto/response.dto';
 import { clientIp, clientUserAgent } from '../../common/net/client-ip';
 import { AuthService, AuthenticatedUser } from './auth.service';
@@ -41,7 +43,8 @@ export class AuthController {
   // R7: パスワード検証成功後、当該 account が MFA 有効なら full session を確立せず pendingMfa を session に退避し
   // { mfaRequired:true } を返す（HTTP 200・本人特定情報は最小）。MFA 無効なら従来どおり full session を確立する。
   // R8: enforced かつ MFA 未設定なら full session は確立しつつ { mfaSetupRequired:true } を返す（設定画面へ到達させる）。
-  // R9: ローカル認証経路として session.authMethod='local' を印付け（MFA チャレンジ/Enforcement は 'local' のみ適用）。
+  // R9: ローカル認証経路として session.authOrigin='local' を印付け（MFA チャレンジ/Enforcement は 'local' のみ適用・
+  // authMethod は互換のため併記・d955）。
   // H5: login は横断 interceptor 対象外のため AuthController で actionType='login' を明示記録する（二重記録回避）。
   @ApiOperation({ summary: 'ログイン（email + password。MFA 有効時は要追加検証）' })
   @ApiBody({ type: LoginDto })
@@ -54,6 +57,7 @@ export class AuthController {
     // MFA 有効なら full session を確立せず pending 状態へ（2 段階・R7）。
     if (await this.mfaService.verifyHasEnabledMfa(user.id)) {
       req.session.authMethod = 'local';
+      req.session.authOrigin = 'local';
       req.session.pendingMfaAccountId = user.id;
       req.session.pendingMfaAttempts = 0;
       delete req.session.pendingMfaInteractionUid;
@@ -63,6 +67,7 @@ export class AuthController {
     await this.authService.resetLoginAttempts(user.id);
     await this.establishSession(req, user);
     req.session.authMethod = 'local';
+    req.session.authOrigin = 'local';
     delete req.session.mfaVerifiedAt;
     this.recordLogin(req, user);
 
@@ -128,9 +133,33 @@ export class AuthController {
     delete req.session.pendingMfaInteractionUid;
     await this.establishSession(req, user);
     req.session.authMethod = 'local';
+    req.session.authOrigin = 'local';
     req.session.mfaVerifiedAt = Date.now();
     this.recordLogin(req, user);
     return ok(toAccountResponse(user));
+  }
+
+  // 開発機専用: パスワード段だけ済んだ状態（MFA チャレンジ待ち）を捨てて、パスワードからやり直させる。
+  // 理由: 全員に MFA を強制した状態で MFA 未設定の開発用管理者しかいないと、ログインは通るがどの API も
+  // 403（MFA_SETUP_REQUIRED）になり、設定を戻す道が閉じる（自分で自分の出口を塞ぐ）。試験や設定さえもできなく
+  // なった時に、コードも DB も触らずに「ログインし直し」へ戻せる口を 1 つだけ置く。
+  // 本番は NODE_ENV=production で 404（route 自体を生やさない）。MFA を弱める操作ではない（待ちを捨てるだけ）。
+  @ApiOperation({ summary: '【開発機のみ】MFA チャレンジ待ちを破棄する' })
+  @HttpCode(HttpStatus.OK)
+  @Post('self-heal')
+  async selfHeal(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('開発機でのみ使えます');
+    }
+    delete req.session.pendingMfaAccountId;
+    delete req.session.pendingMfaAttempts;
+    delete req.session.pendingMfaInteractionUid;
+    // チャレンジ待ちを捨てたので、この接続は未ログインへ戻る（既に full session なら何も変わらない）。
+    await new Promise<void>((resolve, reject) => {
+      req.session.destroy((err) => (err ? reject(err) : resolve()));
+    });
+    res.clearCookie('connect.sid');
+    return ok({ healed: true });
   }
 
   // status-check endpoint: 未ログインでも 401 にせず 200 + data:null を返す（rete-files-0024 / ADR 0030）。
@@ -146,10 +175,13 @@ export class AuthController {
 
     const user = req.user as AuthenticatedUser;
     const account = toAccountResponse(user);
-    // 強制MFA × 未設定 × ローカル認証経路 の時だけ mfaSetupRequired を立てる（login R8 と同形・set-0032）。
+    // 強制MFA × 未設定 × ローカル出自 の時だけ mfaSetupRequired を立てる（login R8 と同形・set-0032）。
     // リロード/画面遷移後もフロントが「設定強制中」を復元できるようにし、横断ゲートが業務操作をブロックし続ける。
-    // SSO（authMethod!=='local'）には絶対立てない＝IdP MFA を尊重（R9）。判定は login と同じ requiresMfaSetup を再利用。
-    if (req.session?.authMethod === 'local' && (await this.requiresMfaSetup(user.id))) {
+    // 出自は authOrigin で見る（d955: interaction の完了では変わらない）。未設定は 'local' 相当として含める。
+    if (
+      (req.session?.authOrigin ?? 'local') === 'local' &&
+      (await this.requiresMfaSetup(user.id))
+    ) {
       return ok({ ...account, mfaSetupRequired: true });
     }
     return ok(account);
@@ -168,6 +200,8 @@ export class AuthController {
   async changePassword(@Body() dto: ChangePasswordDto, @Req() req: Request) {
     const user = req.user as AuthenticatedUser;
     const authMethod = req.session.authMethod;
+    const authOrigin = req.session.authOrigin;
+    const oidcSsoAt = req.session.oidcSsoAt;
     const mfaVerifiedAt = req.session.mfaVerifiedAt;
     await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
 
@@ -177,6 +211,8 @@ export class AuthController {
     if (!updatedUser) throw new UnauthorizedException('アカウントが無効です');
     await this.establishSession(req, updatedUser);
     if (authMethod) req.session.authMethod = authMethod;
+    if (authOrigin) req.session.authOrigin = authOrigin;
+    if (oidcSsoAt) req.session.oidcSsoAt = oidcSsoAt;
     if (mfaVerifiedAt) req.session.mfaVerifiedAt = mfaVerifiedAt;
 
     // 変更成功を fire-and-forget で監査記録（best-effort・記録失敗でもレスポンスを壊さない）。

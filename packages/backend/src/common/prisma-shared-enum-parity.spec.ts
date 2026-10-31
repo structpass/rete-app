@@ -16,8 +16,8 @@
  *   機械推定する規則が定まらないため。必要になったら別チケットで扱う）。
  * - 突き合わせ相手は schema.prisma のテキストではなく**生成済み @prisma/client** と shared の dist。CI は
  *   prisma generate → shared build → backend test の順が担保されている（.github/workflows/test.yml）。
- *   手元では backend/package.json の `pretest` が `prisma generate` を必ず先に走らせるため（cmn-0242）、
- *   schema を編集して generate を忘れた状態での誤緑経路は塞がれている。
+ *   手元では backend/package.json の `pretest` が、生成物が schema.prisma より古い時に限り generate を先に
+ *   走らせるため（d893）、schema を編集して generate を忘れた状態での誤緑経路は塞がれている。
  * - migration SQL 側（CREATE TYPE / ALTER TYPE ... ADD VALUE）のドリフトは対象外。schema と shared に値を
  *   足して migration を書き忘れた場合に落ちるのは cmn-0246 で scripts/check-constraint-drift.mjs へ
  *   追加した checkEnumDrift() 側（CI 先頭で常時実行・migration 全体 ↔ schema.prisma を突き合わせる）。

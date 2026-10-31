@@ -8,6 +8,7 @@ coverage/
 # dev 稼働中の本番 build 検証用の別 distDir（next.config.ts の NEXT_BUILD_DIST_DIR・cmn-0298）
 .next-verify/
 .next-prod-*/
+# 新規の一時作業領域（旧資料の保管先 tmp/archive/ も含む）
 tmp/
 .env
 .env.local
@@ -16,23 +17,16 @@ tmp/
 .env.production.local
 *.tsbuildinfo
 packages/**/.env
+# next dev が毎回書き出す案内（中身は生成物。frontend の作業規約は WORKING_RULES.md が持つ）。
+# next-env.d.ts は除外しない（d704 の判断: .next を指す形で追跡し、差分が出たら元へ戻す）。
+packages/frontend/AGENTS.md
 
 # --- ローカル起動スクリプト（実credentials埋め込み・.env.local と同格でコミット対象外） ---
 *.local.ps1
 
-# --- desk タブ静的 PoC モック（repo root の試作 HTML/CSS。真実源としてローカル保持、版管理外） ---
-# 先頭スラッシュで root 限定。packages/**/{desk,tasks,assets,...} の正規コードは除外しない。
-/_partials/
-/assets/
-/chat/
-/desk/
-/files/
-/mock/
-/settings/
-/system/
-/tasks/
-/index.html
-/hover-teal.png
+# --- desk タブ静的 PoC モック（脱モック前の試作 HTML/CSS。現在状態の正本ではなく移植元の見本。ADR 0084）---
+# 実体は docs/_archive/mock/ へ退避済み（docs 配下は追跡対象のため、下の行で個別に除外する）。
+/docs/_archive/mock/
 
 # --- アップロードされたファイル実体（FILE_STORAGE_ROOT 既定。File タブ Phase FB）---
 /packages/backend/storage/
@@ -63,17 +57,18 @@ dev-ui-verify/
 # scripts/ のアンダースコア始動 = 開発エージェントスクラッチ一式（UI Gate 証跡ステージング・curl ペイロード・使い捨て mjs 等。正本は Board・git add -A 誤コミット防止）
 scripts/_*
 
-# 開発エージェントセッション作業用一時領域（コミット対象外）
+# 廃止した旧領域の再作成・誤コミット防止（新規作業は tmp/）
 /scratchpad/
 /.scratchpad/
+# 既存の root / packages 双方の除外範囲を維持する安全網
+.scratch/
 /.scratchpad-approved.json
-# root 直下に漏れたスクラッチ（本来は scratchpad/ へ。先頭スラッシュで root 限定）
+# root 直下に漏れた旧スクラッチの誤コミット防止（先頭スラッシュで root 限定）
 /scratch-*
 /scratchpad-*
 
 # 開発エージェントスクラッチ成果物（Board API ダンプ・UI 反復の中間生成物等。git add -A での誤コミット防止・rev-quality 2026-07-31）
 # 先頭スラッシュ無し＝root / packages 配下の双方を捕捉する
-.scratch/
 .ui-iterate/
 /.t.json
 /=
@@ -105,3 +100,14 @@ scripts/_*
 # cmdc（Command Code CLI）の cwd 設定と dsh プラグインビルド生成物（正本は ~/.commandcode・~/.dsh/plugins-src）
 /.commandcode/
 /.dsh-plugin-build/
+
+# 開発用の監視スクリプトが実行時に書く直前の失敗記録（リポジトリの状態ではない）
+/dev-watchdog-event-state.json
+# 起動の印と、package ごとの dev ログ（実行時に書かれる一時物。起動の印は排他のため触らない）
+/.dev-restart.lock
+/dev-rete-*.log
+/dev-rete-*.log.err
+
+# d934: dev の立て直しで、前のログを握られて退避できない時の時刻付き別名（tmp/ ではなくここに出る）
+/dev-*.log.*.log
+/dev-*.log.*.log.err

@@ -170,7 +170,7 @@ export const UI_THEMES: ModelTheme[] = [
       { type: 'demo', demo: 'color-tokens-swatches', caption: '分類別トークンの実色見本' },
       {
         type: 'note',
-        text: '意匠特例（hex/パレット温存・mdl-0046）: ①サイドバー member/project アバター識別色 ②fav-kind パステル文字色 ③金属グラデ（.app-sidebar 7段と reference .sidebar-glass は同一パレット複製・.login-metal-page は別シルバー短段） ④desk-rte 文字色/ハイライト ⑤ファイル種別色・ユーザー定義タグ色 ⑥.perm-kind-role/user 識別色 ⑦アクセント上の白文字・checkbox 塗り白・login 純白入力 ⑧backlog のダーク面（接続不可バナーのオーバーレイ） ⑨model デモの bad 例 ⑩Board 状態バッジ多色パレット（tli-state/status-badge/status-flow-btn 等7値の意味色。情報粒度を落とさないため温存・instruction-board-backlog-0004） ⑪reference の #FDF1F4 のうち data-list-compact hover 以外。セマンティック寄せ済みトークン例: --sp-search-hl / --sp-fav-active / --sp-fav-active-hover。#fff/bg-white 一括置換は対象外。Board のサイドバー背景・アクセントカラー・文字色・フォントは instruction-board-backlog-0004（2026-07-17）で rete --sp-* トークン値へ統一済み（実装は hex 直書き運用のまま・Board 独自色体系という区分自体は撤回）。⑫サイドバーのガラス面へ重ねるブロック背景（.files-storage 等）は --sidebar を塗り戻さず、白＋アルファ（例 rgb(255 255 255 / 0.55)）で書く。--sidebar/0.6 塗り戻しでコントラスト 1.64:1 に沈んだ fil-0088 が根拠（globals.css:6492-6499 commit 7f6fb63 で是正済）。',
+        text: '意匠特例（hex/パレット温存・mdl-0046）: ①サイドバー member/project アバター識別色 ②fav-kind パステル文字色 ③金属グラデ（.app-sidebar 7段と reference .sidebar-glass は同一パレット複製・.login-metal-page は別シルバー短段） ④desk-rte 文字色/ハイライト ⑤ファイル種別色・ユーザー定義タグ色 ⑥.perm-kind-role/user 識別色 ⑦アクセント上の白文字・checkbox 塗り白・login 純白入力 ⑧model デモの bad 例 ⑨reference の #FDF1F4 のうち data-list-compact hover 以外。セマンティック寄せ済みトークン例: --sp-search-hl / --sp-fav-active / --sp-fav-active-hover。#fff/bg-white 一括置換は対象外。⑩サイドバーのガラス面へ重ねるブロック背景（.files-storage 等）は --sidebar を塗り戻さず、白＋アルファ（例 rgb(255 255 255 / 0.55)）で書く。--sidebar/0.6 塗り戻しでコントラスト 1.64:1 に沈んだ fil-0088 が根拠（globals.css:6492-6499 commit 7f6fb63 で是正済）。',
       },
     ],
     compliesWith: [{ label: 'ボタン色規約（本タブ UI共通）' }],
@@ -291,7 +291,7 @@ export const UI_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: '許容する特例（mdl-0045・これ以外へ横展開しない）: ①ユーザー Markdown 描画の見出し（.desk-thread-comment-text h1〜h3 の font-weight:700＝コンテンツ側の太字でありアプリ chrome ではない）②リッチテキストツールバーの書式見本グリフ（desk-rte-toolbar の A/B・fontWeight 700/600・fontSize 12px＝「太字にする」機能の見本表示そのもの）③reference 環境バッジ（env-badge の text-[10px] font-bold＝環境誤認防止の警告意匠）④reference サイドバーのブランド見出し（text-2xl＝ロゴ扱い）⑤reference 伝票番号（document-form の text-lg）と Markdown プレビュー見出し（[&_h2]:text-lg）。',
+        text: '許容する特例（mdl-0045・これ以外へ横展開しない）: ①ユーザー Markdown 描画の見出し（.desk-thread-comment-text h1〜h3 の font-weight:700＝コンテンツ側の太字でありアプリ chrome ではない）②リッチテキストツールバーの書式見本グリフ（desk-rte-toolbar の A/B・fontWeight 700/600・fontSize 12px＝「太字にする」機能の見本表示そのもの）③環境バッジ（env-badge の text-[10px] font-bold＝環境誤認防止の警告意匠・reference で稼働。rete は set-0118 で撤去済みのため該当なし）④reference サイドバーのブランド見出し（text-2xl＝ロゴ扱い）⑤reference 伝票番号（document-form の text-lg）と Markdown プレビュー見出し（[&_h2]:text-lg）。',
       },
       {
         type: 'p',
@@ -520,7 +520,7 @@ export const UI_THEMES: ModelTheme[] = [
     summary:
       '明細行=薄グレー帯のスライド追従（単一要素・ナビと同モーション語彙）/ メニュー=accent-soft+ink の2系統、ボタン=塗りは濃く・透明系はピンク帯出現、無効=not-allowed+減光、ドラッグ=grab を固定する。',
     sources: [
-      'mdl-0020 現状調査（rete全画面 + struct-pass-reference + Board 横断・開発統括決定 2026-07-06）',
+      'mdl-0020 現状調査（rete 全画面 + struct-pass-reference 横断・開発統括決定 2026-07-06）',
       'hom-0123 掲示板ラリー（明細 hover をスライド帯へ改訂・開発統括決定 2026-07-18）',
       '帯スライド共通仕様化（開発統括決定 2026-07-18・dsk-0386/dsk-0387/fil-0085/ref-0036 起点）',
       'components/ui/button.tsx（cva variant の hover/disabled 定義）',
@@ -531,7 +531,7 @@ export const UI_THEMES: ModelTheme[] = [
     spec: [
       {
         type: 'p',
-        text: '帯スライドは共通仕様である（開発統括決定 2026-07-18）。行や項目単位のホバー反応を持つ常設の一覧的 UI ——明細テーブルの行・ツリーの行・サイドバーの項目・タブの列・セクションメニュー——は、行ごとに背景色を付ける方式ではなく、薄グレーの帯 1 枚が少し遅れてスライドして追いかけてくる方式で作る。適用範囲は rete の全タブだけでなく、struct-pass-reference と Board（バックログ画面）を含む全サブシステム。押した時だけ現れて選ぶと消えるドロップダウン／ポップアップの候補メニューだけは対象外で、従来どおりピンク系（accent-soft）の静的ホバーのままとする。',
+        text: '帯スライドは共通仕様である（開発統括決定 2026-07-18）。行や項目単位のホバー反応を持つ常設の一覧的 UI ——明細テーブルの行・ツリーの行・サイドバーの項目・タブの列・セクションメニュー——は、行ごとに背景色を付ける方式ではなく、薄グレーの帯 1 枚が少し遅れてスライドして追いかけてくる方式で作る。適用範囲は rete の全タブと struct-pass-reference。押した時だけ現れて選ぶと消えるドロップダウン／ポップアップの候補メニューだけは対象外で、従来どおりピンク系（accent-soft）の静的ホバーのままとする。',
       },
       {
         type: 'table',
@@ -541,7 +541,7 @@ export const UI_THEMES: ModelTheme[] = [
             '縦の一覧（明細行・ツリー行・サイドバー項目・セクションメニュー）',
             '縦に追従',
             '薄グレー hsl(var(--sidebar-hover))（黒5%）。ガラス下地のサイドバーは知覚できるよう黒9%を個別指定（cmn-0127）。reference の濃色サイドバーはテーマ変数を使わず直書き値（GlobalNav と同値）',
-            'useRowHoverBand + .sp-row-hoverband（Board は同じ動きを素の JS で再現）',
+            'useRowHoverBand + .sp-row-hoverband',
           ],
           [
             '横のタブ列（グローバルメニュー・画面内タブ）',
@@ -763,8 +763,8 @@ export const UI_THEMES: ModelTheme[] = [
           '例外: ログインのガラスカード（.login-metal-card）上の入力のみ、ガラス面＋シルバー背景で薄色 input が溶けるため、純白背景と focus 時の薄い teal にじみシャドウ（白縁+color-mix 28%）を許容する（rete-login-0001 で導入済み意匠・globals.css の .login-metal-card input:focus-visible。.sidebar-create-input が色だけ例外なのと同型の「場の例外」）。他画面へ横展開しない。',
           '選択行（teal 枠）と hover 帯（薄グレースライド帯）の関係: 選択行は z-index 2 で帯より前面に出るため、帯が滑ってきても緑枠は隠れない（帯自体は選択行にも掛かる）。マウスホバー表現テーマ参照。',
           'キーボードフォーカスの枠（.desk-chat-card / .desk-task-row / Home 明細行の focus-visible）も teal 1px（cmn-0134 で旧 2px から統一）。さらに選択行にフォーカスが乗った時はフォーカス枠を出さない（選択枠のみで一意に示す）。同色の枠が二重になって「選択行だけ枠が濃い」状態になるのを防ぐ（Home hom-0128 / Desk mdl-0055）。',
-          'サイドバーのアクティブメニュー帯は「明細行の白い板ピル」ではなく、すりガラスの帯（Frosted Glass / hom-0131 → cmn-0133 で全画面共通の正本へ昇格）: 白 42% の半透明面＋内側 1px の白フチ＋やわらかいぼかし影＋角丸 8px、左右は margin-inline 6px でガラス枠から逃がす。サイドバーはガラス面（.app-sidebar::before の白40%+blur）の上に乗るため、不透明な白板だと別素材が乗って見える。半透明ゆえホバー帯が透けるので、active 行は hover 帯の測位対象から外す（各サイドバーの rowSelector で :not(.active)）。全6画面（Home / Desk / File / Model / Setting / Backlog）とリファレンスが同じ意匠。Desk のチャネル行・メンバー/Space 行はクラスが別だが同じ選択帯で、塗りは行ラッパー（.sidebar-channel-row / .sidebar-member-row-wrap）が持つ（★/menu 区画まで届かせるため）。Desk の 組織/グループ/個人 は帯ではなくタブ（下線 teal 2px・cmn-0135）で別語彙。ファイルツリーの行選択は明細行側の規約に従う（サイドバーのメニュー帯ではない）が、色だけ薄青の板ピルを残す例外（fil-0084・上表）。',
-          'サイドバーのアクティブピルとホバー帯は、左右の端が必ず同じ位置で揃う（rete・リファレンス共通仕様 / mdl-0056）。どちらもガラス枠の内側から左右 6px 逃がした位置に端を置く。作り方の決まりは3つ:（1）行を入れる器（.app-sidebar-scroll / reference の nav）には左右の余白を持たせない——ホバー帯は器の枠を基準に置かれるため、器に右余白を足すとピルだけが内側へ寄ってズレる（mdl-0054 の実害）。（2）逃がしは行側の margin-inline 6px だけが担う。（3）行が button 要素の時は width: calc(100% - 12px) を明示する——button は width:auto が「中身に合わせる」扱いになり左右 margin を差し引かないため、指定しないとピルだけ 12px はみ出す（Files / Model / Board のサイドバーが該当）。この幅指定は globals.css の §サイドバー行の幅（@layer components の外）が単一ソースで、行の className へ w-full を足すのは禁止（後勝ちして同じズレが再発する）。',
+          'サイドバーのアクティブメニュー帯は「明細行の白い板ピル」ではなく、すりガラスの帯（Frosted Glass / hom-0131 → cmn-0133 で全画面共通の正本へ昇格）: 白 42% の半透明面＋内側 1px の白フチ＋やわらかいぼかし影＋角丸 8px、左右は margin-inline 6px でガラス枠から逃がす。サイドバーはガラス面（.app-sidebar::before の白40%+blur）の上に乗るため、不透明な白板だと別素材が乗って見える。半透明ゆえホバー帯が透けるので、active 行は hover 帯の測位対象から外す（各サイドバーの rowSelector で :not(.active)）。全5画面（Home / Desk / File / Model / Setting）とリファレンスが同じ意匠。Desk のチャネル行・メンバー/Space 行はクラスが別だが同じ選択帯で、塗りは行ラッパー（.sidebar-channel-row / .sidebar-member-row-wrap）が持つ（★/menu 区画まで届かせるため）。Desk の 組織/グループ/個人 は帯ではなくタブ（下線 teal 2px・cmn-0135）で別語彙。ファイルツリーの行選択は明細行側の規約に従う（サイドバーのメニュー帯ではない）が、色だけ薄青の板ピルを残す例外（fil-0084・上表）。',
+          'サイドバーのアクティブピルとホバー帯は、左右の端が必ず同じ位置で揃う（rete・リファレンス共通仕様 / mdl-0056）。どちらもガラス枠の内側から左右 6px 逃がした位置に端を置く。作り方の決まりは3つ:（1）行を入れる器（.app-sidebar-scroll / reference の nav）には左右の余白を持たせない——ホバー帯は器の枠を基準に置かれるため、器に右余白を足すとピルだけが内側へ寄ってズレる（mdl-0054 の実害）。（2）逃がしは行側の margin-inline 6px だけが担う。（3）行が button 要素の時は width: calc(100% - 12px) を明示する——button は width:auto が「中身に合わせる」扱いになり左右 margin を差し引かないため、指定しないとピルだけ 12px はみ出す（Files と Model のサイドバーが該当）。この幅指定は globals.css の §サイドバー行の幅（@layer components の外）が単一ソースで、行の className へ w-full を足すのは禁止（後勝ちして同じズレが再発する）。',
           '行選択の概念が無い表（設定タブ .sp-table 等）にはアクティブ行表現を付けない。',
           'Desk のチャット詳細/タスク詳細のように行クリックで反対ペインへ詳細オーバーレイを開く画面では、詳細を閉じてもその行の teal 枠は消さず表示し続ける（次に別の行を開くまで保持・dsk-0401）。枠は「今オーバーレイが開いているか」ではなく「最後に開いた行はどれか」で描く——オーバーレイの開閉状態（トグル閉じ判定・aria-current・キーボードフォーカス残留抑止）とは別の状態源で駆動し、閉じる操作で枠まで消える結合を作らない。',
         ],
@@ -801,7 +801,7 @@ export const UI_THEMES: ModelTheme[] = [
     summary:
       'Esc=キャンセル/×と同等（1回で効く）。入力・変更がある閉じ操作は破棄確認を挟み、未編集は即閉じる。編集モード中は編集解除のみ。多層時は手前の層だけが消費する。',
     sources: [
-      'mdl-0034 現状調査（rete全画面 + struct-pass-reference + Board 横断・開発統括決定 2026-07-10）',
+      'mdl-0034 現状調査（rete 全画面 + struct-pass-reference 横断・開発統括決定 2026-07-10）',
       'components/ui/overlay-dialog.tsx（dirty ガード内蔵 / useOverlayClose / OverlayCloseButton）',
       'hooks/use-discard-confirm.ts + components/ui/discard-confirm-dialog.tsx',
     ],
@@ -848,7 +848,6 @@ export const UI_THEMES: ModelTheme[] = [
         items: [
           'OverlayDialog を使わない独自シェル（file-overlay 体裁等）は useDiscardConfirm().request(isDirty, proceed) + DiscardConfirmDialog を直接組み込む（TagMasterOverlay が参照実装。TagPickerOverlay は fil-0080 で OverlayDialog へ移行済み）。',
           'window / document 直付けの keydown で setState 直行の「ガード素通り閉じ」を作らない（use-file-overlays の旧 window Esc は撤去済み）。',
-          'Board（instruction-board viewer.js）は既存の confirmDialog()（Promise<boolean>）を dirty 時のみ挟む同型実装（requestCancelEdit / requestCancelThreadEdit / requestClosePost）。',
         ],
       },
     ],

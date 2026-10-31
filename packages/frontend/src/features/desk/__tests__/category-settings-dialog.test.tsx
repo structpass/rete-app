@@ -246,8 +246,68 @@ describe('CategorySettingsDialog（rete-desk-0140）', () => {
     fireEvent.click(screen.getByRole('dialog'));
     expect(onClose).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('catset-backdrop'));
+    // 重ね表示は共通 OverlayDialog（正本 comp-overlay-dialog）が持ち、backdrop は primitive 側の要素。
+    fireEvent.click(screen.getByTestId('overlay-backdrop'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('カード面は OverlayDialog の内側に描き、手組みの全画面 backdrop を持たないこと', async () => {
+    renderDialog();
+    await screen.findByText('入荷');
+
+    const card = screen.getByTestId('catset-card');
+    expect(card).toHaveClass('desk-catset-card');
+    expect(screen.getByRole('dialog')).toContainElement(card);
+    // 手組みの全画面 backdrop（.desk-catset-backdrop）は残っていない＝重ね表示は共通 primitive 1 枚。
+    expect(document.querySelector('.desk-catset-backdrop')).toBeNull();
+    expect(screen.getAllByTestId('overlay-backdrop')).toHaveLength(1);
+  });
+
+  it('未編集のまま Esc で閉じたら破棄確認を出さずに閉じること', async () => {
+    renderDialog();
+    await screen.findByText('入荷');
+
+    // Esc の持ち主は共通 OverlayDialog（パネルの onKeyDown）。未編集なら破棄確認なしで即閉じる。
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('名称変更モードに入っただけ（未編集）では Esc で破棄確認を出さないこと', async () => {
+    renderDialog();
+    await screen.findByText('入荷');
+
+    fireEvent.click(screen.getByRole('button', { name: '入荷 の名称変更' }));
+    // 名称変更モードが開いた（入力欄が出た）ことを確かめてから Esc を押す。
+    expect(screen.getByLabelText('分類名')).toHaveValue('入荷');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('名称を実際に変えた後は Esc で破棄確認を出すこと', async () => {
+    renderDialog();
+    await screen.findByText('入荷');
+
+    fireEvent.click(screen.getByRole('button', { name: '入荷 の名称変更' }));
+    fireEvent.change(screen.getByLabelText('分類名'), { target: { value: '入荷（改）' } });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    // 未保存の変更があるので閉じずに破棄確認を出す（mdl-0034 規約②）。
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('新しい分類名を打ち始めただけでも Esc で破棄確認を出すこと', async () => {
+    renderDialog();
+    await screen.findByText('入荷');
+
+    fireEvent.change(screen.getByLabelText('新しい分類名'), { target: { value: '発送' } });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('ESC で onClose を呼ぶこと（確認ダイアログ表示中はそちら優先で閉じない）', async () => {
@@ -260,7 +320,7 @@ describe('CategorySettingsDialog（rete-desk-0140）', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

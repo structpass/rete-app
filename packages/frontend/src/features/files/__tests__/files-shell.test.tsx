@@ -324,3 +324,71 @@ describe('FilesShell — folderError の再試行導線（v2-225）', () => {
     expect(browser.refreshFolder).toHaveBeenCalledTimes(1);
   });
 });
+
+// v2-505: トップバーの★は現在フォルダ固定のまま（rete-files-0030 の「★登録は Home 側導線へ
+// 一本化」を崩さない）。ファイルの★登録は一覧の行★が担うため、ここではトップバーの★が
+// 選択状態に影響されず現在フォルダを指し続けることを固定する。
+const topbarFavoriteSpy = vi.fn();
+vi.mock('../components/file-topbar', () => ({
+  FileTopbar: (props: { favorite?: { kind: string; targetRef: string } }) => {
+    topbarFavoriteSpy(props.favorite);
+    return <div data-testid="stub-topbar-favorite">{props.favorite?.kind ?? 'none'}</div>;
+  },
+}));
+
+describe('FilesShell — トップバー★の対象（v2-505）', () => {
+  function renderWith(items: unknown[], selectNames: string[]) {
+    topbarFavoriteSpy.mockClear();
+    const browser: UseFileBrowserResult = {
+      ...baseBrowser,
+      currentFolderId: 'folder-1',
+      currentFolder: { id: 'folder-1', name: '契約書', crumb: [], items } as never,
+    };
+    const overlays: UseFileOverlaysResult = {
+      overlay: null,
+      shareTarget: 'chat',
+      assignTargets: [],
+      editTarget: null,
+      openSend: vi.fn(),
+      openSettings: vi.fn(),
+      openTagMaster: vi.fn(),
+      openTagAssign: vi.fn(),
+      openEdit: vi.fn(),
+      close: vi.fn(),
+    };
+    render(<FilesShell browser={browser} overlays={overlays} />);
+    for (const name of selectNames) {
+      fireEvent.click(screen.getByRole('checkbox', { name: `${name} を選択` }));
+    }
+    return topbarFavoriteSpy.mock.calls.at(-1)?.[0];
+  }
+
+  const items = [
+    { kind: 'file' as const, name: 'a.pdf', id: 'file-a', versionNo: 1 },
+    { kind: 'file' as const, name: 'b.pdf', id: 'file-b', versionNo: 1 },
+  ];
+
+  it('ファイルを選択してもトップバー★は現在フォルダのまま（選択で意味が変わらない）', () => {
+    expect(renderWith(items, ['a.pdf'])).toEqual({
+      kind: 'folder',
+      targetRef: 'folder-1',
+      label: '契約書',
+    });
+  });
+
+  it('複数選択でもトップバー★は現在フォルダのまま', () => {
+    expect(renderWith(items, ['a.pdf', 'b.pdf'])).toEqual({
+      kind: 'folder',
+      targetRef: 'folder-1',
+      label: '契約書',
+    });
+  });
+
+  it('未選択でもトップバー★は現在フォルダ', () => {
+    expect(renderWith(items, [])).toEqual({
+      kind: 'folder',
+      targetRef: 'folder-1',
+      label: '契約書',
+    });
+  });
+});

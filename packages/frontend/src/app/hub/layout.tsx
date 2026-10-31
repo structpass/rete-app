@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { Role } from '@rete/shared';
+import {
+  HomePermissionsProvider,
+  useHomePermissions,
+} from '@/features/dashboard/hooks/home-permissions-context';
 import { AppShell } from '@/features/shell';
 import { AppSidebar } from '@/features/shell/components/app-sidebar';
-import { useSession } from '@/features/auth/hooks/use-session';
 import { AnnouncementTagMasterOverlay } from '@/features/dashboard/components/announcement-tag-master-overlay';
 
 /**
@@ -16,17 +18,27 @@ import { AnnouncementTagMasterOverlay } from '@/features/dashboard/components/an
  * AnnouncementTagMasterOverlay）をここへ移植。各 page.tsx は DashboardView(kind違い)のみを返す。
  */
 export default function HubLayout({ children }: { children: ReactNode }) {
+  return (
+    <HomePermissionsProvider>
+      <HomeLayoutContent>{children}</HomeLayoutContent>
+    </HomePermissionsProvider>
+  );
+}
+function HomeLayoutContent({ children }: { children: ReactNode }) {
   const [showTagMaster, setShowTagMaster] = useState(false);
-  const { user } = useSession();
-  const isAdmin = user?.role === Role.ADMIN;
+  const { tagManage } = useHomePermissions();
 
   return (
     <AppShell
       activeTab="home"
-      sidebar={<AppSidebar onOpenTagMaster={isAdmin ? () => setShowTagMaster(true) : undefined} />}
+      sidebar={
+        <AppSidebar onOpenTagMaster={tagManage ? () => setShowTagMaster(true) : undefined} />
+      }
     >
       {children}
-      {showTagMaster && <AnnouncementTagMasterOverlay onClose={() => setShowTagMaster(false)} />}
+      {showTagMaster && tagManage && (
+        <AnnouncementTagMasterOverlay onClose={() => setShowTagMaster(false)} />
+      )}
     </AppShell>
   );
 }

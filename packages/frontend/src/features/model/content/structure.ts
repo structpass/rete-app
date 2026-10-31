@@ -119,7 +119,7 @@ export const STRUCTURE_THEMES: ModelTheme[] = [
             '配置',
             'frontend',
             'test は実装の隣ではなく `__tests__/` に置く（backend と逆なので取り違えない）。feature 直下（`features/desk/__tests__/`）でも feature 内サブディレクトリ直下（`features/desk/hooks/__tests__/`）でもよく、共有の `components` / `hooks` / `lib` も各ディレクトリ直下の `__tests__/`。',
-            '同一対象の test を co-location と `__tests__/` に分裂させない（cmn-0162 で方針決着＝分裂していた2組を統合。既存の全件移動はしていない）。既存の co-location は 12 本（実測。内訳は `src/hooks/` の 7 本と `features/*/hooks/` の 5 本＝backlog 1・dashboard 2・files 1・user-table-column-widths 1）。12 本は既存として動かさないが、例外はこの 12 本に限る＝feature 配下の hooks にも新規 spec は `__tests__/` へ置く。',
+            '同一対象の test を co-location と `__tests__/` に分裂させない（cmn-0162 で方針決着＝分裂していた2組を統合。既存の全件移動はしていない）。既存の co-location は 11 本（実測。内訳は `src/hooks/` の 7 本と `features/*/hooks/` の 4 本＝dashboard 2・files 1・user-table-column-widths 1）。11 本は既存として動かさないが、例外はこの 11 本に限る＝feature 配下の hooks にも新規 spec は `__tests__/` へ置く。',
           ],
           [
             'モック境界',

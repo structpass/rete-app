@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { DndContext } from '@dnd-kit/core';
 import { ChatList } from '../components/chat-list';
 import type { ChatThemeSummary } from '../lib/api';
@@ -23,6 +23,21 @@ const theme = (over: Partial<ChatThemeSummary>): ChatThemeSummary =>
 
 const rowTenmatsuIcon = (title: string) =>
   screen.getByText(title).closest('button')!.querySelector('.desk-thread-tenmatsu');
+
+it('0件へ絞り込んでも一覧のスクロール領域と骨格を保持する', () => {
+  const props = { selectedId: null, loading: false, error: null, onSelect: vi.fn() };
+  const { container, rerender } = withDnd(<ChatList {...props} themes={[theme({})]} />);
+  const body = container.querySelector('.desk-pane-body');
+  const list = container.querySelector('.desk-chat-list');
+  rerender(
+    <DndContext>
+      <ChatList {...props} themes={[]} />
+    </DndContext>,
+  );
+  expect(container.querySelector('.desk-pane-body')).toBe(body);
+  expect(container.querySelector('.desk-chat-list')).toBe(list);
+  expect(screen.getByText('チャットがありません')).toBeInTheDocument();
+});
 
 describe('ChatList — 顛末アイコンは実データ（hasTenmatsu）で判定する', () => {
   // 顛末アイコン = .desk-thread-tenmatsu。サンプルハッシュ（sampleChatMeta）ではなく
@@ -99,8 +114,9 @@ describe('ChatList — メンションアイコンは実データ（hasMentionTo
   });
 });
 
-describe('ChatList — 未読は実データ（hasUnread）で題名太字を出し分ける（rete-desk-0075）', () => {
-  // 未読 = .desk-chat-card.is-unread（CSS で題名太字）。サンプルハッシュ（sampleUnread）を撤去し、
+describe('ChatList — 未読は実データ（hasUnread）で行内マークと印を出し分ける（rete-desk-0075・d539）', () => {
+  // 未読 = .desk-chat-card.is-unread（d539 で題名太字は撤回し、行内マークと印で示す。行内には題名と
+  // 未読マークの印が分かれて存在するため、印の要素を直接数える）。サンプルハッシュ（sampleUnread）を撤去し、
   // backend が ChatReadState と他者新着から集約した hasUnread で出し分ける（DBT-4 返済）。
   const themes: ChatThemeSummary[] = [
     theme({ id: 'theme-u', title: '未読テーマ', hasUnread: true }),
@@ -120,6 +136,27 @@ describe('ChatList — 未読は実データ（hasUnread）で題名太字を出
       />,
     );
     expect(rowCard('未読テーマ').classList.contains('is-unread')).toBe(true);
+    // 題名の太さは正本（.sp-row-title=500）に委ね、未読は印で示す。
+    expect(within(rowCard('未読テーマ')).getAllByTestId('desk-unread-dot')).toHaveLength(1);
+    expect(within(rowCard('既読テーマ')).queryAllByTestId('desk-unread-dot')).toHaveLength(0);
+  });
+
+  it('未読でも題名の太さは同じ（題名を 600 にする口径を持たない・d539）', () => {
+    withDnd(
+      <ChatList
+        themes={themes}
+        selectedId={null}
+        loading={false}
+        error={null}
+        onSelect={vi.fn()}
+      />,
+    );
+    for (const title of ['未読テーマ', '既読テーマ']) {
+      const el = screen.getByText(title);
+      // 題名自身も、行（button）も、太さを直接持たない＝正本の .sp-row-title に委ねる。
+      expect(el.className).not.toMatch(/font-(semibold|bold)/);
+      expect(rowCard(title).className).not.toMatch(/font-(semibold|bold)/);
+    }
   });
 
   it('hasUnread=false のテーマには is-unread を付与しないこと', () => {

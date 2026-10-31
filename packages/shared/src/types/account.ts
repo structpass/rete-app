@@ -36,9 +36,9 @@ export interface AccountResponseDto {
   name: string;
   role: Role;
   /**
-   * 強制MFA（全体強制）が有効かつ当該ユーザーが confirmed MFA 未設定で、ローカル認証経路の時だけ true。
+   * 強制MFA（全体強制）が有効かつ当該ユーザーが confirmed MFA 未設定で、認証の出自が 'local' の時だけ true。
    * login（R8）/ me が同形で立て、フロントの横断ゲートが設定完了まで業務操作をブロックする（set-0032）。
-   * SSO 経路（authMethod!=='local'）には絶対立てない（IdP MFA 尊重・R9）。任意フラグ＝通常は省略。
+   * 外部 IdP 認証（authOrigin==='external-idp'）には絶対立てない（IdP MFA 尊重・R9・d955）。任意フラグ＝通常は省略。
    */
   mfaSetupRequired?: boolean;
   /**

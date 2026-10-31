@@ -81,7 +81,11 @@ describe('useTagMaster — 汎用タグマスタ hook（rete-home-0043 / rete-fi
     const axiosErr = new AxiosError('Request failed');
     axiosErr.response = {
       data: {
-        message: 'タグ名「重要」はアーカイブ済みのタグと同名です（復元するか別名にしてください）',
+        success: false,
+        error: {
+          code: 'CONFLICT',
+          message: 'タグ名「重要」はアーカイブ済みのタグと同名です（復元するか別名にしてください）',
+        },
       },
       status: 409,
       statusText: 'Conflict',
@@ -110,6 +114,23 @@ describe('useTagMaster — 汎用タグマスタ hook（rete-home-0043 / rete-fi
       await result.current.create('重複タグ', 'Tag', 'slate');
     });
 
+    expect(result.current.lastError).toBeNull();
+  });
+
+  it('update の理由も共通形式から取り出し、長文は従来どおり200文字までにする', async () => {
+    vi.mocked(api.update).mockRejectedValue({
+      response: { data: { error: { message: 'あ'.repeat(201) } } },
+    });
+    const { result } = renderHook(() => useTagMaster(api));
+    await act(async () => {});
+    await act(async () => {
+      await result.current.update('t1', { name: '重複' });
+    });
+    expect(result.current.lastError).toBe('あ'.repeat(200));
+    vi.mocked(api.update).mockRejectedValue(new Error('network'));
+    await act(async () => {
+      await result.current.update('t1', { name: '再試行' });
+    });
     expect(result.current.lastError).toBeNull();
   });
 

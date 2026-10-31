@@ -58,6 +58,19 @@ export function TagMasterOverlay({
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<string>(TAG_ICON_NAMES[0]);
   const [color, setColor] = useState<string>(TAG_COLOR_NAMES[0]);
+  const [saveFailure, setSaveFailure] = useState<'create' | 'update' | null>(null);
+
+  // await 前の master は古い lastError を保持するため、失敗後のレンダーで今回の理由を表示する。
+  useEffect(() => {
+    if (saveFailure === null) return;
+    toast.error(
+      master.lastError ??
+        (saveFailure === 'update'
+          ? 'タグの更新に失敗しました（同名重複など）'
+          : 'タグの追加に失敗しました（同名重複など）'),
+    );
+    setSaveFailure(null);
+  }, [saveFailure, master.lastError]);
   // cmn-0356: 削除確認を共通フックへ移行。tag-master のみ従来 close-after（失敗時ダイアログが開いたまま）
   // だったが、移行でリポ既定の close-first（失敗時も閉じてエラートースト）へ揃える＝意図した差分
   // （cmn-0352 で closeOnConfirm オプション両立案は棄却済み）。success トースト・editingId の
@@ -158,13 +171,7 @@ export function TagMasterOverlay({
       toast.success(isEditing ? 'タグを更新しました' : 'タグを追加しました');
       resetForm();
     } else {
-      // hom-0103: サーバの具体メッセージ（例: アーカイブ済み同名衝突）があればそれを表示し、無ければ汎用文言。
-      toast.error(
-        master.lastError ??
-          (isEditing
-            ? 'タグの更新に失敗しました（同名重複など）'
-            : 'タグの追加に失敗しました（同名重複など）'),
-      );
+      setSaveFailure(isEditing ? 'update' : 'create');
     }
   };
 

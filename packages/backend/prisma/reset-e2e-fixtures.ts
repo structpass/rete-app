@@ -14,7 +14,7 @@
  * - 汎用的な全フィクスチャ監視 / 復元機構は作らない（過剰実装回避）。他の固定 ID が
  *   将来同様にドリフトした場合は発覚のたび本スクリプトへ追記する運用。
  */
-import { PrismaClient } from '@prisma/client';
+import { InviteStatus, PrismaClient } from '@prisma/client';
 
 const INBOUND_SPACE_ID = '00000000-0000-4000-b000-000000000030';
 const OUTBOUND_SPACE_ID = '00000000-0000-4000-b000-000000000031';
@@ -79,6 +79,17 @@ async function main() {
         console.log(`残骸グループ所属を除去: ${r.account.email} ← ${r.group.name}`);
       }
     }
+
+    // 使わないまま残った招待の残骸を消す（d822）。
+    //
+    // 招待を発行したシナリオが途中で落ちると、未使用の招待が残る。受諾の確かめ（S-SET-08）は
+    // これまで `e2e-invite-…（時間＋乱数）@example.com` を宛先にしていたため、前の実行の残骸と宛先が
+    // 重ならず、そのままだと一覧が伸びるだけで済んでいた。残骸を消しておけば、実行を重ねても
+    // 一覧が伸びない（宛先が完全に決まっている招待ではないので、本物の宛先には当たらない）。
+    const stale = await prisma.invite.deleteMany({
+      where: { email: { startsWith: 'e2e-' }, status: InviteStatus.PENDING },
+    });
+    console.log(`未使用のまま残った e2e の招待を削除: ${stale.count} 件`);
   } finally {
     await prisma.$disconnect();
   }

@@ -14,9 +14,12 @@ const ALGORITHM = 'aes-256-gcm';
 const KEY_BYTES = 32; // AES-256
 const IV_BYTES = 12; // GCM 推奨 96bit nonce
 
-/** env から 32 byte 鍵を解決する。hex(64 文字) を優先し、失敗時に base64 を試す。不正なら null。 */
-function resolveKey(): Buffer | null {
-  const raw = process.env.MFA_TOTP_ENC_KEY;
+/**
+ * 鍵文字列を 32 byte へ解決する。hex(64 文字) を優先し、失敗時に base64 を試す。不正なら null。
+ * 起動時の本番検査（main.ts の validateProductionSecrets）もこの関数で形を確かめる
+ * （暗号化が受け付ける形と起動検査が受け付ける形を 1 か所に揃え、片方だけ変わる状態を作らない）。
+ */
+export function parseMfaTotpEncKey(raw: string | undefined): Buffer | null {
   if (!raw) return null;
   // hex（64 文字）
   if (/^[0-9a-fA-F]{64}$/.test(raw)) {
@@ -30,6 +33,11 @@ function resolveKey(): Buffer | null {
     /* fallthrough */
   }
   return null;
+}
+
+/** env から 32 byte 鍵を解決する。 */
+function resolveKey(): Buffer | null {
+  return parseMfaTotpEncKey(process.env.MFA_TOTP_ENC_KEY);
 }
 
 /** 暗号鍵が正しく設定されているか（= MFA 機能を有効化できるか）。未設定/不正長なら false（graceful degradation 判定点）。 */

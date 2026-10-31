@@ -28,28 +28,43 @@ const BACKEND_DIR = join(REPO_ROOT, 'packages', 'backend');
 
 /**
  * @prisma/client 生成物のディレクトリを解決する。
- * pnpm のハッシュ付きディレクトリ名に依存しないため、packages/backend の
- * node_modules から再帰的に ".prisma/client" を探す。見つからなければ null。
+ * pnpm のハッシュ付きディレクトリ名に依存しないため、ワークスペースの node_modules
+ * から ".prisma/client" を探す。見つからなければ null。
  * @returns {string|null}
  */
 function findPrismaClientDir() {
-  const backendNm = join(BACKEND_DIR, 'node_modules');
-  if (!existsSync(backendNm)) return null;
-  const candidates = [];
-  // pnpm 形式: node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client
-  const pnpmDir = join(backendNm, '.pnpm');
-  if (existsSync(pnpmDir)) {
-    for (const entry of readdirSync(pnpmDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      if (!entry.name.startsWith('@prisma+client')) continue;
-      const probe = join(pnpmDir, entry.name, 'node_modules', '.prisma', 'client');
-      if (existsSync(probe)) candidates.push(probe);
+  // pnpm の仮想ストアはワークスペースのルート（hoist 構成）。backend 配下を先に見て、
+  // 無ければルートを見る（backend 配下だけを見ると、ルートに置かれた生成物を「未生成」と
+  // 誤って skip する＝engineType の検査が静かに効かなくなる）。
+  for (const storeRoot of [join(BACKEND_DIR, 'node_modules'), join(REPO_ROOT, 'node_modules')]) {
+    if (!existsSync(storeRoot)) continue;
+    const candidates = [];
+    // pnpm 形式: node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client
+    const pnpmDir = join(storeRoot, '.pnpm');
+    if (existsSync(pnpmDir)) {
+      for (const entry of readdirSync(pnpmDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        if (!entry.name.startsWith('@prisma+client')) continue;
+        const probe = join(pnpmDir, entry.name, 'node_modules', '.prisma', 'client');
+        if (existsSync(probe)) candidates.push(probe);
+      }
+    }
+    // 直接 hoist 形式: node_modules/.prisma/client
+    const hoisted = join(storeRoot, '.prisma', 'client');
+    if (existsSync(hoisted)) candidates.push(hoisted);
+    if (candidates.length > 0) {
+      // 同じパッケージの複数版が同居しうるため、backend が実際に解決する版を採る
+      // （先に見つかった版を採ると、別版の生成物を見て赤/緑を決めてしまう）。
+      const linked = join(storeRoot, '@prisma', 'client', 'package.json');
+      if (existsSync(linked)) {
+        const { version } = JSON.parse(readFileSync(linked, 'utf8'));
+        const sameVersion = candidates.find((dir) => dir.includes(`@prisma+client@${version}_`));
+        if (sameVersion) return sameVersion;
+      }
+      return candidates[0];
     }
   }
-  // 直接 hoist 形式: node_modules/.prisma/client
-  const hoisted = join(backendNm, '.prisma', 'client');
-  if (existsSync(hoisted)) candidates.push(hoisted);
-  return candidates[0] || null;
+  return null;
 }
 
 /**
@@ -62,8 +77,8 @@ function readEngineType(clientDir) {
   const indexPath = join(clientDir, 'index.js');
   if (!existsSync(indexPath)) return { engineType: null, raw: '' };
   const raw = readFileSync(indexPath, 'utf8');
-  // 例: engineType: "library" / engineType: 'dataProxy'
-  const m = raw.match(/engineType\s*:\s*["']([^"']+)["']/);
+  // 例: engineType: "library" / "engineType": "library"（Prisma 6.19 は鍵を引用符で包む）
+  const m = raw.match(/["']?engineType["']?\s*:\s*["']([^"']+)["']/);
   return { engineType: m ? m[1] : null, raw };
 }
 
@@ -125,19 +140,24 @@ test('check:prisma-client-engine — packages/backend の pretest / prisma:gener
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const scripts = pkg.scripts || {};
 
-  // pretest と prisma:generate の両方が cross-env PRISMA_CLIENT_ENGINE_TYPE=library で
-  // 始めること。片方だけだと「テストだけ OK・運用だけ壊れる」の片側落ちが起きる。
-  const requiredScripts = ['pretest', 'prisma:generate'];
-  for (const name of requiredScripts) {
-    const script = scripts[name];
-    assert.ok(
-      typeof script === 'string',
-      `packages/backend/package.json に scripts.${name} がありません`,
-    );
-    assert.ok(
-      /cross-env/.test(script) && /PRISMA_CLIENT_ENGINE_TYPE\s*=\s*library/.test(script),
-      `scripts.${name} が cross-env PRISMA_CLIENT_ENGINE_TYPE=library 固定ではありません ` +
-        `(実際: "${script}")。実行環境の env に左右されず library モードで生成させるために明示固定が必要です。`,
-    );
-  }
+  // 生成の入口は 2 つ。pretest は生成物が古い時だけ generate を走らせる入口（d893）で、
+  // 実体の生成は prisma:generate に寄せてある。よって library 固定は prisma:generate が持ち、
+  // pretest はそのスイッチ（下の test）を持たない。pretest が prisma:generate を通さず直接
+  // 生成する形へ戻ると、固定値が 2 か所に分かれて片側だけ古くなる。
+  const script = scripts['prisma:generate'];
+  assert.ok(
+    typeof script === 'string',
+    `packages/backend/package.json に scripts.prisma:generate がありません`,
+  );
+  assert.ok(
+    /cross-env/.test(script) && /PRISMA_CLIENT_ENGINE_TYPE\s*=\s*library/.test(script),
+    `scripts.prisma:generate が cross-env PRISMA_CLIENT_ENGINE_TYPE=library 固定ではありません ` +
+      `(実際: "${script}")。実行環境の env に左右されず library モードで生成させるために明示固定が必要です。`,
+  );
+  assert.ok(
+    typeof scripts.pretest === 'string' &&
+      /prisma-generate-unless-current\.mjs/.test(scripts.pretest),
+    `scripts.pretest が scripts/prisma-generate-unless-current.mjs を通していません ` +
+      `(実際: "${scripts.pretest}")。`,
+  );
 });

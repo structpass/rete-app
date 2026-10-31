@@ -9,9 +9,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 // nonce 付き HTML が静的化・ISR で再利用されることはない。
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
-// instruction-board は未配線を許す（cmn-0403・compose も空許容）。旧v1のlocalhost fallbackは
-// 退役に伴い削除し、明示された接続先だけをCSPへ含める。
-const INSTRUCTION_BOARD_URL = process.env.NEXT_PUBLIC_INSTRUCTION_BOARD_URL || '';
 const REFERENCE_APP_URL = process.env.NEXT_PUBLIC_REFERENCE_APP_URL || 'http://localhost:3000';
 
 // safeOrigin / buildCsp は test seam として export する（src/__tests__/middleware.test.ts）。
@@ -36,7 +33,6 @@ function hasHttpOrigin(...origins: string[]): boolean {
 export function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV !== 'production';
   const apiOrigin = safeOrigin(API_BASE_URL);
-  const boardOrigin = safeOrigin(INSTRUCTION_BOARD_URL);
   const referenceOrigin = safeOrigin(REFERENCE_APP_URL);
   // 開発時は React Refresh / dev overlay が inline・eval を使うため従来どおり許可し、
   // 本番だけ nonce + strict-dynamic で inline 注入を遮断する。
@@ -69,11 +65,9 @@ export function buildCsp(nonce: string): string {
     ...(styleElemSrc ? [`style-src-elem ${styleElemSrc}`, "style-src-attr 'unsafe-inline'"] : []),
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    // boardOrigin: バックログタブの疎通判定（GET /api/v2/healthz）を直接 fetch するため許可。
     // referenceOrigin: システムタブの reachability probe（no-cors fetch）が reference へ到達確認するため許可。
-    `connect-src 'self'${apiOrigin ? ` ${apiOrigin}` : ''}${boardOrigin ? ` ${boardOrigin}` : ''}${referenceOrigin ? ` ${referenceOrigin}` : ''}${isDev ? ' ws: wss:' : ''}`,
-    // バックログタブで instruction-board を iframe 表示するため子オリジンを許可。
-    `frame-src 'self'${boardOrigin ? ` ${boardOrigin}` : ''}`,
+    `connect-src 'self'${apiOrigin ? ` ${apiOrigin}` : ''}${referenceOrigin ? ` ${referenceOrigin}` : ''}${isDev ? ' ws: wss:' : ''}`,
+    "frame-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -88,7 +82,7 @@ export function buildCsp(nonce: string): string {
     // 本番の CSP は変わらない。http が混ざるのは設定ミスの状況であり、security-reviewer 指摘どおり
     // HSTS preload（next.config.ts）は別ホストの http fetch を守らないため、設定ミスを黙らせない
     // 警告を module ロード時 1 回だけ出す＝buildCsp は純関数のまま・副作用は middleware() 側に寄せる）。
-    if (!hasHttpOrigin(apiOrigin, boardOrigin, referenceOrigin)) {
+    if (!hasHttpOrigin(apiOrigin, referenceOrigin)) {
       directives.push('upgrade-insecure-requests');
     }
   }
@@ -97,18 +91,14 @@ export function buildCsp(nonce: string): string {
 
 /** 本番で http オリジン混入（設定ミス）を検出し、一度だけ警告する（cmn-0349・security-reviewer HIGH 対応）。 */
 let warnedHttpMixed = false;
-function warnIfProductionHttpMixed(
-  apiOrigin: string,
-  boardOrigin: string,
-  referenceOrigin: string,
-): void {
+function warnIfProductionHttpMixed(apiOrigin: string, referenceOrigin: string): void {
   if (process.env.NODE_ENV !== 'production') return;
-  if (!hasHttpOrigin(apiOrigin, boardOrigin, referenceOrigin) || warnedHttpMixed) return;
+  if (!hasHttpOrigin(apiOrigin, referenceOrigin) || warnedHttpMixed) return;
   warnedHttpMixed = true;
   // eslint-disable-next-line no-console
   console.error(
     '[CSP] production で導出 origin に http が含まれています（upgrade-insecure-requests を付与しない設定です）。' +
-      '本番では NEXT_PUBLIC_API_BASE_URL / NEXT_PUBLIC_INSTRUCTION_BOARD_URL / NEXT_PUBLIC_REFERENCE_APP_URL を' +
+      '本番では NEXT_PUBLIC_API_BASE_URL / NEXT_PUBLIC_REFERENCE_APP_URL を' +
       'すべて https にしてください（cmn-0349）。',
   );
 }
@@ -124,11 +114,7 @@ export function middleware(request: NextRequest) {
   for (const b of nonceBytes) nonce += String.fromCharCode(b);
   nonce = btoa(nonce);
   // 設定ミス（本番で http オリジン混入）を黙らせない（警告は初回 1 回のみ・毎リクエストは出さない）。
-  warnIfProductionHttpMixed(
-    safeOrigin(API_BASE_URL),
-    safeOrigin(INSTRUCTION_BOARD_URL),
-    safeOrigin(REFERENCE_APP_URL),
-  );
+  warnIfProductionHttpMixed(safeOrigin(API_BASE_URL), safeOrigin(REFERENCE_APP_URL));
   const csp = buildCsp(nonce);
 
   const requestHeaders = new Headers(request.headers);

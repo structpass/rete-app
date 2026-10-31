@@ -23,6 +23,7 @@ import type { UseTagMasterResult } from '@/hooks/use-tag-master';
  * board/faq 別々ではなく Provider が単一の state として持つ。
  */
 interface AnnouncementTagMasterContextValue {
+  calendar: UseTagMasterResult;
   board: UseTagMasterResult;
   faq: UseTagMasterResult;
   archiveOnly: boolean;
@@ -35,9 +36,12 @@ export function AnnouncementTagMasterProvider({ children }: { children: ReactNod
   const [archiveOnly, setArchiveOnly] = useState(false);
   const board = useAnnouncementTagMaster('board', archiveOnly);
   const faq = useAnnouncementTagMaster('faq', archiveOnly);
+  const calendar = useAnnouncementTagMaster('calendar', archiveOnly);
 
   return (
-    <AnnouncementTagMasterContext.Provider value={{ board, faq, archiveOnly, setArchiveOnly }}>
+    <AnnouncementTagMasterContext.Provider
+      value={{ board, faq, calendar, archiveOnly, setArchiveOnly }}
+    >
       {children}
     </AnnouncementTagMasterContext.Provider>
   );

@@ -31,6 +31,7 @@ export const TARGET_MIGRATIONS = [
   '20260630120000_add_attachment_task_comment_target',
   '20260703093500_add_task_activity_comment_add_edit',
   '20260703121500_hom_0072_kind_check_constraint',
+  '20261024011000_home_calendar_tag_kind',
 ];
 
 const MIGRATIONS_DIR = join(REPO_ROOT, 'packages/backend/prisma/migrations');
@@ -303,6 +304,12 @@ export function buildRegistry() {
   const announcementTypesSource = readFileSync(ANNOUNCEMENT_TYPES_PATH, 'utf8');
   // cmn-0084: kind は Prisma enum でなく String 運用のため、コード側正本は shared ANNOUNCEMENT_KINDS SSOT。
   const announcementKindValues = extractTsConstArray(announcementTypesSource, 'ANNOUNCEMENT_KINDS');
+  // d855/d862: お知らせタグの種別は予定（calendar）を含むため ANNOUNCEMENT_KINDS より 1 種多い。
+  // 別集合を正本にしないと、DB 側の CHECK（'calendar' を含む）と常にずれて既定の検査が赤のまま残る。
+  const announcementTagKindValues = extractTsConstArray(
+    announcementTypesSource,
+    'ANNOUNCEMENT_TAG_KINDS',
+  );
 
   return [
     {
@@ -320,8 +327,8 @@ export function buildRegistry() {
     {
       constraintName: 'announcement_tags_kind_check',
       sqlExtractor: extractSimpleInList,
-      codeLabel: 'packages/shared/src/types/announcement.ts の ANNOUNCEMENT_KINDS',
-      codeValues: announcementKindValues,
+      codeLabel: 'packages/shared/src/types/announcement.ts の ANNOUNCEMENT_TAG_KINDS',
+      codeValues: announcementTagKindValues,
     },
     {
       constraintName: 'space_kind_shape',

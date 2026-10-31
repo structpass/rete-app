@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { SpaceKind, type OrganizationDto, type ProjectDto, type SpaceDto } from '@rete/shared';
+import { makeSpaceDto } from '@/test-utils/fixtures';
 import { FavoritesProvider } from '@/features/shell/hooks/favorites-context';
 import { DeskSpaceProvider } from '../hooks/desk-space-context';
 import { DeskSidebar } from '../components/desk-sidebar';
@@ -95,18 +96,9 @@ const project: ProjectDto = {
   updatedAt: now,
 };
 function space(over: Partial<SpaceDto> & Pick<SpaceDto, 'id' | 'kind' | 'name'>): SpaceDto {
-  return {
-    projectId: null,
-    ownerId: null,
-    peerAccountId: null,
-    sortOrder: 0,
-    archived: false,
-    // 既定（非管理者）= メンバー設定メニュー非表示。管理者ケースは canManageMembers:true を差し替える（dsk-0354）。
-    canManageMembers: false,
-    createdAt: now,
-    updatedAt: now,
-    ...over,
-  };
+  // d596: 既定値は test-utils/fixtures が正本。id/kind/name は各テストが必ず指定する（既定を置かない）。
+  // canManageMembers の既定は false（管理者ケースは canManageMembers: true を差し替える・dsk-0354）。
+  return makeSpaceDto({ ...over, createdAt: now, updatedAt: now });
 }
 const channel = space({ id: 'ch1', kind: SpaceKind.CHANNEL, projectId: 'p1', name: '全体共通' });
 const group = space({ id: 'g1', kind: SpaceKind.GROUP, name: '営業部' });
@@ -452,8 +444,12 @@ describe('DeskSidebar（実 API・CM-2 スライスB）', () => {
   });
 
   it('プロジェクト見出しクリックで折り畳み状態がトグルする', async () => {
-    render(<DeskSidebar />, { wrapper: Wrapper });
-    const head = await screen.findByRole('button', { name: /倉庫オペレーション改善/ });
+    const { container } = render(<DeskSidebar />, { wrapper: Wrapper });
+    // v2-505: ★トグルも label を accessible name に含むため、name の緩い一致だと★にも当たる。
+    // 描画完了を待ってから、見出しボタンを class で特定する。
+    await waitFor(() => expect(container.querySelector('.sidebar-project-head')).not.toBeNull());
+    const head = container.querySelector('.sidebar-project-head') as HTMLElement;
+    expect(head).toHaveAccessibleName(/倉庫オペレーション改善/);
     const proj = head.closest('.sidebar-project');
     expect(proj).toHaveClass('is-expanded');
     fireEvent.click(head);
@@ -677,7 +673,11 @@ describe('DeskSidebar（実 API・CM-2 スライスB）', () => {
     const projectRow = screen
       .getByText('倉庫オペレーション改善')
       .closest('.sidebar-project-head-row') as HTMLElement;
-    fireEvent.click(within(projectRow).getByRole('button', { name: 'お気に入りに追加' }));
+    fireEvent.click(
+      within(projectRow).getByRole('button', {
+        name: 'プロジェクト「倉庫オペレーション改善」をお気に入りに追加',
+      }),
+    );
     await waitFor(() =>
       expect(favoritesApiMock.addFavorite).toHaveBeenCalledWith({
         kind: 'project',
@@ -687,7 +687,9 @@ describe('DeskSidebar（実 API・CM-2 スライスB）', () => {
     );
 
     const channelRow = screen.getByText('全体共通').closest('.sidebar-channel-row') as HTMLElement;
-    fireEvent.click(within(channelRow).getByRole('button', { name: 'お気に入りに追加' }));
+    fireEvent.click(
+      within(channelRow).getByRole('button', { name: 'スペース「全体共通」をお気に入りに追加' }),
+    );
     await waitFor(() =>
       expect(favoritesApiMock.addFavorite).toHaveBeenCalledWith({
         kind: 'space',
@@ -703,7 +705,9 @@ describe('DeskSidebar（実 API・CM-2 スライスB）', () => {
     await screen.findByText('営業部');
 
     const row = screen.getByText('営業部').closest('.sidebar-member-row-wrap') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'お気に入りに追加' }));
+    fireEvent.click(
+      within(row).getByRole('button', { name: 'スペース「営業部」をお気に入りに追加' }),
+    );
     await waitFor(() =>
       expect(favoritesApiMock.addFavorite).toHaveBeenCalledWith({
         kind: 'space',
@@ -719,7 +723,9 @@ describe('DeskSidebar（実 API・CM-2 スライスB）', () => {
     await screen.findByText('佐久間 健');
 
     const row = screen.getByText('佐久間 健').closest('.sidebar-member-row-wrap') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'お気に入りに追加' }));
+    fireEvent.click(
+      within(row).getByRole('button', { name: 'スペース「佐久間 健」をお気に入りに追加' }),
+    );
     await waitFor(() =>
       expect(favoritesApiMock.addFavorite).toHaveBeenCalledWith({
         kind: 'space',

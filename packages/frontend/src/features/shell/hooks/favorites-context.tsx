@@ -25,3 +25,12 @@ export function useFavoritesContext(): UseFavoritesResult {
   }
   return ctx;
 }
+
+/**
+ * 共有お気に入り state を、Provider の外では null で返す（throw しない）版（v2-505）。
+ * 一覧の行★のように「Provider 配下では出したいが、単体で描画しても壊れてはいけない」
+ * 部品が使う。mount 漏れを早期に検出したい画面は従来どおり useFavoritesContext を使う。
+ */
+export function useOptionalFavoritesContext(): UseFavoritesResult | null {
+  return useContext(FavoritesContext);
+}

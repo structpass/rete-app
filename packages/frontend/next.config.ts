@@ -14,9 +14,6 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
   devIndicators: false,
-  eslint: {
-    dirs: ['src'],
-  },
   typescript: {
     ignoreBuildErrors: false,
   },

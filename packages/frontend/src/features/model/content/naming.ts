@@ -173,49 +173,6 @@ export const NAMING_THEMES: ModelTheme[] = [
     compliesWith: [{ label: '本タブ 用語・命名「Desk 画面命名」' }],
   },
   {
-    id: 'baton-backlog-terminology',
-    title: 'baton / Backlog 用語',
-    category: 'naming',
-    status: 'active',
-    summary:
-      'baton=起票画面（Element Inspector 起票フロー）/ Backlog=管理画面。baton は独立サブシステムを作らず Backlog の機能。',
-    sources: ['instruction-board-backlog brd-0067（開発統括指示）'],
-    purpose:
-      '開発統括が指示を起票する2つの画面（起票フローと管理画面）に正式な呼び名が無く、会話・コメント・ドキュメントで一意に指せなかった。',
-    spec: [
-      {
-        type: 'table',
-        head: ['正式名称', '実体', '役割'],
-        rows: [
-          [
-            'baton（バトン）',
-            'D:/Dev/tool/board/scripts/v2/baton-v2.user.js（Ctrl+Shift+U）',
-            '起票画面。Rete/Reference の画面上で要素を選んでv2へ指示を投げる Element Inspector 起票フロー',
-          ],
-          [
-            'Backlog',
-            'instruction-board v2（:3072）',
-            '管理画面。起票された指示（チケット）を一覧・編集・処理する',
-          ],
-        ],
-      },
-      {
-        type: 'note',
-        text: 'baton は独立サブシステムを作らず、Backlog の機能の1つとして扱う（チケット分類は Backlog に集約）。Backlog 内の手動「新規登録」モーダルは baton ではないため見出しは「Backlogへ登録」のまま据え置く（board-0002 の見た目統一を維持）。',
-      },
-    ],
-    behavior: [
-      {
-        type: 'list',
-        items: [
-          'baton が動く現場（起票モーダルの見出し・userscript ヘッダ）にのみ baton を明記する。',
-          '管理画面（Backlog UI・v2.html）側の既存表記は変更しない。',
-        ],
-      },
-    ],
-    compliesWith: [{ label: '本タブ 用語・命名「オーバーレイ用語」' }],
-  },
-  {
     id: 'management-group-membership-terminology',
     title: '管理グループ / 所属管理',
     category: 'naming',

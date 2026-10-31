@@ -1,6 +1,5 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
 import { UserTableColumnWidthsController } from './user-table-column-widths.controller';
 import { UserTableColumnWidthsService } from './user-table-column-widths.service';
 import type { UpsertColumnWidthDto } from './dto';
@@ -11,6 +10,8 @@ const mockService = {
   resetMine: jest.fn(),
 };
 
+// tableId / columnKey の検証は decorator の pipe（pipes/pipes.spec.ts）が担う。
+// この spec は「検証を通った後、controller が service へ正しく渡すか」だけを見る（d925）。
 describe('UserTableColumnWidthsController', () => {
   let controller: UserTableColumnWidthsController;
 
@@ -55,17 +56,10 @@ describe('UserTableColumnWidthsController', () => {
       );
       expect(mockService.getMine).toHaveBeenCalledWith('user-uuid-1', 'files-list');
     });
-
-    it('未知の tableId は BadRequestException を投げること', async () => {
-      await expect(controller.getMine('user-uuid-1', 'unknown-table')).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockService.getMine).not.toHaveBeenCalled();
-    });
   });
 
   describe('upsert', () => {
-    it('正常系: service.upsert 結果を返すこと', async () => {
+    it('正常系: service.upsert へ幅を渡して結果を返すこと', async () => {
       const expected = {
         success: true,
         data: {
@@ -83,57 +77,6 @@ describe('UserTableColumnWidthsController', () => {
       expect(result).toEqual(expected);
       expect(mockService.upsert).toHaveBeenCalledWith('user-uuid-1', 'files-list', 'name', 200);
     });
-
-    it('未知の tableId は BadRequestException を投げること', async () => {
-      const dto: UpsertColumnWidthDto = { width: 200 };
-
-      await expect(controller.upsert('user-uuid-1', 'unknown-table', 'name', dto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockService.upsert).not.toHaveBeenCalled();
-    });
-
-    it('空文字 columnKey は BadRequestException を投げること', async () => {
-      const dto: UpsertColumnWidthDto = { width: 200 };
-
-      await expect(controller.upsert('user-uuid-1', 'files-list', '', dto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockService.upsert).not.toHaveBeenCalled();
-    });
-
-    it('65文字以上の columnKey は BadRequestException を投げること', async () => {
-      const dto: UpsertColumnWidthDto = { width: 200 };
-      const longKey = 'a'.repeat(65);
-
-      await expect(controller.upsert('user-uuid-1', 'files-list', longKey, dto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockService.upsert).not.toHaveBeenCalled();
-    });
-
-    it.each(['__proto__', 'constructor', 'name with space', 'name<script>', '日本語'])(
-      '不正文字を含む columnKey "%s" は BadRequestException を投げること',
-      async (badKey) => {
-        const dto: UpsertColumnWidthDto = { width: 200 };
-        await expect(controller.upsert('user-uuid-1', 'files-list', badKey, dto)).rejects.toThrow(
-          BadRequestException,
-        );
-        expect(mockService.upsert).not.toHaveBeenCalled();
-      },
-    );
-
-    it.each(['name', 'order_no', 'col-1', 'a.b', 'ns:key'])(
-      '許可文字のみの columnKey "%s" は通ること',
-      async (goodKey) => {
-        const dto: UpsertColumnWidthDto = { width: 200 };
-        mockService.upsert.mockResolvedValue({ success: true, data: {} });
-        await expect(
-          controller.upsert('user-uuid-1', 'files-list', goodKey, dto),
-        ).resolves.toBeDefined();
-        expect(mockService.upsert).toHaveBeenCalled();
-      },
-    );
   });
 
   describe('reset', () => {
@@ -145,13 +88,6 @@ describe('UserTableColumnWidthsController', () => {
 
       expect(result).toEqual(expected);
       expect(mockService.resetMine).toHaveBeenCalledWith('user-uuid-1', 'files-list');
-    });
-
-    it('未知の tableId は BadRequestException を投げ service を呼ばないこと', async () => {
-      await expect(controller.reset('user-uuid-1', 'unknown-table')).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockService.resetMine).not.toHaveBeenCalled();
     });
   });
 });

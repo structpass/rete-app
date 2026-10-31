@@ -73,6 +73,35 @@ function renderCreate(overrides: Partial<React.ComponentProps<typeof TaskCreateO
 }
 
 describe('TaskCreateOverlay — 新規登録（variant=create / mock .is-creating）', () => {
+  it('添付だけの変更も報告し、添付を外すと未編集へ戻る', () => {
+    const onDirtyChange = vi.fn();
+    const { rerender } = renderCreate({ onDirtyChange });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    mockPending([{ fileId: 'f1', fileName: 'spec.txt', source: 'repo' }]);
+    rerender(
+      <TaskCreateOverlay
+        variant="create"
+        categories={categories}
+        saving={false}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    mockPending([]);
+    rerender(
+      <TaskCreateOverlay
+        variant="create"
+        categories={categories}
+        saving={false}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
   it('題名入力欄・説明欄・保存ボタンを表示すること', () => {
     renderCreate();
     // 題名はチャット明細（ThemeComposer）と同型で placeholder="タイトル"（dsk-0347）。
@@ -130,6 +159,14 @@ describe('TaskCreateOverlay — 新規登録（variant=create / mock .is-creatin
   it('分類 / ステータスに ※必須 を表示しないこと（分類は任意・ステータスは初期値付き / rete-desk-0184・0185）', () => {
     renderCreate();
     expect(screen.queryByText('※必須')).not.toBeInTheDocument();
+  });
+
+  it('題名はサーバが空を拒否するため必須として出すこと（正本 comp-form-field の「* 必須」）', () => {
+    renderCreate();
+    // 必須マークは題名欄の近くに出し、入力は aria-required で読み上げにも必須を伝える。
+    const mark = document.querySelector('.desk-ticket-required');
+    expect(mark?.textContent?.replace(/\s+/g, '')).toBe('*必須');
+    expect(screen.getByLabelText('題名')).toHaveAttribute('aria-required', 'true');
   });
 
   it('is-creating の detail ビューとして描画すること（A1 ルーティング）', () => {

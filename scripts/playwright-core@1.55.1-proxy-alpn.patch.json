@@ -1,7 +1,0 @@
-{
-  "source": "lib/utilsBundleImpl/index.js",
-  "originalBlob": "09cee8c08f77331af62266033245f98ae567584f",
-  "patchedBlob": "8cce6d4be444abc60b97cac2644b51380c3b9b56",
-  "from": "r.ALPNProtocols=[\"http 1.1\"]",
-  "to": "r.ALPNProtocols=[\"http/1.1\"]"
-}

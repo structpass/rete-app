@@ -1,6 +1,12 @@
 import { AllExceptionsFilter } from './http-exception.filter';
 import type { ArgumentsHost } from '@nestjs/common';
-import { BadRequestException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
@@ -20,6 +26,65 @@ describe('AllExceptionsFilter', () => {
         getRequest: () => ({}),
       }),
     } as unknown as ArgumentsHost;
+  });
+
+  it.each([
+    [400, 'BAD_REQUEST'],
+    [401, 'UNAUTHORIZED'],
+    [403, 'FORBIDDEN'],
+    [404, 'NOT_FOUND'],
+    [405, 'BAD_REQUEST'],
+    [408, 'BAD_REQUEST'],
+    [409, 'CONFLICT'],
+    [410, 'BAD_REQUEST'],
+    [413, 'BAD_REQUEST'],
+    [415, 'BAD_REQUEST'],
+    [422, 'VALIDATION_ERROR'],
+    [429, 'TOO_MANY_REQUESTS'],
+    [451, 'BAD_REQUEST'],
+    [499, 'BAD_REQUEST'],
+  ])('code 指定のない %i は %s を返し、status と message を保つ', (status, code) => {
+    for (const response of ['入力を確認してください', { message: '入力を確認してください' }]) {
+      filter.catch(new HttpException(response, status), mockHost);
+
+      expect(mockResponse.status).toHaveBeenLastCalledWith(status);
+      expect(mockResponse.json).toHaveBeenLastCalledWith({
+        success: false,
+        error: { code, message: '入力を確認してください' },
+      });
+    }
+  });
+
+  it('パスワードポリシー違反の 422 は検証エラーとして返す', () => {
+    filter.catch(new UnprocessableEntityException('パスワードが短すぎます'), mockHost);
+
+    expect(mockResponse.status).toHaveBeenCalledWith(422);
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'パスワードが短すぎます' },
+    });
+  });
+
+  it('400 の配列 message は既存の検証エラーと details を保つ', () => {
+    filter.catch(new BadRequestException(['email must be an email']), mockHost);
+
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        details: { validationErrors: ['email must be an email'] },
+      },
+    });
+  });
+
+  it('明示 code は検証形式や既定値と同じ文字列でも優先する', () => {
+    filter.catch(
+      new HttpException({ code: 'INTERNAL_ERROR', message: ['x'] }, HttpStatus.BAD_REQUEST),
+      mockHost,
+    );
+
+    expect(mockResponse.json.mock.calls[0][0].error.code).toBe('INTERNAL_ERROR');
   });
 
   it('429 を TOO_MANY_REQUESTS に変換する（throttler 由来のように code 指定が無くても）', () => {

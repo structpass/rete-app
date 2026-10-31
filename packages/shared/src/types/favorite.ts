@@ -47,6 +47,22 @@ export const FAVORITE_KIND_BADGE_LABELS: Record<FavoriteKind, string> = {
   space: 'SPC',
 };
 
+/**
+ * ★トグルの読み上げ・ツールチップに出す対象種別の日本語表記（v2-505）。
+ * kind は 8 種あるため、file 以外を一律「フォルダ」と呼ぶと space/project 等が誤表示になる。
+ * バッジ表記（FAVORITE_KIND_BADGE_LABELS）と同じく全 kind を網羅する Record で持つ。
+ */
+export const FAVORITE_KIND_LABELS: Record<FavoriteKind, string> = {
+  system: 'システム',
+  chat: 'チャット',
+  task: 'タスク',
+  file: 'ファイル',
+  folder: 'フォルダ',
+  organization: '組織',
+  project: 'プロジェクト',
+  space: 'スペース',
+};
+
 /** ラベルの最大長（サイドバー 1 行が破綻しない範囲）。 */
 export const FAVORITE_LABEL_MAX_LEN = 80;
 

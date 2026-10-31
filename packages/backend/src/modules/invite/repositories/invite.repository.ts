@@ -64,6 +64,13 @@ export interface UpdateInviteData {
 }
 
 /**
+ * invite.repository.renewPendingByTokenHash の結果。
+ * renewed = 書き換えた／accepted = 受諾済みのまま（巻き戻さない）／pending_mismatch = 読んだ時の token か
+ * PENDING が既に変わっていた（同時再送など）。
+ */
+export type RenewPendingOutcome = 'renewed' | 'accepted' | 'pending_mismatch';
+
+/**
  * acceptInTransaction に渡すデータ。
  * TX 内で tokenHash により invite を再取得し email/id を確定するため、呼び出し側からは渡さない。
  */
@@ -97,6 +104,17 @@ export class InviteRepository {
   findByTokenHash(tokenHash: string): Promise<InviteWithRelations | null> {
     return this.prisma.invite.findUnique({
       where: { tokenHash },
+      select: inviteSelect,
+    });
+  }
+
+  /**
+   * id で 1 件取得し tokenHash も返す（再送の条件付き書き換え用）。
+   * 再送は「読んだ時の tokenHash のまま」を条件に書き換えるため、公開 select では足りない（d622）。
+   */
+  findByTokenHashOfId(id: string): Promise<InviteWithRelations | null> {
+    return this.prisma.invite.findUnique({
+      where: { id },
       select: inviteSelect,
     });
   }
@@ -213,6 +231,39 @@ export class InviteRepository {
     });
   }
 
+  /**
+   * 再送: 未受諾（PENDING かつ読んだ時の tokenHash のまま）の招待だけを新しい token と期限へ書き換える。
+   *
+   * 再送はこの書き換えの後に SMTP 送信する（d689・persist-first）。読んでから書き換えるまでの間に受諾が
+   * 完了しうるため、id だけを条件に PENDING へ戻すと、受諾済みの招待が未受諾へ巻き戻り、後から送った
+   * リンクは既存 Account のため受諾できない死んだ招待が残る（d622）。
+   * そのため書き換えは「読んだ時の tokenHash がそのまま かつ status=PENDING」の 1 文で行う:
+   *  - 受諾が先に確定していれば status が ACCEPTED なので当たらず、巻き戻らない。
+   *  - 別の再送が先に書き換えていれば tokenHash が変わるので当たらず、同時再送でも token は 1 本に定まる。
+   * 当たらなかった理由は、更新後の 1 行を読み直して返す（呼び出し側が案内を出し分ける）。
+   */
+  async renewPendingByTokenHash(
+    id: string,
+    expectedTokenHash: string,
+    data: UpdateInviteData,
+  ): Promise<RenewPendingOutcome> {
+    const updated = await this.prisma.invite.updateMany({
+      where: { id, tokenHash: expectedTokenHash, status: InviteStatus.PENDING },
+      data: {
+        tokenHash: data.tokenHash,
+        expiresAt: data.expiresAt,
+        status: data.status,
+      },
+    });
+    if (updated.count > 0) return 'renewed';
+
+    const current = await this.prisma.invite.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    return current?.status === InviteStatus.ACCEPTED ? 'accepted' : 'pending_mismatch';
+  }
+
   /** 招待を物理削除する（「期限切れ削除」UI 用・任意 status を削除可）。 */
   async delete(id: string): Promise<void> {
     await this.prisma.invite.delete({ where: { id } });
@@ -228,9 +279,13 @@ export class InviteRepository {
    *
    * 論点1: spaceId が設定されている場合は GROUP Membership を作成する。
    *        null の旧招待はスキップ（ログイン後の空状態案内に委ねる）。
+   *
+   * 戻り値: 作成した Account の id / email（d559）。受諾経路は未認証で叩けるため、横断の
+   * 操作ログ interceptor の記録条件（認証済み利用者）に当たらず、呼び出し側が明示記録する。
+   * 記録の actor を「作った当人」にするために id と email を返す。
    */
-  async acceptInTransaction(data: AcceptInviteData): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  async acceptInTransaction(data: AcceptInviteData): Promise<{ accountId: string; email: string }> {
+    return this.prisma.$transaction(async (tx) => {
       // TX 内で invite を再取得（他リクエストによる状態変化を反映）
       const invite = await tx.invite.findUnique({
         where: { tokenHash: data.tokenHash },
@@ -306,6 +361,8 @@ export class InviteRepository {
           acceptedAt: new Date(),
         },
       });
+
+      return { accountId: account.id, email: invite.email };
     });
   }
 }

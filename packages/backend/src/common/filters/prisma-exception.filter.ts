@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AllExceptionsFilter } from './http-exception.filter';
+import { getUniqueConflictMessage } from './unique-conflict-context';
 
 /** 503 応答へ載せる再送目安（秒）。混雑の解消待ちなので短く、クライアントが即座に再突入しない程度。 */
 const RETRY_AFTER_SECONDS = 5;
@@ -33,14 +34,14 @@ export class PrismaExceptionFilter implements ExceptionFilter {
       case 'P2002': {
         // 一意制約に違反したカラム/制約名（meta.target）は DB スキーマの内部名であり、
         // クライアントへ返すと内部構造が漏洩する。サーバーログにのみ出力し、
-        // レスポンスは汎用メッセージに統一する（reference との意図的な分岐）。
+        // レスポンスはサーバー指定の案内文か汎用文のみ（reference との意図的な分岐）。
         const target = Array.isArray(e.meta?.target)
           ? (e.meta?.target as string[]).join(', ')
           : typeof e.meta?.target === 'string'
             ? (e.meta.target as string)
             : '';
         this.logger.warn(`Unique constraint violation (P2002)${target ? ` on: ${target}` : ''}`);
-        return new ConflictException('指定された値は既に使用されています');
+        return new ConflictException(getUniqueConflictMessage(e));
       }
       case 'P2003':
         return new ConflictException('関連データが存在するため削除できません');

@@ -1,5 +1,58 @@
 import { describe, it, expect } from 'vitest';
-import { extractValidationErrorMessage } from '../error-utils';
+import {
+  extractErrorMessage,
+  extractErrorStatus,
+  extractValidationErrorMessage,
+} from '../error-utils';
+import { apiErrorMessage as deskErrorMessage } from '@/features/desk/lib/api-error';
+import { apiErrorMessage as settingsErrorMessage } from '@/features/settings/lib/api-error';
+
+describe('extractErrorMessage — 画面共通の API エラー文', () => {
+  it('Desk と Settings も同じ抽出関数を使う', () => {
+    expect(deskErrorMessage).toBe(extractErrorMessage);
+    expect(settingsErrorMessage).toBe(extractErrorMessage);
+  });
+
+  it('共通 filter の具体的な理由をそのまま返す', () => {
+    expect(
+      extractErrorMessage(
+        { response: { data: { error: { message: '同名のタグがあります' } } } },
+        '失敗',
+      ),
+    ).toBe('同名のタグがあります');
+  });
+
+  it.each([
+    undefined,
+    null,
+    {},
+    new Error('network'),
+    { message: '内部エラー' },
+    { response: { data: { message: '旧形式' } } },
+    ...['', 123, true, [], {}, null].map((message) => ({
+      response: { data: { error: { message } } },
+    })),
+  ])('欠落・不正な応答では画面の既定文言を返す (%j)', (err) => {
+    expect(extractErrorMessage(err, '保存できませんでした')).toBe('保存できませんでした');
+  });
+});
+
+/**
+ * 画面側が axios を直 import して e.response.status を読む代わりに共通の入口で status を取れることを
+ * 固定する（d579: 共通処理を通らない送信経路を残さない）。
+ */
+describe('extractErrorStatus', () => {
+  it('レスポンスの HTTP status を返す', () => {
+    expect(extractErrorStatus({ response: { status: 409 } })).toBe(409);
+  });
+
+  it('status が無い・数値でない・エラー形状でない時は undefined', () => {
+    expect(extractErrorStatus(new Error('network'))).toBeUndefined();
+    expect(extractErrorStatus({ response: { status: '409' } })).toBeUndefined();
+    expect(extractErrorStatus(undefined)).toBeUndefined();
+    expect(extractErrorStatus(null)).toBeUndefined();
+  });
+});
 
 /**
  * backend の AllExceptionsFilter は class-validator の失敗で message を generic な 'Validation failed' にし、

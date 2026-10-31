@@ -40,7 +40,7 @@ export interface SearchSelection {
  * selection を渡すと（fil-0051）通常表示と同型のチェック選択列を先頭に足す。選択は **id 基点**（複数フォルダ
  * 横断のため別フォルダ同名ファイルが衝突しない）。チェック対象はファイル行のみ＝フォルダ行は選択対象外で、
  * クリック=ナビゲート / ダブルクリック=フォルダを開く の従来挙動を保つ。選択したファイルは呼び出し元の
- * ツールバー（ダウンロード/タグ付け/チャット共有/クリップボード/削除）が通常表示と同じく扱う。
+ * ツールバー（ダウンロード/タグ付け/チャット共有/パスをコピー/削除）が通常表示と同じく扱う。
  */
 export function SearchResults({
   results,
@@ -118,24 +118,6 @@ export function SearchResults({
       </section>
     );
   }
-  // 初回ロード中（まだ結果が無い）だけ読み込み表示。再検索中は前回結果を残してちらつきを避ける。
-  if (loading && results.length === 0) {
-    return (
-      <section className="sp-card file-list-card">
-        <div className="file-empty">
-          <Spinner className="h-4 w-4 inline-block" />
-        </div>
-      </section>
-    );
-  }
-  if (results.length === 0) {
-    return (
-      <section className="sp-card file-list-card">
-        <div className="file-empty">{emptyText}</div>
-      </section>
-    );
-  }
-
   return (
     <section className="sp-card file-list-card">
       <div className="file-list-head">
@@ -166,6 +148,13 @@ export function SearchResults({
         <table className="sp-table file-table tag-search-table">
           <SearchColGroup selectable={selectable} />
           <tbody>
+            {results.length === 0 && (
+              <tr>
+                <td colSpan={selectable ? 4 : 3} className="file-empty">
+                  {loading ? <Spinner className="h-4 w-4 inline-block" /> : emptyText}
+                </td>
+              </tr>
+            )}
             {results.map((it) => {
               // フォルダ・ファイルとも「場所」は所属（親）フォルダのフルパス。クリック遷移先はフォルダ=自身 / ファイル=親。
               const segs = it.parentFolderId ? folderPathSegments(tree, it.parentFolderId) : [];
@@ -239,7 +228,7 @@ export function SearchResults({
       </div>
       <div className="file-list-foot">
         <span>
-          {results.length} 件ヒット
+          {loading && results.length === 0 ? '検索中…' : `${results.length} 件ヒット`}
           {selectable && selectedCount > 0 && ` — ${selectedCount} 件選択中`}
         </span>
         {truncated && truncatedText && (

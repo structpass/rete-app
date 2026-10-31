@@ -111,6 +111,8 @@ export function createMentionSuggestion(
     render: () => {
       let component: ReactRenderer<MentionListHandle> | null = null;
       let anchor: HTMLDivElement | null = null;
+      let currentRect: SuggestionProps<MentionItem>['clientRect'];
+      const reposition = () => position(currentRect);
       // 縦方向の優先表示位置（rete-desk-0151）: @ のみ / @ + 文字（ヒット有無を問わず）いずれも
       // キャレットの「上」に出す（候補一覧を入力中テキストへ被せず常に上方へ）。上に収まらない時だけ
       // position() が下へフリップする。常時上のため query 依存の出し分けは行わない。
@@ -147,12 +149,15 @@ export function createMentionSuggestion(
 
       return {
         onStart: (props) => {
+          currentRect = props.clientRect;
           // 候補は常にキャレットの上に出す（rete-desk-0151）。preferAbove は固定 true。
           component = new ReactRenderer(MentionList, { props, editor: props.editor });
           anchor = document.createElement('div');
           anchor.className = 'desk-mention-popup-anchor';
           anchor.appendChild(component.element);
           document.body.appendChild(anchor);
+          window.addEventListener('scroll', reposition, true);
+          window.addEventListener('resize', reposition);
           position(props.clientRect);
           // 初回は ReactRenderer の commit 前で実寸（offsetWidth/Height）が 0 になりうるため、
           // 次フレーム（保険でさらにもう 1 フレーム）で再配置し、フリップ/クランプ判定を実寸で行う。
@@ -164,6 +169,7 @@ export function createMentionSuggestion(
           });
         },
         onUpdate: (props) => {
+          currentRect = props.clientRect;
           // 候補は常に上に出す（rete-desk-0151）。位置の優先側は固定なので query での更新は不要。
           component?.updateProps(props);
           if (anchor) anchor.style.display = '';
@@ -180,6 +186,9 @@ export function createMentionSuggestion(
           return component?.ref?.onKeyDown(props) ?? false;
         },
         onExit: () => {
+          window.removeEventListener('scroll', reposition, true);
+          window.removeEventListener('resize', reposition);
+          currentRect = undefined;
           anchor?.remove();
           anchor = null;
           component?.destroy();

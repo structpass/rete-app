@@ -10,7 +10,12 @@ import {
   Min,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { AUDIT_ACTION_TYPES, type AuditActionType, type AuditLogQuery } from '@rete/shared';
+import {
+  AUDIT_ACTION_TYPES,
+  AUDIT_PAGE_SIZE,
+  type AuditActionType,
+  type AuditLogQuery,
+} from '@rete/shared';
 import { AUDIT_MAX_LIMIT, AUDIT_SEARCH_MAX_LENGTH } from '../audit-logs.constants';
 
 /**
@@ -32,7 +37,7 @@ export class QueryAuditLogsDto implements AuditLogQuery {
   @IsInt()
   @Min(1)
   @Max(AUDIT_MAX_LIMIT)
-  limit: number = 20;
+  limit: number = AUDIT_PAGE_SIZE;
 
   @ApiPropertyOptional({ description: 'ユーザー名 / メールの部分一致（大文字小文字無視）' })
   @IsOptional()

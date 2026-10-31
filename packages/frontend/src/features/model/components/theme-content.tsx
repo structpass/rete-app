@@ -1,5 +1,6 @@
 import type { ContentBlock, ModelTheme, ThemeExample, ThemeRef } from '../types';
 import { PageTitle } from '@/components/shared/page-title';
+import { Badge } from '@/components/ui/badge';
 import { DEMOS } from './demos';
 
 /**
@@ -202,13 +203,7 @@ export function ThemeContent({ theme }: { theme: ModelTheme }) {
         {/* 見出しは共通 PageTitle（mdl-0028）。旧実装の font-bold と下区切り線は正本準拠のため撤去。 */}
         <PageTitle
           title={theme.title}
-          after={
-            theme.status === 'stub' ? (
-              <span className="rounded-full bg-[var(--sp-status-progress-bg)] px-2 py-0.5 text-[0.6875rem] font-semibold text-[var(--sp-status-progress-fg)]">
-                整備中
-              </span>
-            ) : undefined
-          }
+          after={theme.status === 'stub' ? <Badge variant="progress">整備中</Badge> : undefined}
         />
         <p className="text-sm text-[var(--sp-text-warm-2)]">{theme.summary}</p>
         {theme.sources.length > 0 && (

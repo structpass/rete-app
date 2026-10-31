@@ -25,6 +25,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
+      // 先に status から既定 code を決め、その後に検証形式・明示 code を反映する。
+      // 未分類の 4xx も内部障害へ落とさず、意味の違う経路は body の code で区別する。
+      if (status === HttpStatus.UNAUTHORIZED) code = 'UNAUTHORIZED';
+      else if (status === HttpStatus.FORBIDDEN) code = 'FORBIDDEN';
+      else if (status === HttpStatus.NOT_FOUND) code = 'NOT_FOUND';
+      else if (status === HttpStatus.CONFLICT) code = 'CONFLICT';
+      else if (status === HttpStatus.TOO_MANY_REQUESTS) code = 'TOO_MANY_REQUESTS';
+      else if (status === HttpStatus.UNPROCESSABLE_ENTITY) code = 'VALIDATION_ERROR';
+      else if (status >= HttpStatus.BAD_REQUEST && status < HttpStatus.INTERNAL_SERVER_ERROR)
+        code = 'BAD_REQUEST';
+      else if (status === HttpStatus.SERVICE_UNAVAILABLE) code = 'SERVICE_UNAVAILABLE';
       const exceptionResponse = exception.getResponse();
 
       if (typeof exceptionResponse === 'string') {
@@ -53,23 +64,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
         if (status === HttpStatus.SERVICE_UNAVAILABLE && typeof resp.retryAfter === 'number') {
           retryAfter = resp.retryAfter;
         }
-      }
-
-      // status からの導出は「例外が code を明示していない時だけ」効かせる。明示 code を上書きすると
-      // 同じ status に複数の意味がある経路（409 = 一意制約違反 CONFLICT / 競合 WRITE_CONFLICT、
-      // 503 = SERVICE_UNAVAILABLE）を画面が出し分けられなくなる（cmn-0235）。
-      if (code === 'INTERNAL_ERROR') {
-        if (status === HttpStatus.UNAUTHORIZED) code = 'UNAUTHORIZED';
-        else if (status === HttpStatus.FORBIDDEN) code = 'FORBIDDEN';
-        else if (status === HttpStatus.NOT_FOUND) code = 'NOT_FOUND';
-        else if (status === HttpStatus.CONFLICT) code = 'CONFLICT';
-        // 429: レート制限（ThrottlerGuard）/ ログイン試行ロックアウト（H6）。throttler 由来は
-        // resp.code を持たないため status から導出する（operational-policy §1 error 体系）。
-        else if (status === HttpStatus.TOO_MANY_REQUESTS) code = 'TOO_MANY_REQUESTS';
-        else if (status === HttpStatus.BAD_REQUEST) code = 'BAD_REQUEST';
-        // 503: Prisma 由来（P2028 / P2024）は code を明示するが、message 文字列だけで throw される
-        // 既存の ServiceUnavailableException（MFA 暗号鍵未設定 / SMTP 未設定）もあるため status から導出する。
-        else if (status === HttpStatus.SERVICE_UNAVAILABLE) code = 'SERVICE_UNAVAILABLE';
       }
     }
 

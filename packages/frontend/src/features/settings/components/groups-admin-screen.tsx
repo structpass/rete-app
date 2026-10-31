@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { Role } from '@rete/shared';
@@ -15,6 +15,7 @@ import {
   ActionButton,
   ListActionRow,
   PageTitle,
+  Pagination,
   RowDeleteButton,
   RowEditButton,
   TableCard,
@@ -41,20 +42,30 @@ export function GroupsAdminScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const { run } = useAsyncAction();
 
+  // d659: 取得失敗の表示から再試行できるよう、取り直しを名付けて初回ロードと再試行の両方から呼ぶ。
+  const loadGroups = useCallback(async (alive: () => boolean) => {
+    setIsLoading(true);
+    try {
+      const list = await fetchUserGroups();
+      if (alive()) {
+        setGroups(list);
+        // 前の失敗の表示を残さない（取れたのに失敗の文言が残ると、成功と失敗の両方が出る）。
+        setLoadError(null);
+      }
+    } catch (err) {
+      // v2-233: 取得失敗は toast で消さず領域内（role="alert"）に残す（0件と区別できるようにする）。
+      if (alive()) setLoadError(apiErrorMessage(err, '管理グループの読み込みに失敗しました'));
+    } finally {
+      if (alive()) setIsLoading(false);
+    }
+  }, []);
+
   useMountedFetch(
     async (alive) => {
       if (!isAdmin) return; // set-0057: 非 ADMIN はフェッチしない
-      try {
-        const list = await fetchUserGroups();
-        if (alive()) setGroups(list);
-      } catch (err) {
-        // v2-233: 取得失敗は toast で消さず領域内（role="alert"）に残す（0件と区別できるようにする）。
-        if (alive()) setLoadError(apiErrorMessage(err, '管理グループの読み込みに失敗しました'));
-      } finally {
-        if (alive()) setIsLoading(false);
-      }
+      await loadGroups(alive);
     },
-    [isAdmin],
+    [isAdmin, loadGroups],
   );
 
   // 削除は確認ダイアログの OK 後（cmn-0112 の useDeleteConfirm: close-first）。
@@ -151,9 +162,14 @@ export function GroupsAdminScreen() {
                 empty={groups.length === 0}
                 emptyLabel="管理グループがありません"
                 errorLabel={loadError}
+                onRetry={() => void loadGroups(() => true)}
               />
             </tbody>
           </table>
+          <Pagination
+            total={isLoading || loadError ? '全 — 件' : `全 ${groups.length} 件`}
+            pageLabel={isLoading || loadError ? '' : undefined}
+          />
         </TableCard>
       </div>
 

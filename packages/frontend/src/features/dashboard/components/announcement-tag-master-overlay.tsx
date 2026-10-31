@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { TagMasterOverlay } from '@/components/tags/tag-master-overlay';
 import { useAnnouncementTagMasterContext } from '../hooks/announcement-tag-master-context';
 import { useRowHoverBand } from '@/hooks/use-row-hover-band';
-import type { AnnouncementTagKind } from '../lib/api';
+import type { HomeTagKind } from '@rete/shared';
 
 /**
  * お知らせタグ管理オーバーレイ（掲示板/FAQ 2タブ・hom-0074）。
@@ -21,9 +21,9 @@ import type { AnnouncementTagKind } from '../lib/api';
  * おり、タブでの変更がダッシュボード画面へ即時反映される不変条件は成立済み。
  */
 export function AnnouncementTagMasterOverlay({ onClose }: { onClose: () => void }) {
-  const { board, faq, archiveOnly, setArchiveOnly } = useAnnouncementTagMasterContext();
-  const [tab, setTab] = useState<AnnouncementTagKind>('board');
-  const activeMaster = tab === 'board' ? board : faq;
+  const { board, faq, calendar, archiveOnly, setArchiveOnly } = useAnnouncementTagMasterContext();
+  const [tab, setTab] = useState<HomeTagKind>('board');
+  const activeMaster = { board, faq, calendar }[tab];
   const {
     listRef: tagMasterTabsRef,
     onMouseOver: onTagMasterTabMouseOver,
@@ -67,6 +67,15 @@ export function AnnouncementTagMasterOverlay({ onClose }: { onClose: () => void 
         onClick={() => setTab('board')}
       >
         掲示板
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={tab === 'calendar'}
+        className={`file-overlay-tab${tab === 'calendar' ? ' is-active' : ''}`}
+        onClick={() => setTab('calendar')}
+      >
+        カレンダー
       </button>
       <button
         type="button"

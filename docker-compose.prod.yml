@@ -62,6 +62,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       OIDC_COOKIE_KEYS: ${OIDC_COOKIE_KEYS:?OIDC_COOKIE_KEYS is required}
       OIDC_JWKS: ${OIDC_JWKS:?OIDC_JWKS is required}
+      # MFA/TOTP secret の at-rest 暗号鍵（AES-256-GCM・d558）。未設定だと MFA を提供できず、
+      # 全体強制 ON 時に local ユーザーが締め出されるため本番必須（main.ts も起動時に検査）。
+      # 値は hex 64 文字（openssl rand -hex 32）。鍵を失うと既存 secret は復号不能＝全ユーザー再登録。
+      MFA_TOTP_ENC_KEY: ${MFA_TOTP_ENC_KEY:?MFA_TOTP_ENC_KEY is required}
       # OIDC IdP（rete 自身）の公開 base URL。localhost 既定だと外部 RP が到達できない。
       OIDC_ISSUER: https://${DOMAIN}/api/v1/oidc
       # reference からの SSO 用の静的 RP client 登録 3 変数（oidc-config.factory.ts が SECRET +
@@ -72,6 +76,7 @@ services:
       OIDC_REFERENCE_REDIRECT_URIS: ${OIDC_REFERENCE_REDIRECT_URIS:-}
       # 共有 Caddy 1 段配下なので trust proxy を有効化（レート制限を実クライアント IP 単位に・ref-0062 同型）。
       TRUST_PROXY: 'true'
+      FILE_STORAGE_ROOT: /app/packages/backend/storage/files
       # reference 連携の backend 設定。frontend の build-time URL とは別に、
       # hub の導線判定と object-types proxy の実行時設定を注入する。
       REFERENCE_APP_URL: ${REFERENCE_APP_URL:?REFERENCE_APP_URL is required}
@@ -90,6 +95,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./storage
+        target: /app/packages/backend/storage
+        bind:
+          create_host_path: false
     networks:
       rete-prod-network: {}
       # 共有 Caddy からの API 到達は edge network 経由。edge 上の名前は reference の backend と
@@ -134,9 +145,6 @@ services:
         # NEXT_PUBLIC 系は build 時にインライン展開される。未設定は Dockerfile 側が fail-fast で弾く
         # （localhost が本番成果物へ黙って焼き込まれるのを防ぐ・ref-0087 同型ガード）。
         NEXT_PUBLIC_API_BASE_URL: https://${DOMAIN}/api/v1
-        # instruction-board は開発運用タブ用＝本番では未使用可のため空を許容（:- 既定）。
-        # .env.production.example の「空でも可」と整合させる（:? だと空文字でも compose が fail する）。
-        NEXT_PUBLIC_INSTRUCTION_BOARD_URL: ${NEXT_PUBLIC_INSTRUCTION_BOARD_URL:-}
         NEXT_PUBLIC_REFERENCE_APP_URL: ${NEXT_PUBLIC_REFERENCE_APP_URL:?NEXT_PUBLIC_REFERENCE_APP_URL is required}
         DOCKER_BUILD: '1'
     container_name: rete-prod-frontend

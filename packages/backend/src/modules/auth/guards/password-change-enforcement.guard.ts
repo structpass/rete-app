@@ -30,11 +30,9 @@ export class PasswordChangeEnforcementGuard implements CanActivate {
    * - /settings/login/password-policy = 変更画面の inline ポリシー検証に必要（GET。PUT は別途 ADMIN ガードで保護）
    * - /auth/me（状態取得）/ /auth/logout（離脱）/ /auth/login（再ログイン経路）
    * - /auth/interaction = OIDC フェデレーションの handshake（:uid / :uid/login / :uid/session-login / :uid/confirm）。
-   *   本ガードは authMethod を session から読むが、session-login は authMethod='sso' への書き換えを
-   *   ハンドラ内で行うため到達時点では 'local' のまま＝除外しないと SSO 開始が 403 で破断する。
-   *   federation は既認証セッションの ID 連携であり一時パスワードを下流に渡さない。Rete 本体は AppShell
-   *   ゲート＋業務 API ガードで引き続き変更を強制するため、ここを通しても強制は迂回されない
-   *   （MfaEnforcementGuard が実効的に interaction を阻害しないのと同旨）。
+   *   本ガードは authOrigin を session から読む。interaction の完了は出自を変えない（d955）が、
+   *   handshake 自体は変更 API ではないため除外し、interaction controller が password / MFA / MFA 設定の
+   *   各確定前に強制変更を検査する（authOrigin 未設定も local として 403 を保証する）。
    */
   private static readonly EXEMPT_BASES = [
     '/auth/change-password',
@@ -55,10 +53,9 @@ export class PasswordChangeEnforcementGuard implements CanActivate {
     // 強制変更が立っていなければ素通し（大多数のケース）。
     if (!user.mustChangePassword) return true;
 
-    // SSO 経由はローカルパスワードを持たないため強制しない。authMethod 未設定（古いセッション等）は
-    // 'local' 相当として強制対象に含める（fail-open 防止・明示的に 'local' 以外のみ除外・MfaEnforcementGuard と同旨）。
-    const authMethod = req.session?.authMethod ?? 'local';
-    if (authMethod !== 'local') return true;
+    // 素通しは「外部 IdP が認証した」と明示された時だけ（未知の値・空文字・未設定で fail-open しない）。
+    // OIDC interaction の完了で出自は変わらない（d955）。MfaEnforcementGuard と同旨。
+    if (req.session?.authOrigin === 'external-idp') return true;
 
     // 除外 path（変更導線 / ポリシー取得 / me / logout / login）は常に通す。
     const raw = (req.path || req.url || '').split('?')[0];

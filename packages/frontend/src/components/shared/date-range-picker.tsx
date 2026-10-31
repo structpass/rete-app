@@ -2,7 +2,7 @@
 
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatDate, toLocalYmd } from '@/lib/utils';
 import { useOutsideClose } from '@/hooks/use-outside-close';
 
 /** 期間（From/To）の値。'YYYY-MM-DD' または空文字。 */
@@ -20,11 +20,8 @@ export const MIN_DATE = '1900-01-01';
 /** 「上限を設定」が終了日に入れる最大日。v2-185。 */
 export const MAX_DATE = '9999-12-31';
 
-/** Date → 'YYYY-MM-DD'（ローカル時刻の年月日）。 */
-function ymd(date: Date): string {
-  const p = (n: number) => `${n}`.padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
-}
+/** Date → 'YYYY-MM-DD'（ローカル時刻の年月日）。組み立ては @/lib/utils の 1 箇所に寄せる。 */
+const ymd = toLocalYmd;
 
 /**
  * 'YYYY-MM-DD' → Date（形式違い・実在しない日付・空は null）。
@@ -71,7 +68,7 @@ function monthLabel(month: Date): string {
 }
 
 /** popover を収めるための水平の表示領域（viewport 座標）。 */
-export interface PopoverBounds {
+interface PopoverBounds {
   left: number;
   right: number;
 }
@@ -189,7 +186,7 @@ function MonthGrid({ month, from, to, onSelect }: MonthGridProps) {
   );
 }
 
-export interface FilterDateRangeProps {
+interface FilterDateRangeProps {
   from: string;
   to: string;
   /** 日付を選ぶたびに呼ぶ（From/To の両方を渡す。呼び出し元が即時反映する）。 */

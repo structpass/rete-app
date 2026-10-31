@@ -30,7 +30,7 @@ describe('MfaEnforcementGuard', () => {
 
   const localReq = (path: string): Partial<Request> => ({
     user: { id: 'acc-1' } as never,
-    session: { authMethod: 'local' } as never,
+    session: { authMethod: 'local', authOrigin: 'local' } as never,
     path,
   });
 
@@ -39,17 +39,43 @@ describe('MfaEnforcementGuard', () => {
     expect(loginSettings.isMfaEnforced).not.toHaveBeenCalled();
   });
 
-  it('SSO 経由（authMethod!=local）は素通し（IdP MFA 尊重）', async () => {
+  it('外部 IdP 認証（authOrigin=external-idp）は素通し（IdP MFA 尊重）', async () => {
     const req = {
       user: { id: 'a' } as never,
-      session: { authMethod: 'sso' } as never,
+      session: { authOrigin: 'external-idp' } as never,
       path: '/desk',
     };
     expect(await guard.canActivate(ctx(req))).toBe(true);
     expect(loginSettings.isMfaEnforced).not.toHaveBeenCalled();
   });
 
-  it('authMethod 未設定（古いセッション等）は local 相当として強制対象に含める（fail-open 修正）', async () => {
+  it.each(['external', '', 'EXTERNAL-IDP'])(
+    '未知の authOrigin（%s）は fail-open せず強制対象に含める（d955）',
+    async (authOrigin) => {
+      const req = {
+        user: { id: 'a' } as never,
+        session: { authOrigin } as never,
+        path: '/desk',
+      };
+      await expect(guard.canActivate(ctx(req))).rejects.toMatchObject({
+        response: { code: 'MFA_SETUP_REQUIRED' },
+      });
+    },
+  );
+
+  it('旧セッション（authMethod だけが sso・authOrigin 無し）は local 相当として強制対象に含める（d955 の穴を塞ぐ）', async () => {
+    const req = {
+      user: { id: 'a' } as never,
+      session: { authMethod: 'sso' } as never,
+      path: '/desk',
+    };
+    await expect(guard.canActivate(ctx(req))).rejects.toMatchObject({
+      response: { code: 'MFA_SETUP_REQUIRED' },
+    });
+    expect(loginSettings.isMfaEnforced).toHaveBeenCalled();
+  });
+
+  it('authOrigin 未設定（古いセッション等）は local 相当として強制対象に含める（fail-open 修正）', async () => {
     const req = { user: { id: 'a' } as never, session: {} as never, path: '/desk' };
     await expect(guard.canActivate(ctx(req))).rejects.toMatchObject({
       response: { code: 'MFA_SETUP_REQUIRED' },
@@ -66,6 +92,17 @@ describe('MfaEnforcementGuard', () => {
   it('confirmed MFA を持つなら素通し', async () => {
     mfaService.hasConfirmedMfa.mockResolvedValue(true);
     expect(await guard.canActivate(ctx(localReq('/desk')))).toBe(true);
+  });
+
+  it('OIDC interaction を完了したローカルセッションも強制対象（後から MFA 必須にしても効く・d955）', async () => {
+    const req = {
+      user: { id: 'a' } as never,
+      session: { authOrigin: 'local', oidcSsoAt: 1_700_000_000 } as never,
+      path: '/desk',
+    };
+    await expect(guard.canActivate(ctx(req))).rejects.toMatchObject({
+      response: { code: 'MFA_SETUP_REQUIRED' },
+    });
   });
 
   it('enforced かつ local かつ未設定の保護ルートは 403 MFA_SETUP_REQUIRED で遮断', async () => {
@@ -90,6 +127,27 @@ describe('MfaEnforcementGuard', () => {
     '/api/v1/settings/mfa/confirm', // グローバル prefix 込みでも剥がして判定
   ])('除外 path %s は enforced+未設定でも素通し', async (path) => {
     expect(await guard.canActivate(ctx(localReq(path)))).toBe(true);
+  });
+
+  it.each([
+    '/api/v1/settings/login/password-policy',
+    '/api/v1/settings/login/mfa-enforcement-policy', // /settings/login/mfa と部分一致する名前（prefix 剥がしの確認）
+  ])(
+    '出口（強制を外す操作）%s は、強制の ON/OFF を評価する前に素通しする（自分で出口を塞がない）',
+    async (path) => {
+      expect(await guard.canActivate(ctx(localReq(path)))).toBe(true);
+      // ON/OFF の読み出しにすら入らないこと（強制中でも戻せる）。
+      expect(loginSettings.isMfaEnforced).not.toHaveBeenCalled();
+      expect(mfaService.hasConfirmedMfa).not.toHaveBeenCalled();
+    },
+  );
+
+  it('出口の素通しは /settings/login 配下の除外 1 本で成立する（別リストに二重に書かない・d849）', async () => {
+    // EXEMPT_BASES から /settings/login を外すと、パスワードポリシーの読み書きは遮断される。
+    // 出口が「EXEMPT_BASES の 1 本」で決まっていること（別の出口リストに依存していないこと）を固定する。
+    const exemptBases = (MfaEnforcementGuard as unknown as { EXEMPT_BASES: string[] }).EXEMPT_BASES;
+    expect(exemptBases).toContain('/settings/login');
+    expect((MfaEnforcementGuard as unknown as Record<string, unknown>).EXIT_PATHS).toBeUndefined();
   });
 
   it.each([

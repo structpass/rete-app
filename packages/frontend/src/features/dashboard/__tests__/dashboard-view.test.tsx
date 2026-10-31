@@ -49,6 +49,16 @@ vi.mock('@/features/auth/hooks/use-session', () => ({
   useSession: () => ({ user: mockUser(), loading: false }),
 }));
 
+vi.mock('../hooks/home-permissions-context', () => ({
+  useHomePermissions: () => ({
+    boardEdit: mockUser()?.role === Role.ADMIN,
+    faqEdit: mockUser()?.role === Role.ADMIN,
+    calendarEdit: false,
+    tagManage: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 // hom-0062 回帰: 複数タグが一覧行で全て描画されることを固定する fixture（2つ目以降が落ちないことの保証）。
 const twoTags = [
   { id: 't1', name: '全体周知', icon: 'megaphone', color: '#3b82f6', archived: false },
@@ -211,6 +221,21 @@ describe('DashboardView', () => {
     }
   });
 
+  it('0件へ絞り込んでも通知一覧を保持し、検索解除で行が戻る', async () => {
+    render(<DashboardView kind="board" />);
+    const list = screen.getByRole('list', { name: '通知一覧' });
+    fireEvent.change(screen.getByLabelText('通知を検索'), {
+      target: { value: '一致しない検索語' },
+    });
+    await flush();
+    expect(screen.getByRole('list', { name: '通知一覧' })).toBe(list);
+    expect(within(list).getByText('該当する通知はありません')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('通知を検索'), { target: { value: '' } });
+    await flush();
+    expect(screen.getByRole('list', { name: '通知一覧' })).toBe(list);
+    expect(within(list).getByText('重要なお知らせ')).toBeInTheDocument();
+  });
+
   it('検索でタイトル・概要に一致する通知だけを一覧に残す（クライアントフィルタ）', async () => {
     render(<DashboardView />);
     await flush();
@@ -235,20 +260,29 @@ describe('DashboardView', () => {
   it('未読通知に未読インジケータを表示し、開く（選択）と既読化（decrement）を呼ぶ（HM-3・ADR 0029）', async () => {
     render(<DashboardView />);
     await flush();
-    // a1（unread:true）はタイトル太字で未読を示す（rete-home-0036: 未読ドットは撤去し太字へ一本化。太さは typography 正本により semibold・mdl-0017）。
+    // a1（unread:true）は未読マークで未読を示す（d539: 文字の太さで未読/既読を分けず、行の太さは
+    // 明細行の正本に従う。旧 rete-home-0036 の「太字へ一本化」は撤回し、行内の未読マークで示す）。
     const listed = screen.getByRole('list', { name: '通知一覧' });
-    expect(within(listed).getByText('重要なお知らせ')).toHaveClass('font-semibold');
+    expect(within(listed).getAllByTestId('home-unread-dot')).toHaveLength(1);
     // 先頭 a1 が自動選択され「表示された = 既読」で decrement が走る。
     expect(mockMarkReadLocal).toHaveBeenCalledWith('a1');
     expect(mockDecrement).toHaveBeenCalled();
   });
 
-  it('未読タイトルは太字 / 既読タイトルは通常ウェイトで描画する（rete-home-0011）', () => {
+  it('未読・既読ともタイトルの文字の太さは同じで、未読だけ印を付ける（d539・旧 rete-home-0011 の太字区別は撤回）', () => {
     render(<DashboardView />);
     const listed = screen.getByRole('list', { name: '通知一覧' });
-    // a1 = unread:true → font-semibold、a2 = unread:false → font-normal（mdl-0017 正本準拠）。
-    expect(within(listed).getByText('重要なお知らせ')).toHaveClass('font-semibold');
-    expect(within(listed).getByText('通常のお知らせ')).toHaveClass('font-normal');
+    const unreadTitle = within(listed).getByText('重要なお知らせ');
+    const readTitle = within(listed).getByText('通常のお知らせ');
+    // タイトルは 0.8125rem のみで、太さは明細行の正本（.sp-row-title=500）に委ねる
+    // （旧 font-semibold / font-normal は付かない・font-bold の持ち込みも許さない）。
+    for (const title of [unreadTitle, readTitle]) {
+      expect(title).toHaveClass('text-[0.8125rem]');
+      expect(title).not.toHaveClass('font-semibold');
+      expect(title).not.toHaveClass('font-normal');
+      expect(title).not.toHaveClass('font-bold');
+    }
+    expect(within(listed).getAllByTestId('home-unread-dot')).toHaveLength(1);
   });
 
   it('既読（unread:false）の通知を開いても decrement を呼ばない', async () => {

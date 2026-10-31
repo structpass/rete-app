@@ -47,6 +47,7 @@ beforeEach(() => {
 });
 
 import { ChatThread } from '../components/chat-thread';
+import { clearAllReplyDrafts } from '../lib/reply-drafts';
 import type { ChatThemeDetail } from '../lib/api';
 import { ChatThemeStatus } from '@rete/shared';
 
@@ -149,6 +150,34 @@ function ClickEditOnCommit() {
 }
 
 describe('ChatThread — スレッド/顛末 タブ strip（rete-desk-0039/0040 退行回帰）', () => {
+  it('題名をスクロール領域の外に置く', () => {
+    const { container } = renderThread();
+    const title = screen.getByRole('heading', { name: theme.title });
+    expect(title.closest('.desk-pane-body')).toBeNull();
+    expect(container.querySelector('.desk-pane-body')).toBeInTheDocument();
+  });
+  it('過去を読んでいる間は新着で飛ばず、最下部へ戻ると追従する', () => {
+    const props = renderThreadProps();
+    const { container, rerender } = render(<ChatThread {...props} />);
+    const body = container.querySelector<HTMLElement>('.desk-pane-body')!;
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 400 });
+    body.scrollTop = 100;
+    fireEvent.scroll(body);
+    const messages = [...theme.messages, { ...theme.messages[0], id: 'new1' }];
+    rerender(<ChatThread {...props} theme={{ ...theme, messages }} />);
+    expect(body.scrollTop).toBe(100);
+    body.scrollTop = 800;
+    fireEvent.scroll(body);
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 1300 });
+    rerender(
+      <ChatThread
+        {...props}
+        theme={{ ...theme, messages: [...messages, { ...messages[0], id: 'new2' }] }}
+      />,
+    );
+    expect(body.scrollTop).toBe(1300);
+  });
   it('スレッド / 顛末 タブを両方描画する', () => {
     renderThread();
     const strip = screen.getByRole('tablist', { name: 'スレッド表示タブ' });
@@ -1043,6 +1072,117 @@ describe('ChatThread — 編集モードで返信入力欄を隠す（rete-desk-
     // dsk-0276/0277 でタスクコメント欄とプレースホルダが同文言になったため、
     // 返信欄は aria-label「返信」で識別する（プレースホルダでは区別できない）。
     expect(screen.queryByLabelText('返信')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatThread — 書きかけの返信を消さず戻った時に続きから書ける（d737）', () => {
+  // 開発統括回答『残して戻れる形にする』（d729）。テーマ切替（remount）・起点カード編集（unmount）・
+  // 画面移動（unmount）で書きかけが消えず、戻ると続きから書けることを確かめる。
+  beforeEach(() => clearAllReplyDrafts());
+
+  it('起点カードの編集を開始して戻っても、書きかけの返信が残る', () => {
+    renderThread();
+    const editor = screen.getByLabelText('返信') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: '<p>書きかけの返信</p>' } });
+
+    // 編集開始＝返信欄を unmount する経路。
+    fireEvent.click(screen.getByRole('button', { name: '編集' }));
+    expect(screen.queryByLabelText('返信')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe(
+      '<p>書きかけの返信</p>',
+    );
+  });
+
+  it('テーマを切り替えて戻ると、そのテーマの書きかけが戻る（別テーマの書きかけは混ざらない）', () => {
+    const props = renderThreadProps();
+    const { rerender } = render(<ChatThread {...props} />);
+    fireEvent.change(screen.getByLabelText('返信'), {
+      target: { value: '<p>テーマ1の書きかけ</p>' },
+    });
+
+    // テーマ切替。実画面では一覧→詳細の往復で ChatThread ごと載り替わる（key 変更で remount）。
+    rerender(
+      <ChatThread {...props} theme={{ ...theme, id: 't2', title: '別のテーマ' }} key="t2" />,
+    );
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
+    fireEvent.change(screen.getByLabelText('返信'), {
+      target: { value: '<p>テーマ2の書きかけ</p>' },
+    });
+
+    rerender(<ChatThread {...props} theme={theme} key="t1" />);
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe(
+      '<p>テーマ1の書きかけ</p>',
+    );
+  });
+
+  it('起点カードの編集中に閉じても、書きかけがあるので破棄確認を通す（× はフォームの上にある）', () => {
+    const props = renderThreadProps();
+    render(<ChatThread {...props} />);
+    fireEvent.change(screen.getByLabelText('返信'), {
+      target: { value: '<p>編集中の書きかけ</p>' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '編集' }));
+    expect(screen.queryByLabelText('返信')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'キャンセル' }),
+    );
+    // 一度ダイアログを挟んだ後に閉じ直す → 確認なしで閉じる。書きかけが残っている限り、編集フォームの
+    // キャンセル後の 2 回目も（古い待ちではなく今の dirty で）1 回だけ確認を出す。
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.getAllByRole('alertdialog')).toHaveLength(1);
+    fireEvent.click(
+      within(screen.getAllByRole('alertdialog')[0]).getByRole('button', { name: 'OK' }),
+    );
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('起点カードの編集中に × → OK で閉じると書きかけは捨てられ、開き直しても戻らない', () => {
+    const props = renderThreadProps();
+    const { rerender } = render(<ChatThread {...props} />);
+    fireEvent.change(screen.getByLabelText('返信'), {
+      target: { value: '<p>編集中の書きかけ</p>' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '編集' }));
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    // 破棄確認は Rete ダイアログ（確認ボタンは "OK" / dsk-0125・0126 統一）。フォーム編集中の dirty も
+    // 合わさっているため、確認はその 1 枚だけ出る。
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }));
+    expect(props.onClose).toHaveBeenCalled();
+
+    rerender(<ChatThread {...props} key="reopen" />);
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('× で閉じた時の書きかけは捨て、開き直しても戻さない', () => {
+    const props = renderThreadProps();
+    const { rerender } = render(<ChatThread {...props} />);
+    fireEvent.change(screen.getByLabelText('返信'), { target: { value: '<p>捨てる書きかけ</p>' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    // 破棄確認（dirty のため）→ OK で閉じる。
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(props.onClose).toHaveBeenCalled();
+
+    rerender(<ChatThread {...props} key="reopen" />);
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('送信に成功したら書きかけを捨てる（同じテーマを開き直しても残らない）', async () => {
+    const onReply = vi.fn().mockResolvedValue(undefined);
+    const props = renderThreadProps({ onReply });
+    const { rerender } = render(<ChatThread {...props} />);
+    fireEvent.change(screen.getByLabelText('返信'), { target: { value: '<p>送った返信</p>' } });
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await flush();
+    expect(onReply).toHaveBeenCalled();
+
+    rerender(<ChatThread {...props} key="reopen" />);
+    expect((screen.getByLabelText('返信') as HTMLTextAreaElement).value).toBe('');
   });
 });
 

@@ -35,15 +35,18 @@ export function FormField({
       )}
     >
       {label && (
-        <Label htmlFor={htmlFor} className={compact ? 'text-xs font-semibold' : undefined}>
-          {label}
+        // 必須マークはラベル要素の外に並べる（label の中に入れると読み上げ名が「ラベル * 必須」になり、
+        // 正本 comp-form-field の「アクセシブル名を変えない」に反する）。マーク自体は装飾なので aria-hidden。
+        <span className="flex flex-wrap items-baseline gap-2">
+          <Label htmlFor={htmlFor} className={compact ? 'text-xs font-semibold' : undefined}>
+            {label}
+          </Label>
           {required && (
-            <span className="ml-2 text-xs text-[var(--sp-accent-red)]">
-              <span className="align-middle text-base">*</span>
-              必須
+            <span className="text-xs text-[var(--sp-accent-red)]" aria-hidden="true">
+              <span className="align-middle text-base">*</span> 必須
             </span>
           )}
-        </Label>
+        </span>
       )}
       {children}
       {error && <p className="text-sm text-[var(--sp-accent-red)]">{error}</p>}

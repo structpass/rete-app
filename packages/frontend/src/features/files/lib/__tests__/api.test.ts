@@ -14,6 +14,7 @@ import {
   deleteFolder,
   createFolder,
   fetchFileMeta,
+  uploadFile,
   uploadFileVersion,
   setFolderTags,
   assignTagsBatch,
@@ -421,6 +422,32 @@ describe('fetchFileMeta（FF お気に入り編集の deep link 解決）', () =
   });
 });
 
+describe('uploadFile（フォルダへのアップロード）', () => {
+  const row: FileRowDto = {
+    kind: 'file',
+    id: 'file-9',
+    name: 'report.txt',
+    versionNo: 1,
+    updatedBy: '田中一郎',
+    updatedAt: '2026-06-04T00:30:00.000Z',
+    byteSize: 4 * 1024,
+    tags: [],
+  };
+  beforeEach(() => {
+    postMock.mockReset().mockResolvedValue({ data: { success: true, data: row } });
+  });
+
+  it('POST /files/folders/:id/files へ multipart（FormData）を送り、送り方に multipart を名乗る', async () => {
+    const file = new File(['hello'], 'report.txt', { type: 'text/plain' });
+    await uploadFile('folder-1', file);
+    const [url, form, config] = postMock.mock.calls[0];
+    expect(url).toBe('/files/folders/folder-1/files');
+    expect(form).toBeInstanceOf(FormData);
+    expect((form as FormData).get('file')).toBe(file);
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } });
+  });
+});
+
 describe('uploadFileVersion（FF お気に入り編集の新版アップロード）', () => {
   const row: FileRowDto = {
     kind: 'file',
@@ -436,14 +463,16 @@ describe('uploadFileVersion（FF お気に入り編集の新版アップロー�
     postMock.mockReset().mockResolvedValue({ data: { success: true, data: row } });
   });
 
-  it('POST /files/files/:id/versions へ multipart（FormData）を送る（Content-Type は自動生成に委ねる）', async () => {
+  it('POST /files/files/:id/versions へ multipart（FormData）を送る（boundary はブラウザに足させる）', async () => {
     const file = new File(['edited'], 'report.docx', { type: 'application/octet-stream' });
     await uploadFileVersion('file-9', file);
     const [url, form, config] = postMock.mock.calls[0];
     expect(url).toBe('/files/files/file-9/versions');
     expect(form).toBeInstanceOf(FormData);
     expect((form as FormData).get('file')).toBe(file);
-    expect(config).toEqual({ headers: { 'Content-Type': undefined } });
+    // 中身の形は multipart を名乗る（axios 1.20 は指定しない POST を form-urlencoded で埋めるため、
+    // 指定を外すとサーバーが中身を読めない。実測 2026-10-26・d821）。
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } });
   });
 
   it('応答行を FileItem へ変換して返す（版番号 / サイズ整形）', async () => {

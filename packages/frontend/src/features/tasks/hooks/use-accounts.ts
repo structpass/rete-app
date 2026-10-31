@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import { extractErrorMessage } from '@/lib/error-utils';
 import { fetchAccounts, fetchAccountsBySpace, type Account } from '../lib/api';
 
 /**
@@ -24,8 +25,9 @@ export function useAccounts(errorMessage = '担当者候補の取得に失敗し
       const data =
         spaceId !== undefined ? await fetchAccountsBySpace(spaceId) : await fetchAccounts();
       setAccounts(data);
-    } catch {
-      toast.error(errorMessage);
+    } catch (err) {
+      // 失敗した理由（権限・通信など）を捨てずに出す（d754）。
+      toast.error(extractErrorMessage(err, errorMessage));
     } finally {
       setLoading(false);
     }

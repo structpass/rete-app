@@ -37,6 +37,7 @@ export interface TagPickerOverlayProps {
   tags: TagPickerTag[];
   /** 初期選択済み ID 集合。 */
   initialSelected: string[];
+  selectionMode?: 'single' | 'multiple';
   /** loading 中かどうか（マスタ取得中はトグル一覧を出さない）。 */
   loading?: boolean;
   /** エラー状態（読み込み失敗）。 */
@@ -61,6 +62,7 @@ export interface TagPickerOverlayProps {
 export function TagPickerOverlay({
   tags,
   initialSelected,
+  selectionMode = 'multiple',
   loading = false,
   error = false,
   saveLabel = '保存',
@@ -79,7 +81,10 @@ export function TagPickerOverlay({
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else {
+        if (selectionMode === 'single') next.clear();
+        next.add(id);
+      }
       return next;
     });
   };

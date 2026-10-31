@@ -166,9 +166,11 @@
     --sp-tone-orange: var(--warning);
     /* 検索ハイライト黄（mdl-0046 T3） */
     --sp-search-hl: #fff2a8;
-    /* お気に入り星 active（mdl-0046 T4・amber 現状値を温存） */
-    --sp-fav-active: #f59e0b;
-    --sp-fav-active-hover: #d97706;
+    /* お気に入り（ハート）の登録済み色。開発統括指示で amber から赤（ややピンク寄り）へ変更。
+       未登録のハート＋は淡いグレー（.fav-toggle の既定色）で、登録済みだけが赤になる。
+       hover はわずかに濃い赤へ。 */
+    --sp-fav-active: #e8475f;
+    --sp-fav-active-hover: #cc2f47;
     /* メッセージ入力欄／編集モードの薄青背景（rete-desk-0115）。開発統括指示で従来 #E3ECF5 をもう一段
        薄く調整。global-input / 編集フォーム等の入力欄背景を一元化（直書き重複を解消）。 */
     --sp-input-soft-blue: #eff4fa;
@@ -261,6 +263,14 @@
     overflow: hidden;
   }
 
+  /* d746: カレンダーも Desk / 掲示板 / Model と同じく viewport 固定にする。週表示の時間軸は
+     枠の高さから 1 時間ぶんの高さを決めるので、高さ連鎖が途切れると時高が決まらず、
+     枠が内容（hour × 24）で押し伸ばされて発散する（実測 2026-10-24: body が 3355 万px）。 */
+  body:has(.calendar-page) .app-shell {
+    height: 100vh;
+    overflow: hidden;
+  }
+
   /* mdl-0054是正: .app-sidebar は本来ページ全体がスクロールする画面向けに sticky top:0 +
      align-self:flex-start（＝コンテンツ実高さのまま追従）で作られている。だが viewport 固定の
      3 タブ（Desk/掲示板/Model・上記 :has ルール群）は body 側がスクロールしないため sticky が
@@ -274,7 +284,8 @@
      サイドバー幅を超えて本文全体に広がる実害を実機確認で検出＝code-reviewer CRITICAL 指摘） */
   body:has(.model-shell) .app-shell .app-sidebar,
   body:has(.desk-shell) .app-shell .app-sidebar,
-  body:has(.dashboard-shell) .app-shell .app-sidebar {
+  body:has(.dashboard-shell) .app-shell .app-sidebar,
+  body:has(.calendar-page) .app-shell .app-sidebar {
     align-self: stretch;
     position: relative;
   }
@@ -547,6 +558,7 @@
      通常時とアクティブ時で文字・アイコンの縦ラインが動かない（見出しも同値で寄せて左揃えを保つ）。
      Desk の行はクラスが別なので明示列挙する（塗りと同じく行ラッパー基準・ホバー帯の測位単位とも一致）。 */
   .app-sidebar-scroll .sidebar-link,
+  .app-sidebar-scroll .sidebar-note,
   .app-sidebar-scroll .sidebar-section-label,
   .app-sidebar-scroll .sidebar-project-head-row,
   .app-sidebar-scroll .sidebar-channel-row,
@@ -574,6 +586,20 @@
     color: hsl(var(--sidebar-foreground) / 0.35);
     cursor: not-allowed;
     pointer-events: none;
+  }
+  /* S-HOME-09: クリック不可の行は反応しないため、押せない理由をその下に文字で出す
+     （従来は減光だけで、押しても何も起きない＝壊れて見えた）。 */
+  .app-sidebar .sidebar-note {
+    margin-inline: 6px;
+    padding: 0.125rem 0.75rem 0.375rem;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: hsl(var(--sidebar-foreground) / 0.55);
+    /* 長い一覧でサイドバーを押し広げないよう、2 行で切る（全文は title 属性で読める）。 */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .fav-kind-sidebar {
@@ -811,6 +837,29 @@
     background-color: var(--sp-card);
     border: 1px solid var(--sp-line-warm);
     border-radius: var(--radius);
+  }
+
+  /* 面パネル（正本 comp-card の囲み面）。Card 合成（CardHeader の p-6 等）では高密度一覧の面を
+     組めないため、枠・角丸・影の値だけをここに一元化し、画面側で作り込まない。
+     枠 --sp-line-warm / 角丸 var(--radius) / 弱い影 は components/ui/card.tsx と同値。 */
+  .sp-panel {
+    background-color: var(--sp-card);
+    border: 1px solid var(--sp-line-warm);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  /* 必須マーク（設定タブの FormLabel required / 正本 comp-form-field の必須バッジと同字面）。
+     見た目だけのマークで、必須の意味は入力側の aria-required が担う。 */
+  .sp-required-mark {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--sp-accent-red);
+    white-space: nowrap;
+  }
+  .sp-required-star {
+    font-size: 1rem;
+    vertical-align: middle;
   }
 
   /* 設定タブ共通の入力 / セレクト。Desk のフィルタ入力意匠（.desk-filter-keyword input）へ統一し、
@@ -1233,6 +1282,18 @@
   }
   .fav-toggle.active:hover {
     color: var(--sp-fav-active-hover);
+  }
+  /* v2-505: 非活性（一覧で複数選択中は登録対象が一意に決まらないため押せない）。
+     活性時と見分けが付かないと「押せない理由」がツールチップ頼みになるため、
+     淡色化＋not-allowed で見た目にも押せないことを示し、hover の反応も止める。 */
+  .fav-toggle:disabled,
+  .fav-toggle.active:disabled {
+    color: hsl(var(--foreground) / 0.3);
+    cursor: not-allowed;
+  }
+  .fav-toggle:disabled:hover {
+    background-color: transparent;
+    color: hsl(var(--foreground) / 0.3);
   }
   .fav-toggle svg {
     width: 1rem;
@@ -1946,6 +2007,16 @@
 }
 .app-sidebar .fav-toggle.active:hover {
   color: var(--sp-fav-active-hover);
+}
+/* v2-505: 濃色サイドバーでも非活性は淡色＋not-allowed で示す（unlayered が @layer に勝つため再宣言する）。 */
+.app-sidebar .fav-toggle:disabled,
+.app-sidebar .fav-toggle.active:disabled {
+  color: hsl(var(--sidebar-foreground) / 0.35);
+  cursor: not-allowed;
+}
+.app-sidebar .fav-toggle:disabled:hover {
+  background-color: transparent;
+  color: hsl(var(--sidebar-foreground) / 0.35);
 }
 /* flex-shrink は flex 配置の .sidebar-member-row-wrap 内でのみ意味を持つ（プロジェクト見出し/チャネル行の
    .fav-toggle は position:absolute のため flex-shrink が効かず dead 宣言だった・dsk-0299 review MEDIUM）。
@@ -3252,10 +3323,8 @@ input[type='search']::-webkit-search-cancel-button {
   padding-left: 0;
 }
 
-/* 未読スレッドはタイトルを太字で表現（バッジ色は self-mention 専用） */
-.desk-chat-card.is-unread .desk-chat-card-title {
-  font-weight: 600;
-}
+/* d539: 未読スレッドの題名太字（旧 .desk-chat-card.is-unread）は撤去した。明細の見出しは表の正本
+   （comp-table・500 固定）に従い、未読は chat-list.tsx の行内マークで示す（ホームの明細行と同じ語彙）。 */
 
 /* 検索キーワード一致箇所のハイライト（薄い黄色 / rete-desk-0048・cmn-0093で中立名へ改称・全画面共通）。
    一覧/詳細の <mark> に適用。行の高さを変えないよう padding は持たせず色のみ付ける。 */
@@ -3598,17 +3667,14 @@ input[type='search']::-webkit-search-cancel-button {
   margin-right: 0.125rem;
 }
 
+/* 未保存バッジ。本体は共通 Badge（正本 comp-badge・variant=warning）で、ここは行内の詰めだけを持つ。
+   cmn-0334: 黄地に白文字は 2.15:1 で読めない。Badge 側が対トークン --warning-foreground を使う（7.5:1）。 */
 .desk-pending-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 9999px;
-  background: hsl(var(--warning));
-  /* cmn-0334: 黄地に白文字は 2.15:1 で読めない。既存の対トークン --warning-foreground で 7.5:1。
-     hsl() で包む（包み忘れると宣言ごと破棄される・cmn-0255 の壊れ方そのもの）。 */
-  color: hsl(var(--warning-foreground));
-  font-size: 9px;
-  font-weight: 600;
   margin-left: 0.375rem;
+  padding: 0 0.375rem;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  vertical-align: middle;
 }
 
 .desk-task-status {
@@ -5479,21 +5545,19 @@ input[type='search']::-webkit-search-cancel-button {
   font-weight: 600;
   font-size: 0.75rem;
 }
-/* 新規登録モード時の必須項目ラベル — 既定は通常表示、※必須 markup は表示しない。
-   .is-creating 配下で .desk-detail-required を表示し、ラベル文字を 1 段小さく見せる。 */
-.desk-detail-required {
-  display: none;
+/* 必須マーク（Desk の題名欄）。正本 comp-form-field の「* 必須」と同じ字面・色を密度トークン内で
+   再現する。新規登録モードの題名だけが該当（分類・ステータスは意図的に付けない＝rete-desk-0184/0185・
+   正本 comp-form-field の例外注記）。かつて「.is-creating 配下でだけ出す」前提の
+   .desk-detail-required があったが、その要素を作る画面が無く死んでいたため、
+   新規登録モードだけが出す .desk-ticket-required 1 本に畳んだ。 */
+.desk-ticket-required {
+  display: inline;
+  flex-shrink: 0;
   color: var(--sp-accent-red);
   font-weight: 600;
-  margin-left: 0.25rem;
-}
-.desk-view[data-left-view='detail'].is-creating .desk-detail-required {
-  display: inline;
-}
-.desk-view[data-left-view='detail'].is-creating
-  .desk-detail-info-field.is-required
-  > .desk-detail-info-label {
+  margin-left: 0.5rem;
   font-size: 0.6875rem;
+  white-space: nowrap;
 }
 .desk-detail-info-divider {
   height: 1px;
@@ -6161,12 +6225,57 @@ body:has(.desk-pane.is-overlaid-wide) .desk-pane.is-overlaid-left.is-overlaid-wi
 .file-topbar-crumb .tc-path-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  /* d524: パンくずのアイコンと名前の間は半角 1 文字分に詰める（旧 0.5rem は全角 1.5 文字分に見え、
+     「どのフォルダの話か」が読み取りにくかった）。 */
+  gap: 0.25rem;
   flex: 1;
   min-width: 0;
 }
 .file-topbar-crumb .tc-path-row .fav-toggle {
   flex-shrink: 0;
+}
+/* d524: パンくずのお気に入りは「現在フォルダ名＋ハート」の 1 ボタン。
+   名前とアイコンの間は半角 1 文字分（0.25rem）に詰め、hover 帯・クリック範囲を 1 つの面にする。
+   旧: 名前はパンくず側の span、アイコンは別ボタンで、8px 空いていたため「何に係っているか」が
+   読み取れなかった。 */
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: auto;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  color: var(--sp-text-warm);
+  font-size: 0.75rem;
+}
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label .fav-toggle-label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16rem;
+}
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--sp-text-warm-mute);
+}
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label.active svg {
+  color: var(--sp-fav-active);
+}
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label:hover svg {
+  color: var(--sp-text-warm-2);
+}
+.file-topbar-crumb .tc-path-row .fav-toggle.with-label.active:hover svg {
+  color: var(--sp-fav-active-hover);
+}
+/* パンくずの各セグメント（フォルダアイコン／＞＋名前）。アイコンと文字の間は半角 1 文字分。 */
+.file-topbar-crumb .tc-path .tc-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 /* tc-path 自身は flex:1 にしない（tc-path-row 内の余白を専有すると★がウィンドウ右端へ
    押し出され「隣接表示」を破る＝ui-review-runner 検出）。コンテンツ幅のみ確保し、
@@ -6628,6 +6737,10 @@ body:has(.desk-pane.is-overlaid-wide) .desk-pane.is-overlaid-left.is-overlaid-wi
   padding: 0.5rem 0.5rem 0;
   margin-bottom: 0.625rem;
   border-top: 1px solid var(--sp-line-warm-2);
+}
+/* 右端グループ（主要アクション＋破壊操作）の分離。正本 comp-toolbar の margin-left: auto 相当。 */
+.file-tb-spacer {
+  flex: 1 1 auto;
 }
 .file-tb-btn {
   /* gap 4px = mdl-0024 icon 正本（アイコン⇄ラベル間隔） */
@@ -7799,6 +7912,25 @@ body:has(.desk-pane.is-overlaid-wide) .desk-pane.is-overlaid-left.is-overlaid-wi
   z-index: 0;
 }
 
+/* 添付元の切替も comp-tabs の下線型へ揃える。タグ管理は既存の専用スコープを保つ。 */
+.file-overlay-panel-attach .file-overlay-tabs {
+  gap: 0;
+  border-bottom: 1px solid var(--sp-line-warm);
+}
+.file-overlay-panel-attach .file-overlay-tab {
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+}
+.file-overlay-panel-attach .file-overlay-tab.is-active {
+  background: transparent;
+  border-bottom-color: var(--sp-accent-ink);
+  font-weight: 600;
+}
+.file-overlay-panel-attach .file-overlay-tab-hoverband {
+  border-radius: 0;
+}
+
 /* [ファイル] タブ = Files ページと同型（topbar + 2 ペイン）を縦に詰める。 */
 .file-picker-repo {
   display: flex;
@@ -8286,6 +8418,11 @@ button.sidebar-link:disabled:hover {
 
 /* ── D&D ドラッグ中ゴースト（@dnd-kit DragOverlay。モックは toast のみだが浮遊ラベルを追加）── */
 .file-drag-ghost {
+  /* ゴーストはポインターに付いてくるため、そのまま置くと落とす先の上で離した時にポインターを
+     ゴーストが受け止め、落とす先まで届かない（実測 2026-10-27: 移し先の上で離しても移動の
+     要求が出ず、画面は「移し先の上で離した」とだけ記録した・d825）。表示だけの層として
+     ポインターは素通しにする（この器の他の装飾層と同じ扱い）。 */
+  pointer-events: none;
   display: inline-flex;
   align-items: center;
   padding: 0.25rem 0.625rem;
@@ -8299,23 +8436,21 @@ button.sidebar-link:disabled:hover {
 }
 
 /* ── 分類マスタ設定モーダル（rete-desk-0140 / タスク明細ツールバー「分類設定」から開く）──
-   A1 状態機械のビューではない独立モーダル。z-index 10010: チャット詳細オーバーレイ帯
-   （9998-10000）の上・破棄確認 AlertDialog（10050）の下に置く（削除確認がこの上に乗る）。 */
-.desk-catset-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10010;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(19, 32, 40, 0.32);
+   A1 状態機械のビューではない独立モーダル。重ね表示・backdrop（曇りガラス）・z 10050・Esc・
+   focus trap・inert 隔離は共通 OverlayDialog（正本 comp-overlay-dialog）が担い、ここはカード面だけを持つ。 */
+/* OverlayDialog のパネルは中央寄せの箱なので、ここで縦の上限を決める（-translate の中央寄せでは
+   高さが決まらず、長い一覧で画面外へはみ出す）。 */
+.desk-catset-overlay {
+  max-height: 92vh;
+  outline: none;
 }
 .desk-catset-card {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
-  width: min(480px, 92vw);
-  max-height: 80vh;
+  width: 100%;
+  max-height: 88vh;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 1rem 1.125rem 1.125rem;
   background: var(--sp-card);

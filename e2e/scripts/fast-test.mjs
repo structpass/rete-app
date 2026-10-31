@@ -34,7 +34,10 @@ const RESET_TTL_MS = 30 * 60 * 1000;
 const argv = process.argv.slice(2);
 const wantReport = argv.includes('--report');
 const force = argv.includes('--force');
-const passthrough = argv.filter((a) => !['--report', '--force'].includes(a));
+// --component-tests= はこのスクリプトが読むだけ（playwright へは渡さない）。
+const passthrough = argv.filter(
+  (a) => !['--report', '--force'].includes(a) && !a.startsWith('--component-tests='),
+);
 
 function readState() {
   try {
@@ -130,13 +133,77 @@ if (resetFresh) {
   state.resetAt = Date.now();
 }
 
+// ---------------------------------------------------------------- 部品の試験（画面の部品）
+// ログイン後に描かれる画面（サイドバー等）は、ブラウザを開かずに通信だけで確かめられない。
+// 部品の試験（frontend の vitest）で確かめた結果を控えに置き、e2e のシナリオはその控えを読んで
+// 「同じ回で緑だった」ことをもって確認済みにする（S-HOME-09）。持たないシナリオはこれを見ないので、
+// 対象の試験だけを回して速さを保つ。
+//
+// 控えは回ごとに作る（前の回の控えが残ると、部品の試験を回さない回が前の緑を読んでしまう）。
+// 位置は e2e の控え置き場の下（コミットしない）。
+const COMPONENT_FILE = argv.find((a) => a.startsWith('--component-tests='))?.split('=')[1];
+const COMPONENT_RESULT = path.join(CACHE_DIR, 'component.json');
+fs.mkdirSync(CACHE_DIR, { recursive: true });
+fs.rmSync(COMPONENT_RESULT, { force: true });
+if (!COMPONENT_FILE) {
+  // 回さない回は控えを置かない（読む側のシナリオは赤で止まる＝確かめていないのに先へ進まない）。
+  fs.writeFileSync(
+    COMPONENT_RESULT,
+    JSON.stringify({ file: null, ran: false, passed: [], failed: [], status: null }),
+    'utf8',
+  );
+} else {
+  const FRONTEND_DIR = path.join(REPO_DIR, 'packages', 'frontend');
+  const jsonOut = path.join(CACHE_DIR, 'component-result.json');
+  fs.rmSync(jsonOut, { force: true });
+  log(`部品の試験 実行（${COMPONENT_FILE}）`);
+  // 呼ぶ側はリポジトリ直下からの場所で渡す（控えの照合もその形で揃う）。vitest は frontend を
+  // 作業場にするので、frontend を起点とした相対の場所へ直して渡す。
+  const target = path
+    .relative(FRONTEND_DIR, path.join(REPO_DIR, COMPONENT_FILE))
+    .replaceAll('\\', '/');
+  const component = spawnSync(
+    'pnpm',
+    ['exec', 'vitest', 'run', target, '--reporter=json', `--outputFile=${jsonOut}`],
+    { cwd: FRONTEND_DIR, stdio: 'inherit', shell: process.platform === 'win32' },
+  );
+  // 通った試験と落ちた試験を分けて控える。「一部でも落ちた回は確認済みにしない」を読む側で
+  // 判定できるようにする（名前は完全一致で照合し、別の試験の名前に救われないようにする）。
+  const passed = [];
+  const failed = [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(jsonOut, 'utf8'));
+    for (const suite of parsed.testResults ?? []) {
+      for (const t of suite.assertionResults ?? []) {
+        const name = [...(t.ancestorTitles ?? []), t.title].join(' > ');
+        if (t.status === 'passed') passed.push(name);
+        else if (t.status !== 'pending' && t.status !== 'skipped') failed.push(name);
+      }
+    }
+  } catch {
+    /* 読めなければ空のまま（シナリオ側が赤になる） */
+  }
+  fs.writeFileSync(
+    COMPONENT_RESULT,
+    JSON.stringify({ file: COMPONENT_FILE, ran: true, passed, failed, status: component.status }),
+    'utf8',
+  );
+  if (component.status !== 0) {
+    log('部品の試験が赤（このまま e2e を続ける。読む側のシナリオが赤になる）');
+  }
+}
+
 // ---------------------------------------------------------------- playwright
+// 画面の点検（@screen・実ブラウザで主要な画面を開く）は、API のシナリオと分かれた project。
+// 依頼側が project を指定した時（--grep 等と併用）はそちらを優先し、指定が無ければ両方走らせる。
+const requestedProject = passthrough.some((a) => a.startsWith('--project'));
+const projects = requestedProject ? [] : ['--project=authz', '--project=screen'];
 const pwArgs = [
   'playwright',
   'test',
   '--config',
   'playwright.config.ts',
-  '--project=authz',
+  ...projects,
   ...passthrough,
 ];
 
@@ -149,6 +216,8 @@ const pw = spawnSync('npx', pwArgs, {
     ...process.env,
     // config 側がこの値を見て HTML レポートの有無を切り替える
     E2E_REPORTER_MODE: wantReport ? 'html' : 'list',
+    // 部品の試験の控え（上の段で書く。回さない回は ran=false で置く）。
+    HOME_TRACK_COMPONENT_RESULT: COMPONENT_RESULT,
   },
 });
 

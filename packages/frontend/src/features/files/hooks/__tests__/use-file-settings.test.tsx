@@ -274,3 +274,24 @@ describe('useFileSettings — 保存失敗の理由（v2-198）', () => {
     expect(res).toEqual({ ok: false, reason: '設定の保存に失敗しました' });
   });
 });
+
+describe('useFileSettings — 読み込み失敗の理由（d754）', () => {
+  it('取得に失敗した時はサーバーが返した理由を loadErrorReason に載せる', async () => {
+    fetchFileSettings.mockRejectedValue({
+      response: { data: { error: { message: '設定の参照権限がありません' } } },
+    });
+    const { result } = renderHook(() => useFileSettings());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe(true);
+    expect(result.current.loadErrorReason).toBe('設定の参照権限がありません');
+  });
+
+  it('理由を取れない失敗は固定文言へ縮退する（空の文言を出さない）', async () => {
+    fetchFileSettings.mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useFileSettings());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.loadErrorReason).toBe('設定の読み込みに失敗しました');
+  });
+});

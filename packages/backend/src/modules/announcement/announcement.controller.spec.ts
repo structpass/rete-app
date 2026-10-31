@@ -1,11 +1,8 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
-import { Role } from '@rete/shared';
 import { AnnouncementController } from './announcement.controller';
 import { AnnouncementService } from './announcement.service';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { HomeWriteGuard } from '../home-permissions/home-write.guard';
 
 const mockService = {
   findAll: jest.fn(),
@@ -27,7 +24,10 @@ describe('AnnouncementController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnnouncementController],
       providers: [{ provide: AnnouncementService, useValue: mockService }],
-    }).compile();
+    })
+      .overrideGuard(HomeWriteGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AnnouncementController>(AnnouncementController);
   });
@@ -114,70 +114,5 @@ describe('AnnouncementController', () => {
 
     expect(await controller.removeAttachment('a1', 'att-1')).toBe(expected);
     expect(mockService.removeAttachment).toHaveBeenCalledWith('a1', 'att-1');
-  });
-});
-
-/** cmn-0085: 書き込み系（create/reorder/update/remove/setTags/addAttachment/removeAttachment）は
- *  ADMIN 限定（RolesGuard integration）。Guard を override せず実際の RolesGuard を使い、
- *  MEMBER は ForbiddenException・ADMIN は通過、@Roles 無しの一覧（findAll）は MEMBER でも
- *  通過することを確認する（announcement-tags.controller.spec の cmn-0039 ブロックを移植）。
- */
-describe('AnnouncementController — cmn-0085: 書き込みは ADMIN のみ（RolesGuard integration）', () => {
-  let controller: AnnouncementController;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [AnnouncementController],
-      providers: [{ provide: AnnouncementService, useValue: mockService }],
-    })
-      .overrideGuard(AuthenticatedGuard)
-      .useValue({ canActivate: () => true })
-      // RolesGuard は override せず実態を使う
-      .compile();
-
-    controller = module.get<AnnouncementController>(AnnouncementController);
-  });
-
-  const makeCtx = (handler: (...args: never[]) => unknown, role: Role) =>
-    ({
-      getHandler: () => handler,
-      getClass: () => AnnouncementController,
-      switchToHttp: () => ({ getRequest: () => ({ user: { id: 'acc-1', role } }) }),
-    }) as never;
-
-  const makeGuard = async () => {
-    const { Reflector } = await import('@nestjs/core');
-    return new RolesGuard(new Reflector());
-  };
-
-  it.each([
-    ['create', () => AnnouncementController.prototype.create],
-    ['reorder', () => AnnouncementController.prototype.reorder],
-    ['update', () => AnnouncementController.prototype.update],
-    ['remove', () => AnnouncementController.prototype.remove],
-    ['setTags', () => AnnouncementController.prototype.setTags],
-    ['addAttachment', () => AnnouncementController.prototype.addAttachment],
-    ['removeAttachment', () => AnnouncementController.prototype.removeAttachment],
-  ])('MEMBER が %s にアクセスすると RolesGuard が 403 を返すこと', async (_name, handler) => {
-    const guard = await makeGuard();
-    expect(() => guard.canActivate(makeCtx(handler(), Role.MEMBER))).toThrow(ForbiddenException);
-  });
-
-  it.each([
-    ['create', () => AnnouncementController.prototype.create],
-    ['reorder', () => AnnouncementController.prototype.reorder],
-    ['update', () => AnnouncementController.prototype.update],
-    ['remove', () => AnnouncementController.prototype.remove],
-    ['setTags', () => AnnouncementController.prototype.setTags],
-    ['addAttachment', () => AnnouncementController.prototype.addAttachment],
-    ['removeAttachment', () => AnnouncementController.prototype.removeAttachment],
-  ])('ADMIN が %s にアクセスすると RolesGuard が通過すること', async (_name, handler) => {
-    const guard = await makeGuard();
-    expect(guard.canActivate(makeCtx(handler(), Role.ADMIN))).toBe(true);
-  });
-
-  it('findAll（@Roles 無し・一覧）は MEMBER でも RolesGuard を通過すること（回帰防止）', async () => {
-    const guard = await makeGuard();
-    expect(guard.canActivate(makeCtx(controller.findAll, Role.MEMBER))).toBe(true);
   });
 });

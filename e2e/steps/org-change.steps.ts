@@ -21,6 +21,7 @@ import type { APIRequestContext } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
 import { createAuthenticatedContext, BASE_URL, CREDENTIALS, credByEmail } from '../support/auth';
 import { resolvePlaceholders as resolveVars, resolveListItems } from './common.steps';
+import { tappedIdsOf } from '../support/response-fingerprint';
 
 /**
  * シナリオ内で並存させる補助セッション（ victim 側 = ロック対象者のセッション等）。
@@ -77,6 +78,7 @@ Given(
     }
 
     world.sessions[key] = ctx;
+    world.sessionOwners[key] = email;
     world.auxiliaryContexts.push(ctx);
     if (email === CREDENTIALS.tanaka.email) {
       world.restoreAccountIds.push(id);
@@ -99,6 +101,7 @@ When(
     }
     const resolved = resolveVars(urlPath, world.uniqueNames);
     world.lastResponse = await ctx.get(resolved);
+    world.tappedIds = tappedIdsOf(resolved);
   },
 );
 

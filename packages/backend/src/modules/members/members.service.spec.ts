@@ -2,6 +2,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { getUniqueConflictMessage } from '../../common/filters/unique-conflict-context';
 import { Role } from '@rete/shared';
 import { MembersService } from './members.service';
 import { MembersRepository } from './repositories/members.repository';
@@ -86,6 +87,16 @@ describe('MembersService', () => {
       expect(csv.charCodeAt(0)).toBe(0xfeff); // BOM
       expect(csv).toContain('表示名,メールアドレス,状態,作成日時,最終更新日時');
       expect(csv).toContain('山田 太郎,taro@rete.local,有効');
+    });
+
+    it('service では記録しない（出力の記録は横断 interceptor が担う・二重記録の防止）', async () => {
+      mockRepo.findAll.mockResolvedValue([
+        makeMemberWithRelations({ id: 'a1', name: '山田 太郎', email: 'taro@rete.local' }),
+      ]);
+
+      await service.exportCsv();
+
+      expect(mockAudit.record).not.toHaveBeenCalled();
     });
   });
 
@@ -241,7 +252,7 @@ describe('MembersService', () => {
         expect(mockAudit.record).not.toHaveBeenCalled();
       });
 
-      it('並行更新（TOCTOU）で他 Admin が同じ email を書いた直後の P2002 を ConflictException へ変換する', async () => {
+      it('並行更新（TOCTOU）で他 Admin が同じ email を書いた直後の P2002 と専用の案内文を共通filterへ渡す', async () => {
         mockRepo.findById.mockResolvedValue(
           makeMemberWithRelations({ id: OTHER_ID, email: 'old@rete.local' }),
         );
@@ -252,9 +263,12 @@ describe('MembersService', () => {
           { code: 'P2002', clientVersion: 'test', meta: { target: ['email'] } },
         );
         mockRepo.update.mockRejectedValue(p2002);
-        await expect(
-          service.update(OTHER_ID, { email: 'taken@rete.local' }, ACTOR),
-        ).rejects.toBeInstanceOf(ConflictException);
+        await expect(service.update(OTHER_ID, { email: 'taken@rete.local' }, ACTOR)).rejects.toBe(
+          p2002,
+        );
+        expect(getUniqueConflictMessage(p2002)).toBe(
+          'メールアドレス「taken@rete.local」は既に使用されています',
+        );
         expect(mockAudit.record).not.toHaveBeenCalled();
       });
 

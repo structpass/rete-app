@@ -11,10 +11,12 @@ interface Row {
 /** 解決タイミングを外から制御できる Promise（後着順を固定するため）。 */
 function deferred<T>() {
   let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((r, j) => {
     resolve = r;
+    reject = j;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('useEntityCrud', () => {
@@ -93,5 +95,131 @@ describe('useEntityCrud', () => {
     );
     await waitFor(() => expect(result.current.items).toEqual([{ id: 'a', name: '組織A' }]));
     expect(result.current.isLoading).toBe(false);
+  });
+
+  // ── v2-410: 取得失敗を error として呼び出し側へ渡す（領域内 role="alert" の受け口）──
+
+  it('初回の取得失敗を error として残す（items は空・isLoading は下りる・v2-410）', async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const { result } = renderHook(() =>
+      useEntityCrud<Row>({ fetchFn, createFn: vi.fn(), updateFn: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.error).toBe('一覧の取得に失敗しました'));
+    expect(result.current.items).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('呼び出し側の画面固有文言を error に入れる（loadErrorMessage・v2-410）', async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const { result } = renderHook(() =>
+      useEntityCrud<Row>({
+        fetchFn,
+        createFn: vi.fn(),
+        updateFn: vi.fn(),
+        loadErrorMessage: '組織の取得に失敗しました',
+      }),
+    );
+
+    await waitFor(() => expect(result.current.error).toBe('組織の取得に失敗しました'));
+  });
+
+  it('再取得が成功すると error を消す（v2-410）', async () => {
+    const fetchFn = vi
+      .fn<() => Promise<Row[]>>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce([{ id: 'a', name: 'A' }]);
+    const { result } = renderHook(() =>
+      useEntityCrud<Row>({ fetchFn, createFn: vi.fn(), updateFn: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    await act(async () => {
+      result.current.reload();
+    });
+
+    await waitFor(() => expect(result.current.items).toEqual([{ id: 'a', name: 'A' }]));
+    expect(result.current.error).toBeNull();
+  });
+
+  it('取得成功の後に失敗したら、旧一覧を残したまま error を立てる（v2-410）', async () => {
+    const fetchFn = vi
+      .fn<() => Promise<Row[]>>()
+      .mockResolvedValueOnce([{ id: 'a', name: 'A' }])
+      .mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderHook(() =>
+      useEntityCrud<Row>({ fetchFn, createFn: vi.fn(), updateFn: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.items).toEqual([{ id: 'a', name: 'A' }]));
+
+    await act(async () => {
+      result.current.reload();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe('一覧の取得に失敗しました'));
+    // 旧一覧は消さない（表示中の一覧の下に失敗を残す）
+    expect(result.current.items).toEqual([{ id: 'a', name: 'A' }]);
+  });
+
+  it('古い取得の失敗が後着しても、最新の成功を error で上書きしない（v2-410）', async () => {
+    const first = deferred<Row[]>();
+    const second = deferred<Row[]>();
+    const fetchA = vi.fn(() => first.promise);
+    const fetchB = vi.fn(() => second.promise);
+
+    const { result, rerender } = renderHook(
+      ({ fetchFn }: { fetchFn: () => Promise<Row[]> }) =>
+        useEntityCrud<Row>({ fetchFn, createFn: vi.fn(), updateFn: vi.fn() }),
+      { initialProps: { fetchFn: fetchA } },
+    );
+    rerender({ fetchFn: fetchB });
+
+    // 最新（2 回目）が先に成功し、そのあと古い 1 回目が失敗して後着する。
+    await act(async () => {
+      second.resolve([{ id: 'b', name: '最新' }]);
+      await second.promise;
+    });
+    await waitFor(() => expect(result.current.items).toEqual([{ id: 'b', name: '最新' }]));
+
+    await act(async () => {
+      first.reject(new Error('古い失敗'));
+      await first.promise.catch(() => {});
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.items).toEqual([{ id: 'b', name: '最新' }]);
+  });
+
+  it('最新の失敗は、古い成功が後着しても消えない（v2-410）', async () => {
+    const first = deferred<Row[]>();
+    const second = deferred<Row[]>();
+    const fetchA = vi.fn(() => first.promise);
+    const fetchB = vi.fn(() => second.promise);
+
+    const { result, rerender } = renderHook(
+      ({ fetchFn }: { fetchFn: () => Promise<Row[]> }) =>
+        useEntityCrud<Row>({ fetchFn, createFn: vi.fn(), updateFn: vi.fn() }),
+      { initialProps: { fetchFn: fetchA } },
+    );
+    rerender({ fetchFn: fetchB });
+
+    // 最新（2 回目）が失敗し、そのあと古い 1 回目が成功して後着する。
+    await act(async () => {
+      second.reject(new Error('boom'));
+      await second.promise.catch(() => {});
+    });
+    await waitFor(() => expect(result.current.error).toBe('一覧の取得に失敗しました'));
+
+    await act(async () => {
+      first.resolve([{ id: 'a', name: '古い' }]);
+      await first.promise;
+    });
+
+    expect(result.current.error).toBe('一覧の取得に失敗しました');
+    expect(result.current.items).toEqual([]);
   });
 });

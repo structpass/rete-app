@@ -74,6 +74,9 @@ describe('GroupsAdminScreen（一覧のみ・set-0188）', () => {
 
     // includeArchived を送らない（API クライアントの撤去固定）
     expect(api.fetchUserGroups).toHaveBeenCalledWith();
+    expect(screen.getByText('全 2 件')).toBeInTheDocument();
+    expect(screen.getByText('1 / 1 page')).toBeInTheDocument();
+    expect(screen.queryByLabelText('ページ切り替え')).not.toBeInTheDocument();
   });
 
   it('「新規作成」は作成サブ画面へ遷移する', async () => {
@@ -111,6 +114,7 @@ describe('GroupsAdminScreen（一覧のみ・set-0188）', () => {
     await waitFor(() => expect(screen.queryByText('営業チーム')).not.toBeInTheDocument());
     // 削除していないグループは残る
     expect(screen.getByText('開発チーム')).toBeInTheDocument();
+    expect(screen.getByText('全 1 件')).toBeInTheDocument();
     expect(toast.success).toHaveBeenCalled();
   });
 
@@ -166,5 +170,45 @@ describe('GroupsAdminScreen（一覧のみ・set-0188）', () => {
     expect(screen.queryByText('管理グループがありません')).not.toBeInTheDocument();
     // 取得失敗は toast へ逃がさない（正本 ui.ts:109-110 の二層: 取得失敗=領域内 / 操作失敗=toast）
     expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByText('全 — 件')).toBeInTheDocument();
+    expect(screen.queryByText('全 0 件')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 / 1 page')).not.toBeInTheDocument();
+  });
+
+  it('取得中は件数不明、取得成功の空配列は全0件と表示する（d595）', async () => {
+    let resolveGroups!: (groups: unknown[]) => void;
+    api.fetchUserGroups.mockReturnValue(
+      new Promise((resolve) => {
+        resolveGroups = resolve;
+      }),
+    );
+    render(<GroupsAdminScreen />);
+    expect(screen.getByText('全 — 件')).toBeInTheDocument();
+    expect(screen.queryByText('全 0 件')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 / 1 page')).not.toBeInTheDocument();
+    resolveGroups([]);
+    expect(await screen.findByText('全 0 件')).toBeInTheDocument();
+    expect(screen.getByText('管理グループがありません')).toBeInTheDocument();
+    expect(screen.queryByText('全 — 件')).not.toBeInTheDocument();
+  });
+
+  // d659: 取得失敗は「もう一度取る手段」までを 1 つの領域として出す。押せば本当に取り直す。
+  it('取得失敗の表示に再試行を添え、押すと取り直して失敗の表示を消す（d659）', async () => {
+    const user = userEvent.setup();
+    api.fetchUserGroups.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce([group()]);
+
+    render(<GroupsAdminScreen />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('管理グループの読み込みに失敗しました');
+    const retry = within(alert).getByRole('button', { name: '再試行' });
+
+    await user.click(retry);
+
+    expect(await screen.findByText('営業チーム')).toBeInTheDocument();
+    // 取れたのに失敗の文言が残らない（成功と失敗が同時に出ない）
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(api.fetchUserGroups).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('全 1 件')).toBeInTheDocument();
   });
 });

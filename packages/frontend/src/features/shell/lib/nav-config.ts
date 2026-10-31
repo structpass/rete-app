@@ -10,15 +10,7 @@ import type { HubMenuItem } from '@/features/hub';
  * （`useFavorites` がユーザー別データを取得。本ファイルは遷移解決のみ担う）。
  */
 
-export type ShellTabKey =
-  | 'home'
-  | 'system'
-  | 'desk'
-  | 'backlog'
-  | 'files'
-  | 'settings'
-  | 'mock'
-  | 'model';
+export type ShellTabKey = 'home' | 'system' | 'desk' | 'files' | 'settings' | 'mock' | 'model';
 
 export interface ShellTab {
   key: ShellTabKey;
@@ -35,7 +27,7 @@ export interface ShellTab {
   resolveFrom?: string;
 }
 
-/** ヘッダタブ順（Home / Desk / File / System / Mock / Setting / Model / Backlog）。
+/** ヘッダタブ順（Home / Desk / File / System / Mock / Setting / Model）。
  *  ラベルは英語・単数形（cmn-0114 の添付モック準拠）。英語化はグローバルメニューのみで、
  *  各画面内タイトルは日本語のまま（スコープ限定）。 */
 export const SHELL_TABS: ShellTab[] = [
@@ -45,10 +37,8 @@ export const SHELL_TABS: ShellTab[] = [
   { key: 'system', label: 'System', kind: 'external', resolveFrom: 'reference' },
   { key: 'mock', label: 'Mock', kind: 'disabled' },
   { key: 'settings', label: 'Setting', kind: 'internal', href: '/settings' },
-  // 共通仕様カタログ（rete 固有共通仕様の正本）。開発・参照向けタブとしてバックログの直前に置く。
+  // 共通仕様カタログ（rete 固有共通仕様の正本）。開発・参照向けタブ。
   { key: 'model', label: 'Model', kind: 'internal', href: '/model' },
-  // 開発運用タブ（モック外・rete 独自）。instruction-board を iframe 表示する。
-  { key: 'backlog', label: 'Backlog', kind: 'internal', href: '/backlog' },
 ];
 
 /** プリセット種別（key）→ reference の複数形ルート対応表（hom-0067）。

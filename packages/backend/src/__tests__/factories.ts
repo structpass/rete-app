@@ -351,6 +351,7 @@ export function makeAccountEntity(overrides: Partial<Account> = {}): Account {
     id: 'account-1',
     email: 'user@rete.local',
     passwordHash: 'argon2-hash-placeholder',
+    credentialsChangedAt: null,
     name: 'テストユーザー',
     familyName: 'テストユーザー',
     givenName: '',

@@ -11,6 +11,8 @@ type MockSession = {
   // H10b: express-session の session.regenerate(cb)。session fixation 対策で establishSession が呼ぶ。
   regenerate: jest.Mock;
   authMethod?: string;
+  authOrigin?: 'local' | 'external-idp';
+  oidcSsoAt?: number;
   pendingMfaAccountId?: string;
   pendingMfaAttempts?: number;
   pendingMfaInteractionUid?: string;
@@ -131,6 +133,7 @@ describe('AuthController', () => {
 
       expect(req.logIn).toHaveBeenCalledTimes(1);
       expect(req.session.authMethod).toBe('local');
+      expect(req.session.authOrigin).toBe('local');
       expect(result).toEqual({ success: true, data: ACCOUNT });
     });
 
@@ -146,6 +149,7 @@ describe('AuthController', () => {
       expect(req.session.pendingMfaAccountId).toBe('acc-1');
       expect(req.session.pendingMfaInteractionUid).toBeUndefined();
       expect(req.session.authMethod).toBe('local');
+      expect(req.session.authOrigin).toBe('local');
       expect(mockAuthService.resetLoginAttempts).not.toHaveBeenCalled();
       expect(result).toEqual({ success: true, data: { mfaRequired: true } });
     });
@@ -389,7 +393,22 @@ describe('AuthController', () => {
       expect(result).toEqual({ success: true, data: { ...ACCOUNT, mfaSetupRequired: true } });
     });
 
-    it('強制 ON × MFA 未設定 でも SSO 経路（authMethod!==local）なら mfaSetupRequired を立てないこと（set-0032・R9 IdP MFA 尊重）', async () => {
+    it('強制 ON × MFA 未設定 でも外部 IdP 認証（authOrigin=external-idp）なら mfaSetupRequired を立てないこと（set-0032・R9 IdP MFA 尊重）', async () => {
+      mockLoginSettings.isMfaEnforced.mockResolvedValue(true);
+      mockMfaService.hasConfirmedMfa.mockResolvedValue(false);
+      const result = await controller.me(
+        makeReq({
+          session: {
+            destroy: jest.fn(),
+            regenerate: jest.fn((cb: (err: Error | null) => void) => cb(null)),
+            authOrigin: 'external-idp',
+          },
+        }) as never,
+      );
+      expect(result).toEqual({ success: true, data: ACCOUNT });
+    });
+
+    it('旧セッション（authMethod だけが sso・authOrigin 無し）でも強制 ON × MFA 未設定なら mfaSetupRequired を立てること（d955 の穴を塞ぐ）', async () => {
       mockLoginSettings.isMfaEnforced.mockResolvedValue(true);
       mockMfaService.hasConfirmedMfa.mockResolvedValue(false);
       const result = await controller.me(
@@ -401,7 +420,7 @@ describe('AuthController', () => {
           },
         }) as never,
       );
-      expect(result).toEqual({ success: true, data: ACCOUNT });
+      expect(result).toEqual({ success: true, data: { ...ACCOUNT, mfaSetupRequired: true } });
     });
   });
 
@@ -424,12 +443,14 @@ describe('AuthController', () => {
       expect(result).toEqual({ success: true, data: { message: 'パスワードを変更しました' } });
     });
 
-    it('パスワード変更後も現在ブラウザのSSOとMFA証跡を保持してsessionを再発行する', async () => {
+    it('パスワード変更後も現在ブラウザの出自（authOrigin）とMFA証跡を保持してsessionを再発行する', async () => {
       const req = makeReq({
         session: {
           destroy: jest.fn(),
           regenerate: jest.fn((cb: (err: Error | null) => void) => cb(null)),
           authMethod: 'local',
+          authOrigin: 'local',
+          oidcSsoAt: 5678,
           mfaVerifiedAt: 1234,
         },
       });
@@ -440,6 +461,8 @@ describe('AuthController', () => {
       );
 
       expect(req.session.authMethod).toBe('local');
+      expect(req.session.authOrigin).toBe('local');
+      expect(req.session.oidcSsoAt).toBe(5678);
       expect(req.session.mfaVerifiedAt).toBe(1234);
     });
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import { extractErrorMessage } from '@/lib/error-utils';
 import { fetchCategories, type Category } from '../lib/api';
 
 /**
@@ -32,8 +33,9 @@ export function useCategories(spaceId: string | null | undefined) {
     try {
       const data = await fetchCategories(spaceId);
       setCategories(data);
-    } catch {
-      toast.error('機能領域分類の取得に失敗しました');
+    } catch (err) {
+      // 失敗した理由（権限・通信など）を捨てずに出す（d754）。
+      toast.error(extractErrorMessage(err, '機能領域分類の取得に失敗しました'));
     } finally {
       setLoading(false);
     }

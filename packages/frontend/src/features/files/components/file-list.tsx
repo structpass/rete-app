@@ -266,10 +266,13 @@ function FileRow({
   onEditFile,
   lastRowClickRef,
   versionFlashId,
+  parentFolderId = null,
 }: {
   vm: FileRowVM;
   selected: boolean;
   dndDisabled: boolean;
+  /** page モードの一覧が今表示しているフォルダの id（掴んだ行の移動元・root は null）。 */
+  parentFolderId?: string | null;
   onToggle: (name: string) => void;
   /** ピッカー（添付）モード: 行クリックでファイル=添付 / フォルダ=潜る。チェックボックス列は空にする。 */
   pickMode?: boolean;
@@ -305,7 +308,16 @@ function FileRow({
     isDragging,
   } = useDraggable({
     id: `row:${srcIndex}`,
-    data: { kind: 'row', index: srcIndex, label: item.name },
+    data: {
+      kind: 'row',
+      index: srcIndex,
+      label: item.name,
+      // ツリーのフォルダへ落とした時の移動に使う（一覧の行 → ツリーのフォルダ・S-FILE-04-開発エージェント）。
+      // folder は移動 API がフォルダ id、file はファイル id を受ける。
+      rowKind: item.kind,
+      rowId: isFolder ? item.fid : item.id,
+      rowParentFolderId: parentFolderId,
+    },
     disabled: dndDisabled,
   });
   const { setNodeRef: setDropRef, isOver } = useDroppable({
@@ -433,6 +445,7 @@ export function FileList({
   onNavigateFolder,
   onEditFile,
   versionFlashId,
+  parentFolderId = null,
 }: {
   rows: FileRowVM[];
   sortKey: SortKey | null;
@@ -442,6 +455,8 @@ export function FileList({
   selection: { has: (name: string) => boolean; toggle: (name: string) => void };
   dndDisabled: boolean;
   onToggleAll: (checked: boolean) => void;
+  /** page モードの一覧が今表示しているフォルダの id（行をツリーのフォルダへ移す時の移動元・root は null）。 */
+  parentFolderId?: string | null;
   /**
    * ピッカー（添付）モード: チェックボックス列を空にし、行クリックで添付（ファイル）/ フォルダ遷移する。
    * 既定 false で Files ページ本体の挙動は不変（architecture-invariants 回帰防止）。
@@ -508,8 +523,10 @@ export function FileList({
                   />
                 </th>
               )}
-              {/* 列順: 名前 / タグ(非ソート) / 種類 / 更新者 / 更新日 / サイズ(非ソート)。
-                  picker モードはタグ・更新者を省く（rete-files-0006 / rete-desk-0098）。版数列は廃止。 */}
+              {/* 列順: 名前 / タグ(非ソート) / 種類 / 更新者 / 版数 / 更新日 / サイズ(非ソート)。
+                  picker モードはタグ・更新者・版数を省く（rete-files-0006 / rete-desk-0098）。
+                  お気に入り登録はトップバーの★（現在フォルダ）が担うため、明細には★列を置かない
+                  （v2-505 差し戻し・rete-files-0030 の「★登録は Home 側導線へ一本化」に戻す）。 */}
               <SortHeader
                 col={COLUMNS[0]}
                 sortKey={sortKey}
@@ -604,6 +621,7 @@ export function FileList({
                     onEditFile={pickMode ? undefined : onEditFile}
                     lastRowClickRef={pickMode ? undefined : lastRowClickRef}
                     versionFlashId={versionFlashId}
+                    parentFolderId={parentFolderId}
                   />
                 ))}
           </tbody>

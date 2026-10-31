@@ -15,6 +15,9 @@ import { useSession } from '@/features/auth';
 import { FormActions, FormButton, FormCard, PageTitle } from './primitives';
 import toast from 'react-hot-toast';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 import {
   BADGE_PALETTE,
   type TenantBadgeColor,
@@ -85,6 +88,7 @@ function ColorSwatch({ color }: { color: TenantBadgeColor }) {
 export function TenantSettingsScreen() {
   const { user, loading: sessionLoading } = useSession();
   const isAdmin = user?.role === Role.ADMIN;
+  const discard = useDiscardConfirm();
 
   // set-0105: ヘッダ左端テナントバッジへ同一タブ即時反映
   const { setTenantInfo } = useTenantInfoContext();
@@ -129,10 +133,22 @@ export function TenantSettingsScreen() {
 
   // ── テナント情報「キャンセル」（v2-171: 編集を保存済みの値へ戻す。API は呼ばない）──
   function handleCancelTenantInfo() {
-    setTenantName(savedInfo.current.name);
-    setBadgeColor(savedInfo.current.badgeColor);
-    toast.success('変更をキャンセルしました');
+    discard.request(
+      tenantName !== savedInfo.current.name || badgeColor !== savedInfo.current.badgeColor,
+      () => {
+        setTenantName(savedInfo.current.name);
+        setBadgeColor(savedInfo.current.badgeColor);
+        toast.success('変更をキャンセルしました');
+      },
+    );
   }
+
+  // Esc は「キャンセル」と同じ経路にする（UI 共通仕様 escape-key 規約①②。破棄確認の表示中は
+  // AlertDialog 側が Esc を消費するため何もしない）。ADMIN 以外はボタンもダイアログも出さない。
+  useEscapeConsume(handleCancelTenantInfo, {
+    enabled: isAdmin && !sessionLoading,
+    guardSelector: '[role="alertdialog"]',
+  });
 
   // ── テナント名プレビュー（選択中の色で見せる） ──
   const previewPalette = BADGE_PALETTE[badgeColor];
@@ -167,6 +183,11 @@ export function TenantSettingsScreen() {
     <main className="sp-page" style={{ overflowY: 'auto' }}>
       <PageTitle title="テナント設定" />
 
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
       {/* v2-180: 全幅(1153px)で間延びしていたフォームを内容に合う幅へ絞り左寄せにする（表のある画面と同じ 680px）。 */}
       <div style={{ maxWidth: 680 }}>
         {/* ============ §2 テナント情報（名称 + バッジ色） ============ */}

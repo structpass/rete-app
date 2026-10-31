@@ -16,9 +16,8 @@ function errorStatus(err: unknown): number | undefined {
  * エラー）だけで、そこは英語の汎用文しか入っておらず利用者に意味が無い。4xx はサーバーが訳した案内文
  * （実行形式・サイズ・拡張子・multipart 上限・回数制限）なのでそのまま出す。
  *
- * 判定を HTTP status で行うのが重要。error code は 413（multipart の 100 MB ハードキャップ）でも
- * INTERNAL_ERROR になり（common の派生表に 413 が無いため初期値のまま）、code を鍵にすると
- * 「ファイルサイズが上限（100 MB）を超えています」という直せば通る理由まで汎用文へ潰れる。
+ * 判定は HTTP status で行う。413（multipart の 100 MB ハードキャップ）の code は BAD_REQUEST。
+ * 旧サーバーから INTERNAL_ERROR が返る場合も、4xx の直せば通る理由を汎用文へ潰さない。
  */
 export function uploadFailureReason(err: unknown, fallback = '原因を特定できませんでした'): string {
   const status = errorStatus(err);

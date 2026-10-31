@@ -23,23 +23,43 @@ const FIELD_LABEL_STYLE: CSSProperties = {
 /**
  * フォーム入力のラベル。htmlFor 指定時は `<label>`（入力に紐付く）、無指定時は `<span>`（グループ見出し）を描画。
  * 旧 fieldLabel / labelStyle の逐語複製（3 画面）をここへ集約。
+ *
+ * required: サーバが空を拒否する項目に「* 必須」を出す（正本 comp-form-field の必須バッジと同字面・同色）。
+ * マークは label 要素の外（隣）に置く＝アクセシブル名を変えない。見た目だけのマークなので aria-hidden にし、
+ * 必須の意味は入力側の aria-required が担う。
  */
 export function FormLabel({
   htmlFor,
   children,
   style,
+  required,
 }: {
   htmlFor?: string;
   children: ReactNode;
   style?: CSSProperties;
+  required?: boolean;
 }) {
   const merged = style ? { ...FIELD_LABEL_STYLE, ...style } : FIELD_LABEL_STYLE;
-  return htmlFor ? (
+  const mark = required ? (
+    <span aria-hidden="true" className="sp-required-mark">
+      <span className="sp-required-star">*</span> 必須
+    </span>
+  ) : null;
+  const label = htmlFor ? (
     <label htmlFor={htmlFor} style={merged}>
       {children}
     </label>
   ) : (
     <span style={merged}>{children}</span>
+  );
+  // マークは label の外（隣）に置くが、行としてはラベルと同じ行に並べる（flex 行に内包）。
+  return mark ? (
+    <span style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.5rem' }}>
+      {label}
+      {mark}
+    </span>
+  ) : (
+    label
   );
 }
 

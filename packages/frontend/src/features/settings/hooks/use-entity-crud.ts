@@ -1,5 +1,6 @@
 'use client';
 
+import { apiErrorMessage } from '@/features/settings/lib/api-error';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -18,6 +19,12 @@ export interface UseEntityCrudResult<T> {
   isLoading: boolean;
   creating: boolean;
   updating: boolean;
+  /**
+   * 直近の一覧取得の失敗（v2-410）。成功した取得・より新しい取得の開始で消える。
+   * 呼び出し側は領域内の role="alert" へ接続する（正本 ui.ts:109「取得失敗は領域内に残す・
+   * toast だけにしない」＝消えたあと 0 件表示と区別できないため）。
+   */
+  error: string | null;
   /** 一覧を再取得する（保存成功後の明示 reload が必要な場合に使う）。 */
   reload: () => void;
   /** 新規アイテムを作成してリストへ追加する。失敗時は throw するので caller が catch する。 */
@@ -30,20 +37,24 @@ export interface UseEntityCrudResult<T> {
  * @param fetchFn  一覧取得 fn。参照変更で useEffect が再実行される（useCallback で memoize 推奨）。
  * @param createFn 名前を受け取り新規作成して返す fn。
  * @param updateFn id + 部分パッチを受け取り更新後 DTO を返す fn。
+ * @param loadErrorMessage 取得失敗時に `error` へ入れる画面固有の文言（未指定は汎用文言）。
  */
 export function useEntityCrud<T extends { id: string }>({
   fetchFn,
   createFn,
   updateFn,
+  loadErrorMessage = '一覧の取得に失敗しました',
 }: {
   fetchFn: () => Promise<T[]>;
   createFn: (name: string) => Promise<T>;
   updateFn: (id: string, patch: { name?: string; archived?: boolean }) => Promise<T>;
+  loadErrorMessage?: string;
 }): UseEntityCrudResult<T> {
   const [items, setItems] = useState<T[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   /**
    * 取得の世代番号（set-0150）。load のたびに ++ し、解決時に自分が最新でなければ結果を捨てる。
@@ -65,18 +76,24 @@ export function useEntityCrud<T extends { id: string }>({
     setIsLoading(true);
     try {
       const list = await fetchFn();
+      // 古い取得の解決は現在の状態を変えない（items も error も触らない・set-0150）。
       if (gen !== loadGenRef.current) return;
       setItems(list);
+      // 最新の成功でだけ失敗表示を消す（再試行中は前回の失敗を残したままにする）。
+      setError(null);
+    } catch (err) {
+      // 最新世代の失敗だけを残す（古い取得の失敗で、現在の成功や表示を上書きしない・v2-410）。
+      if (gen !== loadGenRef.current) return;
+      setError(apiErrorMessage(err, loadErrorMessage));
     } finally {
       if (gen === loadGenRef.current) setIsLoading(false);
     }
-  }, [fetchFn]);
+  }, [fetchFn, loadErrorMessage]);
 
   useEffect(() => {
     // fetchFn が変わるたびに再取得（引数変化への反応）。
-    // 失敗は握り潰す＝前回の items が残ったまま isLoading が下りる（呼び出し側へエラーを渡す口は
-    // 現状無い。set-0150 のレビューで判明したコメントのドリフトを実体へ合わせた）。
-    load().catch(() => {});
+    // 失敗は `error` へ残す（呼び出し側が領域内 role="alert" へ接続する・v2-410）。
+    void load();
   }, [load]);
 
   const create = useCallback(
@@ -112,8 +129,9 @@ export function useEntityCrud<T extends { id: string }>({
     isLoading,
     creating,
     updating,
+    error,
     reload: () => {
-      load().catch(() => {});
+      void load();
     },
     create,
     update,

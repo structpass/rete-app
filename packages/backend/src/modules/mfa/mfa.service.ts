@@ -164,11 +164,15 @@ export class MfaService {
   /**
    * ログインチャレンジ（R7・auth から呼ばれる内部 API）。TOTP→バックアップコードの順で検証し、成否を bool で返す。
    * 有効化済み setting が無い account に対しては false（呼び出し側で弾く前提・防御的に false）。
+   *
+   * d21: 有効化の印（enabled）だけでなく、実際に MFA コードを照合できる状態まで確かめる。
+   * 確認済み（confirmedAt あり）でない行に secret を上書きすれば、印を残したまま次のコードを攻撃者が
+   * 握る secret で通せる（setup は未確認行の再実行を許す）。暗号鍵の欠落も照合不能として false（fail closed）。
    */
   async verifyLoginChallenge(accountId: string, code: string): Promise<boolean> {
     if (!isSecretCryptoConfigured()) return false;
-    const setting = await this.repo.findSetting(accountId);
-    if (!setting || !setting.enabled) return false;
+    const setting = await this.repo.findEnabledSetting(accountId);
+    if (!setting) return false;
     return this.verifyCode(setting, code);
   }
 

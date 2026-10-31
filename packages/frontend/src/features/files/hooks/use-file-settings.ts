@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { extractValidationErrorMessage } from '@/lib/error-utils';
+import { extractErrorMessage, extractValidationErrorMessage } from '@/lib/error-utils';
 import {
   fetchFileSettings,
   updateFileSettings,
@@ -24,6 +24,12 @@ export interface UseFileSettingsResult {
   loading: boolean;
   saving: boolean;
   error: boolean;
+  /**
+   * 読み込みに失敗した理由（サーバーが返した文言。取れなければ「設定の読み込みに失敗しました」）。
+   * d754: 同じ設定を編集する2面（設定タブの画面と Files のオーバーレイ）が一律の文言で理由を捨てており、
+   * 何を直せば開けるのか分からなかった。保存失敗で理由を出している扱い（v2-198）に揃える。
+   */
+  loadErrorReason: string;
   maxSizeMb: number;
   /**
    * 許可拡張子の一覧（v2-203）。以前は「カンマ区切りの入力欄テキスト」1本だったが、
@@ -68,6 +74,7 @@ export function useFileSettings(): UseFileSettingsResult {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [loadErrorReason, setLoadErrorReason] = useState('');
   const [maxSizeMb, setMaxSizeMb] = useState(0);
   const [allowedExtensions, setAllowedExtensions] = useState<string[]>([]);
   const [fixedRejectedExtensions, setFixedRejectedExtensions] = useState<string[]>([]);
@@ -97,14 +104,18 @@ export function useFileSettings(): UseFileSettingsResult {
     let active = true;
     setLoading(true);
     setError(false);
+    setLoadErrorReason('');
     fetchFileSettings()
       .then((form) => {
         if (!active) return;
         setFixedRejectedExtensions([...form.fixedRejectedExtensions]);
         applyForm(form);
       })
-      .catch(() => {
-        if (active) setError(true);
+      .catch((err) => {
+        if (!active) return;
+        // 失敗の理由を捨てない（d754）。取れない失敗は固定文言へ縮退する（空の文言を出さない）。
+        setLoadErrorReason(extractErrorMessage(err, '設定の読み込みに失敗しました'));
+        setError(true);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -193,6 +204,7 @@ export function useFileSettings(): UseFileSettingsResult {
     loading,
     saving,
     error,
+    loadErrorReason,
     maxSizeMb,
     allowedExtensions,
     fixedRejectedExtensions,

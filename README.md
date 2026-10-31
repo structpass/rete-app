@@ -106,7 +106,7 @@ PostgreSQL セッション永続化。
 
 ## 評価環境の起動
 
-前提：Node.js 24 LTS（`.nvmrc` は24）／ pnpm 9.15.4（`packageManager` 指定）／ Docker Compose（DB 用）。フォント取得と依存インストールにはネットワーク接続が必要です。
+前提：Node.js 24 LTS（`.nvmrc` は24）／ pnpm 10.34.5（`packageManager` 指定）／ Docker Compose（DB 用）。フォント取得と依存インストールにはネットワーク接続が必要です。
 
 ```bash
 # リポジトリのルートで実行。Windows PowerShellではcpの代わりにCopy-Itemも使えます。
@@ -137,7 +137,6 @@ pnpm dev
 - 初回の管理者メールは `SEED_ADMIN_EMAIL`（未設定時 `admin@rete.local`）です。管理者とデモユーザーの既定パスワードは [seed.ts](./packages/backend/prisma/seed.ts) にある公開情報です。
 - Referenceは別のアプリです。未設定時は連携を評価できません。Reteと同じポートで同時起動せず、各環境ファイルのURLとOIDC設定を揃えてください。
 - SMTP未設定時は招待メール等のメール依存機能を利用できません。ローカルでメールを評価する場合は `docker compose --profile dev up -d mailpit` とbackendのSMTP設定が必要です。
-- バックログタブは外部チケットツール（本公開版には含まれない）をiframe表示します。接続先が利用できなければ表示されません。
 - 上記はリポジトリのスクリプト・設定に合わせたローカル評価手順です。取得した版での初回起動結果と各機能の設定を確認してください。本番運用の手順・動作保証を意味しません。
 
 ## Referenceと一緒に評価する

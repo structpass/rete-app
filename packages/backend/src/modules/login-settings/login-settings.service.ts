@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DEFAULT_PASSWORD_POLICY, type PasswordPolicyShape } from '@rete/shared';
 import { ok } from '../../common/dto';
-import { isValidCidr } from '../../common/net/cidr';
+import { isValidCidr, isIpAllowed } from '../../common/net/cidr';
 import { LoginSettingsRepository } from './repositories/login-settings.repository';
 import { toIpWhitelistEntryResponse, toPasswordPolicyResponse } from './login-settings.mapper';
 import { UpdateIpWhitelistDto } from './dto/update-ip-whitelist.dto';
@@ -9,7 +9,8 @@ import { UpdatePasswordPolicyDto } from './dto/update-password-policy.dto';
 
 /**
  * ログイン設定（Settings ST-2）のユースケース。パスワードポリシー（singleton）と IP 許可リスト（全置換）。
- * enforcement（パスワード強度の強制適用 / IP 遮断 middleware）は本トラックの責務外。設定の保存・取得まで。
+ * パスワード強度の強制適用は本トラックの責務外。IP 遮断そのものは `IpAllowlistGuard` が行い、ここは
+ * 保存時に「この保存で自分が外に出ないか」だけを guard と同じ判定で見る（自己ロックアウトの穴・d827）。
  */
 @Injectable()
 export class LoginSettingsService {
@@ -98,6 +99,20 @@ export class LoginSettingsService {
         throw new BadRequestException(`重複した CIDR です: ${e.cidr}`);
       }
       seen.add(key);
+    }
+    // 自己ロックアウトの穴（d827）: 遮断は保存の直後に効くため、自分の IP を含まないリストを保存すると
+    // 管理セッションごと 403 になり、戻すための同じ PUT も遮断される（API からは戻す手が無く、DB を
+    // 直接空にするしかない）。画面は「現在 IP を追加」を押させる手順にしていたが、押し忘れと API からの
+    // 保存で出口が閉じるため、遮断の入口（guard）と同じ判定で保存要求そのものを断る。
+    // 空リスト（制限解除）は遮断を解く向きなので、判定せず通す（出口は必ずこちらへ開いている）。
+    if (dto.entries.length > 0) {
+      const cidrs = dto.entries.map((e) => e.cidr);
+      if (!currentIp || !isIpAllowed(currentIp, cidrs)) {
+        throw new BadRequestException(
+          `保存するとこの接続（${currentIp || 'IP を検出できません'}）が許可リストの外になり、管理画面ごと遮断されます。` +
+            '現在の IP を含めて保存するか、すべて消して制限を解除してください。',
+        );
+      }
     }
     const rows = await this.repo.replaceIpWhitelist(
       dto.entries.map((e) => ({ cidr: e.cidr, note: e.note ?? '' })),

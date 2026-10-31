@@ -1,0 +1,70 @@
+.calendar-datetime-field {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+.calendar-datetime-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.calendar-datetime-control > input {
+  min-width: 0;
+}
+.calendar-datetime-control > button {
+  padding: 8px;
+  margin-top: 6px;
+}
+.calendar-datetime-input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.calendar-datetime-popup {
+  position: fixed;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  z-index: 10100;
+  padding: 12px;
+  background: white;
+  color: var(--sp-text-warm);
+  border: 1px solid var(--sp-line-warm-2);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #0002;
+  font-size: 13px;
+}
+.calendar-datetime-popup header,
+.calendar-datetime-popup footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.calendar-datetime-popup button {
+  padding: 5px;
+}
+.calendar-datetime-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-block: 8px;
+  text-align: center;
+}
+.calendar-datetime-days button[aria-pressed='true'] {
+  background: var(--sp-accent-teal);
+  color: white;
+  border-radius: 4px;
+}
+.calendar-datetime-days .is-outside {
+  color: var(--sp-text-warm-mute);
+}
+.calendar-datetime-popup select {
+  border: 1px solid var(--sp-line-warm-2);
+  border-radius: 4px;
+  padding: 5px;
+  min-width: 64px;
+  background: white;
+}
+.calendar-datetime-popup footer > button {
+  margin-left: auto;
+  color: var(--sp-accent-teal);
+}

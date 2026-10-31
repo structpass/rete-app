@@ -132,3 +132,9 @@ export const FOLDER_MAX_DEPTH = 100;
  * 同じ集約理由・fil-0148）。
  */
 export const FOLDER_DEPTH_EXCEEDED_MESSAGE = 'フォルダの階層が深すぎるため操作できません';
+
+/** 構造参照の解決で 1 回に受ける id 数の上限（設計 §2.3・本文 1 本あたりの参照 10 件に余裕を持たせる）。 */
+export const REF_RESOLVE_MAX = 20;
+
+/** パス表記の区切り（設計 §2.2・spec §6.2 と同じ表記）。フロントの PATH_SEP と同じ文字列。 */
+export const REF_PATH_SEP = ' ＞ ';

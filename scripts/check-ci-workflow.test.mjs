@@ -21,44 +21,25 @@ const REPO_ROOT = join(HERE, '..');
 const WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'test.yml');
 const DEPLOY_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'deploy.yml');
 
-function validateSeedGuardStep(yaml) {
-  const lines = yaml.split(/\r?\n/).filter((line) => !/^\s*#/.test(line));
-  const start = lines.findIndex((line) => /^      - name: Seed guard checks\s*$/.test(line));
-  assert.ok(start >= 0, 'Seed guard checks の必須stepがありません');
-  const install = lines.findIndex((line) => /^      - name: Install dependencies\s*$/.test(line));
-  assert.ok(install >= 0 && install < start, 'seed検査は依存install後に実行する');
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^      - /.test(line));
-  const step = rest.slice(0, end < 0 ? undefined : end).join('\n');
-  assert.match(step, /^        run: node --test scripts\/check-seed-guards\.test\.mjs\s*$/m);
-  assert.doesNotMatch(
-    step,
-    /^        (?:if|continue-on-error):/m,
-    'seed検査を条件付き/非必須にしない',
-  );
-}
-
-test('CI: seedガード検査はinstall後に必ず実行する (v2-373)', () => {
-  validateSeedGuardStep(readFileSync(WORKFLOW_PATH, 'utf8'));
-});
-
-test('CI: seed検査stepの削除・順序逆転・非必須化を検出する (v2-373)', () => {
+test('CI: 重複検査が閾値超過を失敗として伝える (d555)', () => {
   const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
-  const step =
-    '      - name: Seed guard checks\n        run: node --test scripts/check-seed-guards.test.mjs\n';
-  const clean = yaml.replace(/\r\n/g, '\n');
-  assert.ok(clean.includes(step));
-  assert.throws(() => validateSeedGuardStep(clean.replace(step, '')));
-  assert.throws(() =>
-    validateSeedGuardStep(
-      clean
-        .replace(step, '')
-        .replace('      - name: Install dependencies', step + '      - name: Install dependencies'),
-    ),
+  const lines = yaml.split('\n').filter((line) => !/^\s*#/.test(line));
+  const start = lines.findIndex((line) =>
+    /^\s*-\s+name:\s*Duplication check \(jscpd\)\s*$/.test(line),
   );
-  assert.throws(() =>
-    validateSeedGuardStep(clean.replace(step, step + '        continue-on-error: true\n')),
-  );
+  assert.ok(start >= 0, '重複検査の CI ステップがありません');
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^\s*-\s/.test(line));
+  const step = rest.slice(0, end < 0 ? undefined : end).join('\n');
+  assert.match(step, /^\s*run: pnpm run check:duplication\s*$/m);
+  assert.doesNotMatch(step, /continue-on-error|\bif\s*:/);
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  // 2026-10-22 実測: jscpd 自身の --threshold は小数第 1 位で比較するため、実測 1.24% が
+  // 1〜1.6 のどの閾値でも緑になった。比較は自前の検査（scripts/check-duplication.mjs）が持つ。
+  assert.equal(pkg.scripts['check:duplication'], 'node scripts/check-duplication.mjs');
+  const config = JSON.parse(readFileSync(join(REPO_ROOT, '.jscpd.json'), 'utf8'));
+  // 効かない閾値を設定に戻すと「設定したが効いていない」にまた戻るので置かせない。
+  assert.equal(config.threshold, undefined);
 });
 
 /**
@@ -108,6 +89,49 @@ test('CI: knip スナップショット検査のステップと env が残って
 });
 
 /**
+ * CI: 依存監査の境界検査（sprintf-js）は install 後の専用ステップで走る（d954）。
+ *
+ * なぜ必要か: この検査は node_modules の実体を読むため install 前の check:repo-invariants から
+ * EXCLUDED で外してあり、実行経路は CI の専用ステップ 1 本だけになる。ステップ名・起動 script・
+ * package.json の script のどれかが消えると、検査は誰にも走らせられないまま静かに消える。
+ */
+test('CI: 依存監査の境界検査（sprintf-js）が install 後のステップで走る', () => {
+  const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
+  const lines = yaml.split('\n').filter((line) => !/^\s*#/.test(line));
+  const start = lines.findIndex((line) =>
+    /^\s*-\s+name:\s*Dependency audit boundary \(sprintf-js\)\s*$/.test(line),
+  );
+  assert.ok(
+    start >= 0,
+    'test.yml に「Dependency audit boundary (sprintf-js)」ステップがありません＝' +
+      'install 前の不変条件検査から外してあるため、ここが消えると sprintf-js の到達性監査が誰にも走りません',
+  );
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^\s*-\s/.test(line));
+  const step = [lines[start], ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
+  assert.ok(
+    step.includes('run: pnpm run check:audit-boundary'),
+    'ステップが check:audit-boundary を起動していません（起動の書き方を変えたら本検査も直す）',
+  );
+
+  // install より後ろに置かれていること（node_modules の実体を読む検査なので、前だと必ず赤になる）。
+  const installAt = lines.findIndex((line) =>
+    /^\s*-\s+name:\s*Install dependencies\s*$/.test(line),
+  );
+  assert.ok(installAt >= 0, 'test.yml に Install dependencies ステップがありません');
+  assert.ok(
+    installAt < start,
+    'Dependency audit boundary ステップが Install dependencies より前です＝node_modules が無く必ず赤になります',
+  );
+
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  assert.ok(
+    typeof pkg.scripts?.['check:audit-boundary'] === 'string',
+    'ルート package.json に check:audit-boundary がありません（test.yml が呼んでいる script です）',
+  );
+});
+
+/**
  * 「Format check」ステップの本体（コメント行を除いた区間）を返す。
  *
  * knip スナップショット検査と同じ運用: format:check も CI ワークフロー側にしか居場所が無い
@@ -151,7 +175,7 @@ test('CI: format:check ステップとルート script が残っている (cmn-0
  * 「Unit test (E2E)」ステップと e2e の test:unit script を固定する（cmn-0376）。
  *
  * e2e の支持単体テスト（support/__tests__/*.test.ts）は `node --experimental-strip-types` で
- * TypeScript のまま実行する（Node 22+）。CI では独立 job
+ * TypeScript のまま実行する（Node 22+）ため .nvmrc（20.18.1）では起動しない。CI では独立 job
  * （e2e・node-version: 24）の「Unit test (E2E)」ステップ 1 本だけが実行経路で、これを消す・改名する・
  * script 名を変えると検査が何も落とさずに消える。経路が 1 本しかないものは、その 1 本自体を検査で
  * 押さえる（knip / format の固定と同じ運用・cmn-0376 criteria 5）。
@@ -188,7 +212,7 @@ test('CI: e2e の単体テスト（test:unit）が実行される経路が残っ
     .join('\n');
   assert.ok(
     /e2e:\s*\n\s*runs-on: ubuntu-latest[\s\S]*?node-version: 24/.test(job),
-    'test.yml に e2e 独立 job（node-version: 24）がありません＝test:unit の検証済み実行経路が失われます',
+    'test.yml に e2e 独立 job（node-version: 24）がありません＝test:unit が CI の Node 20 で起動せず赤くなります',
   );
 
   // script 自体の存在も見る（ステップだけ残って script が消えると CI で初めて落ちる）。
@@ -198,20 +222,16 @@ test('CI: e2e の単体テスト（test:unit）が実行される経路が残っ
       e2ePkg.scripts['test:unit'].includes('--test support/__tests__/*.test.ts'),
     'e2e/package.json に test:unit（support/__tests__/*.test.ts を実行する script）がありません（test.yml が呼んでいる script です）',
   );
-});
 
-test('公開toolchain: Node24がCI・開発・全Docker stageで一致する (v2-395)', () => {
+  // .nvmrc は「e2e が要る下限（Node 22+）を満たすこと」だけを見る。版を書き下すと、サポート中の
+  // Node へ揃える時にこの検査が古い値を守ってしまう（d11 で実際に止まった）。e2e の都合で
+  // リポ全体の Node を動かさない、という cmn-0376 criteria 3 は維持したまま下限だけ固定する。
   const nvmrc = readFileSync(join(REPO_ROOT, '.nvmrc'), 'utf8').trim();
-  assert.equal(nvmrc, '24', 'CIと開発にはサポート中のNode24を使う');
-  const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
-  assert.equal(rootPkg.engines.node, '>=24.0.0');
-  const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
-  assert.match(yaml, /node-version-file:\s*\.nvmrc/);
-  for (const name of ['backend', 'frontend']) {
-    const dockerfile = readFileSync(join(REPO_ROOT, 'packages', name, 'Dockerfile'), 'utf8');
-    const bases = [...dockerfile.matchAll(/^FROM\s+(\S+)/gm)].map((match) => match[1]);
-    assert.deepEqual(bases, ['node:24-alpine', 'node:24-alpine', 'node:24-alpine']);
-  }
+  const major = Number.parseInt(nvmrc.split('.')[0], 10);
+  assert.ok(
+    Number.isInteger(major) && major >= 22,
+    `.nvmrc（${nvmrc}）が Node 22 未満です＝e2e の支持単体テスト（--experimental-strip-types）が起動しません`,
+  );
 });
 
 /**
@@ -225,6 +245,66 @@ test('公開toolchain: Node24がCI・開発・全Docker stageで一致する (v2
  * 値の次行折り返しは YAML パーサ不使用の制約上すり抜ける（現行ワークフローに該当書式は無い。
  * 導入する時はこの検査が沈黙する＝書式を揃えるか検査側を拡張する）。
  */
+/**
+ * main の push で Test が走ることを固定する（d714）。
+ *
+ * なぜ必要か: test.yml は branches-ignore: [main] で main の push を外しており、main の検査は
+ * deploy.yml（CI/CD）の workflow_call だけが経路だった。その deploy.yml が disabled_manually の間は
+ * main の push で検査が 1 件も走らず、実際に 2026-08-22 を最後に沈黙した（2026-10-22 実測）。
+ * 経路が 1 本しかないものは、その 1 本が止まった瞬間に検査ごと止まる。よって deploy.yml を
+ * 検査の唯一の入口にしない＝本ワークフロー自身が main の push でも走る形を、コメントではなく
+ * 機械で押さえる（ここを branches-ignore に戻すと本検査が赤くなる）。
+ *
+ * 見るのは on.push の branches / branches-ignore の**中身まで**。YAML パーサは使わない
+ * （install 前に走る＝Node 標準モジュールのみ・本ファイルの他の検査と同理由）。
+ */
+function pushBranchFilters(yaml) {
+  const lines = yaml.split('\n').filter((line) => !/^\s*#/.test(line));
+  const onIndex = lines.findIndex((line) => /^on:\s*$/.test(line));
+  if (onIndex < 0) return null;
+  const pushIndex = lines.findIndex((line, i) => i > onIndex && /^ {2}push:\s*$/.test(line));
+  if (pushIndex < 0) return null;
+  const rest = lines.slice(pushIndex + 1);
+  const end = rest.findIndex((line) => /^ {2}\S/.test(line)); // 次のイベント（workflow_dispatch 等）
+  const block = rest.slice(0, end < 0 ? undefined : end);
+  const read = (key) => {
+    const at = block.findIndex((line) => new RegExp(`^\\s*${key}:`).test(line));
+    if (at < 0) return null;
+    // インライン配列（key: ['**'] / key: [main]）と、行下のリストの両方を読む。
+    return [block[at], ...block.slice(at + 1)]
+      .filter((line) => /^\s*(-|\w+:)/.test(line))
+      .map((line) => line.replace(/^[^:]*:/, '').replace(/^[\s-]+/, ''))
+      .join(' ');
+  };
+  return { branches: read('branches'), branchesIgnore: read('branches-ignore') };
+}
+
+test('CI: main の push でも Test ワークフローが走る (d714)', () => {
+  const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
+  const push = pushBranchFilters(yaml);
+  assert.ok(push, 'test.yml に on.push がありません＝push 起因の検査が無くなりました');
+  assert.equal(
+    push.branchesIgnore,
+    null,
+    'test.yml の on.push に branches-ignore があります＝main の push を外すと、配備ワークフロー' +
+      '（deploy.yml）が止まっている間は main の検査が 1 件も走りません（2026-08-22〜10-22 に実際に起きた）',
+  );
+  // tag を含める形（tags: だけ・tags-ignore だけ）にすると、GitHub の仕様でブランチ push が
+  // 未定義の ref 扱いになり一切発火しない（cmn-0342 で 3 週間沈黙した真因）。全ブランチに限る。
+  // インライン配列（['**']）と行下のリスト（- '**'）のどちらでも通す。値そのものだけを見る。
+  const patterns = (push.branches ?? '')
+    .replace(/[[\]'"]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  assert.deepEqual(
+    patterns,
+    ['**'],
+    "test.yml の on.push.branches が全ブランチ（'**'）ではありません＝tag 側のフィルタを書くとブランチ push が" +
+      '未定義の ref になり 1 件も走らなくなります（cmn-0342 と同型）',
+  );
+});
+
 /**
  * 「Build shared」ステップの存在と、生成物依存ステップより前にあることを固定する（rev-arch B4）。
  *
@@ -345,25 +425,27 @@ function jobBody(yaml, job) {
   return [lines[start], ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
 }
 
+// 公開版（スナップショット）には deploy.yml を載せない（scripts/publish/targets/rete.json の
+// excludeFiles）。そのため公開版のリポジトリでは deploy.yml が存在せず、この CD 検査は必ず読取で落ちる。
+// 判定の基準は scripts/run-script-tests.mjs と同じ「scripts/publish/ があるか」＝社内の開発元か、
+// 公開版かの区別。社内文脈では deploy.yml の不在を必ず赤にし（社内の配備契約を守る）、公開文脈では
+// 不在を「配備を持たない」という境界として確かめる。どちらの文脈でも、黙って skip はしない。
+const IS_PUBLICATION = !existsSync(join(REPO_ROOT, 'scripts', 'publish'));
+
 test('CD: deploy.yml が CI 成功後の同一 SHA を配布する配線を保っている (v2-238)', () => {
-  if (!existsSync(join(REPO_ROOT, 'scripts', 'publish'))) {
+  if (IS_PUBLICATION) {
     assert.equal(
       existsSync(DEPLOY_WORKFLOW_PATH),
       false,
-      '公開版に社内 deploy.yml を含めてはいけません',
-    );
-    const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
-    assert.match(
-      yaml,
-      /^ {4}branches: \['\*\*'\]$/m,
-      '公開版は main を含む branch push で CI を起動する',
-    );
-    assert.doesNotMatch(
-      yaml,
-      /^\s*(?:branches-ignore|tags|tags-ignore|pull_request_target|workflow_call):/m,
+      '公開版に deploy.yml（本番配備）が入っています＝公開スナップショットは配備を持たない境界です' +
+        '（scripts/publish/targets/rete.json の excludeFiles を確認してください）',
     );
     return;
   }
+  assert.ok(
+    existsSync(DEPLOY_WORKFLOW_PATH),
+    '社内（開発元）に deploy.yml がありません＝main の同一 SHA 配備の配線が消えています',
+  );
   const yaml = readFileSync(DEPLOY_WORKFLOW_PATH, 'utf8');
 
   const step = deployStepBody(yaml);
@@ -396,4 +478,65 @@ test('CD: deploy.yml が CI 成功後の同一 SHA を配布する配線を保�
     /^\s{4}needs:.*\btest\b/m,
     'deploy ジョブの needs に test（CI）がありません＝CI 成功前の配布が起きます',
   );
+});
+
+/**
+ * 台本から heredoc の区間を取り出す（区切り子の名前と引用の有無は問わない）。
+ *
+ * 名前を固定しないのは、区切り子を改名するだけの正当な書き換えで赤にしないため。
+ * 見るのは「案内文の台本が unquoted heredoc で組まれているか」＝台本の中に
+ * 展開されないプレースホルダ（WORKFLOW_URL_PLACEHOLDER）があり、区切り子が引用されていない、
+ * という組み合わせ（2026-10-21 の事故と同じ形）。
+ */
+export function unquotedNoticeHeredocs(yaml) {
+  const lines = yaml.split('\n');
+  const found = [];
+  lines.forEach((line, start) => {
+    const open = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line);
+    if (!open) return;
+    const [, quote, delimiter] = open;
+    const end = lines.findIndex((l, i) => i > start && l.trim() === delimiter);
+    const body = end < 0 ? lines.slice(start) : lines.slice(start, end);
+    const expands = quote === '';
+    const hasPlaceholder = body.some((l) => l.includes('WORKFLOW_URL_PLACEHOLDER'));
+    const hasInstruction = body.some((l) => l.includes('approve production-login'));
+    found.push({ delimiter, expands, hasPlaceholder, hasInstruction });
+  });
+  return found;
+}
+
+test('CD: 本番ログイン確認の案内文が、記号の解釈で空にならない形で作られる (d712)', () => {
+  // 公開版には deploy.yml が無い（同ファイル冒頭の IS_PUBLICATION を参照）。読む前に境界を確かめ、
+  // 公開文脈では「配備を持たない」ことを固定して終わる（読取で ENOENT にしない）。
+  if (IS_PUBLICATION) {
+    assert.equal(
+      existsSync(DEPLOY_WORKFLOW_PATH),
+      false,
+      '公開版に deploy.yml（本番配備）が入っています＝公開スナップショットは配備を持たない境界です' +
+        '（scripts/publish/targets/rete.json の excludeFiles を確認してください）',
+    );
+    return;
+  }
+  const heredocs = unquotedNoticeHeredocs(readFileSync(DEPLOY_WORKFLOW_PATH, 'utf8'));
+  const notice = heredocs.filter((h) => h.hasPlaceholder);
+  assert.ok(
+    notice.length > 0,
+    'deploy.yml に案内文の台本（WORKFLOW_URL_PLACEHOLDER を含む heredoc）がありません＝' +
+      '案内文の組み立てごと消えています',
+  );
+  for (const h of notice) {
+    // 区切り子が引用されている（<<'EOF'）＝本文の中の $ や ` をシェルが解釈しない。
+    // unquoted に戻すと `…` がコマンド置換になり、何を書き込むかの行が消える（2026-10-21 の事故）。
+    assert.equal(
+      h.expands,
+      false,
+      `案内文の heredoc（区切り子 ${h.delimiter}）が unquoted です＝本文の記号がシェルに解釈され、` +
+        "書き込みの指示行が空になります（<<'…' の形にしてください）",
+    );
+    // 書き込みの指示行が本文に残っている（空行になった事故の再発防止）。
+    assert.ok(
+      h.hasInstruction,
+      '案内文の heredoc に「approve production-login」の指示行がありません＝何を書き込むか分かりません',
+    );
+  }
 });

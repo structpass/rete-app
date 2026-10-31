@@ -81,7 +81,12 @@ export class ProjectsService {
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.archived !== undefined) Object.assign(data, buildArchiveUpdate(dto.archived));
 
-    const updated = await this.repo.update(id, data);
+    // archive/restore は system ADMIN 経路と同じ transaction 内 cascade を通す（配下 CHANNEL を同時に更新）。
+    // name-only update は従来どおり単純 update のまま（配下 CHANNEL の archive 状態に触れない）。
+    const updated =
+      dto.archived === undefined
+        ? await this.repo.update(id, data)
+        : await this.repo.adminUpdateWithCascade(id, data, dto.archived);
     // update に到達するのは PROJECT ADMIN のみ（上で forbidden ガード済）＝チャネル管理可。
     return ok(toProjectDto(updated, true));
   }

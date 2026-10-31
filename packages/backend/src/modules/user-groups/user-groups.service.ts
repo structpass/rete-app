@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MembershipScopeType } from '@rete/shared';
+import type { CreateUserGroupDto, UpdateUserGroupDto } from './dto/user-groups.dto';
+import { HOME_PERMISSIONS, MembershipScopeType, type HomeGroupPermissions } from '@rete/shared';
 import { AuditRecorderService, type AuditClientInfo } from '../audit-logs/audit-recorder.service';
 import { AUDIT_RETE_SYSTEM_NAME } from '../audit-logs/audit-logs.constants';
 import { UserGroupsRepository, type UserGroupRow } from './repositories/user-groups.repository';
@@ -64,8 +65,12 @@ export class UserGroupsService {
   }
 
   /** グループ作成（システム ADMIN 専用）。 */
-  async create(dto: { name: string }, requester: AuthenticatedUser, client: AuditClientInfo = {}) {
-    const row = await this.repo.create(dto.name);
+  async create(
+    dto: CreateUserGroupDto,
+    requester: AuthenticatedUser,
+    client: AuditClientInfo = {},
+  ) {
+    const row = await this.repo.create(dto.name, homeFlags(dto));
     await this.audit.record({
       actorAccountId: requester.id,
       actorName: requester.name,
@@ -83,20 +88,22 @@ export class UserGroupsService {
 
   /**
    * グループ更新（改名・システム ADMIN 専用・set-0188）。
-   * アーカイブ/復元トグルは撤去したため、更新はグループ名のみを扱う。
+   * 更新はグループ名と Home の設定値を扱う。設定値は入力に現れたものだけを書き換える
+   * （現れていない設定値は DB の今の値をそのまま残す）。
    */
   async update(
     id: string,
-    dto: { name?: string },
+    dto: UpdateUserGroupDto,
     requester: AuthenticatedUser,
     client: AuditClientInfo = {},
   ) {
     const existing = await this.repo.findById(id);
     if (!existing) throw new NotFoundException('グループが見つかりません');
 
-    if (dto.name !== undefined) {
-      await this.repo.update(id, { name: dto.name });
-    }
+    await this.repo.update(id, {
+      ...(dto.name !== undefined ? { name: dto.name } : {}),
+      ...homeFlags(dto),
+    });
 
     const row = await this.repo.findById(id);
     if (!row) throw new NotFoundException('グループが見つかりません');
@@ -110,7 +117,7 @@ export class UserGroupsService {
       summary: `管理グループを更新（${row.name}）`,
       ipAddress: client.ipAddress,
       userAgent: client.userAgent,
-      details: { groupId: id, name: row.name },
+      details: { groupId: id, name: row.name, before: homeFlags(existing), after: homeFlags(row) },
     });
     return toUserGroupDto(row);
   }
@@ -371,4 +378,21 @@ export class UserGroupsService {
     }
     return scope.name;
   }
+}
+
+/**
+ * Home の設定値だけを入力から抜き出す（d816・d874）。対象の名前は shared の正本
+ * HOME_PERMISSIONS（groupFlagKey）から作るため、許可を足す時にここを書き足さない。
+ * 入力の形（DTO）は shared の HomeGroupPermissions から広げるので、許可を足すと自動で広がる。
+ */
+const HOME_GROUP_FLAG_KEYS: readonly string[] = Object.values(HOME_PERMISSIONS).map(
+  (permission) => permission.groupFlagKey,
+);
+
+function homeFlags(dto: Partial<HomeGroupPermissions>): Partial<HomeGroupPermissions> {
+  return Object.fromEntries(
+    Object.entries(dto).filter(
+      ([key, value]) => value !== undefined && HOME_GROUP_FLAG_KEYS.includes(key),
+    ),
+  );
 }

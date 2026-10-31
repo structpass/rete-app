@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList, Download, Info, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AuditActionType, AuditLogDto, PaginationMeta } from '@rete/shared';
-import { AUDIT_EXPORT_MAX_DAYS, AUDIT_SYSTEM_COMMON, Role } from '@rete/shared';
+import { AUDIT_EXPORT_MAX_DAYS, AUDIT_PAGE_SIZE, AUDIT_SYSTEM_COMMON, Role } from '@rete/shared';
 import { useSession } from '@/features/auth';
 import {
   ActionButton,
@@ -32,21 +32,17 @@ import { apiErrorMessage } from '../lib/api-error';
 import { useFileDownload } from '@/hooks/use-file-download';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
 import { highlightMatches } from '@/lib/highlight';
-import { formatDateTimeWithSeconds } from '@/lib/utils';
+import { formatDateTimeWithSeconds, toLocalYmd } from '@/lib/utils';
 import { OverlayDialog } from '@/components/ui/overlay-dialog';
 import { TableStatusRows } from './table-status-rows';
 
-const PAGE_SIZE = 20;
+// 1 頁の件数はサーバーの既定と同じ 1 値（@rete/shared AUDIT_PAGE_SIZE）を読む。画面側に写しを置くと、
+// 片方を変えた時に最後の頁の行数と前へ／次への境目が食い違う（d756）。
+const PAGE_SIZE = AUDIT_PAGE_SIZE;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 表示用ヘルパ（純関数）
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** 'YYYY-MM-DD'（input[type=date] 値）を date オフセット日数で作る。 */
-function ymd(date: Date): string {
-  const p = (n: number) => `${n}`.padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
-}
 
 /** 開始〜終了の出力日数（両端含む）。不正・未入力は null。set-0092 */
 function exportDayCount(from: string, to: string): number | null {
@@ -87,14 +83,14 @@ function CsvExportPanel({
       const days = kind === '7d' ? 6 : 29; // 当日含む 7 / 30 日
       const start = new Date(now);
       start.setDate(start.getDate() - days);
-      setFrom(ymd(start));
-      setTo(ymd(now));
+      setFrom(toLocalYmd(start));
+      setTo(toLocalYmd(now));
     } else if (kind === 'thisMonth') {
-      setFrom(ymd(new Date(now.getFullYear(), now.getMonth(), 1)));
-      setTo(ymd(now));
+      setFrom(toLocalYmd(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setTo(toLocalYmd(now));
     } else {
-      setFrom(ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
-      setTo(ymd(new Date(now.getFullYear(), now.getMonth(), 0)));
+      setFrom(toLocalYmd(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+      setTo(toLocalYmd(new Date(now.getFullYear(), now.getMonth(), 0)));
     }
   }
 
@@ -134,7 +130,9 @@ function CsvExportPanel({
             }}
           >
             <div>
-              <FormLabel htmlFor="csv-export-from">開始日</FormLabel>
+              {/* d536: 欄の名前は、同じ画面の絞り込み帯の期間（開始日 / 終了日）と区別できるよう
+                  「出力」を冠する（見えるラベルと読み上げ名を揃える）。 */}
+              <FormLabel htmlFor="csv-export-from">出力開始日</FormLabel>
               <input
                 id="csv-export-from"
                 type="date"
@@ -147,7 +145,7 @@ function CsvExportPanel({
               />
             </div>
             <div>
-              <FormLabel htmlFor="csv-export-to">終了日</FormLabel>
+              <FormLabel htmlFor="csv-export-to">出力終了日</FormLabel>
               <input
                 id="csv-export-to"
                 type="date"
@@ -240,7 +238,7 @@ function CsvExportPanel({
               disabled={!canDownload}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              ダウンロード
+              出力する
             </FormButton>
           </FormActions>
         </FormCard>
@@ -274,16 +272,27 @@ export function AuditLogScreen() {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // 取得失敗を一覧の領域内に残す（d592・正本 ui.ts:109）。toast だけで消すと、空の一覧と
+  // 本当に 0 件の一覧が読み分けられない。
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [csvOpen, setCsvOpen] = useState(false);
   const { downloading: exporting, download } = useFileDownload();
 
   // サーバー問い合わせは keyset カーソル駆動（OFFSET は使わない・set-0013）。page はフロント側の
   // ページ番号「表示」用カウンタのみで、実クエリは fetchAction（方向 + カーソル）が決める。
+  // 同じ方向・同じカーソルを取り直しても state では変更と見なされないため、押すたびに新しい入れ物を置く
+  // （作り直した先頭は {} ではなく undefined で表し、同じ形の再取得も効くようにする・d652）。
   const [fetchAction, setFetchAction] = useState<{
     direction?: 'next' | 'prev' | 'last';
     cursor?: string;
   }>({});
+  // 受け取ったカーソルは state でも持ち、ボタンの可否（canPrev / canNext）を同じ描画で決める。
+  // ref だけを読むと、カーソルが届かないうちの押し込みで古い位置から取り直してしまう（d652）。
+  const [cursors, setCursors] = useState<{ next: string | null; prev: string | null }>({
+    next: null,
+    prev: null,
+  });
   const cursorsRef = useRef<{ next: string | null; prev: string | null }>({
     next: null,
     prev: null,
@@ -319,6 +328,9 @@ export function AuditLogScreen() {
     const id = (reqId.current += 1);
     setIsLoading(true);
     (async () => {
+      // この回が投げた問い合わせ（方向 + カーソル）を覚えておく。応答は後から届くため、state の
+      // fetchAction を読み直すと、途中で押された移動の値で取り違える（d652）。
+      const sent = fetchAction;
       try {
         const res = await fetchAuditLogs({
           limit: PAGE_SIZE,
@@ -327,17 +339,28 @@ export function AuditLogScreen() {
           systemId: systemId || undefined,
           from: dateFrom || undefined,
           to: dateTo || undefined,
-          direction: fetchAction.direction,
-          cursor: fetchAction.cursor,
+          direction: sent.direction,
+          cursor: sent.cursor,
         });
         if (id !== reqId.current) return; // 後発リクエストが既に走っていれば破棄
         setRows(res.data);
         setMeta(res.meta);
-        cursorsRef.current = res.cursors;
+        setLoadError(null);
+        // カーソルを返さない応答（古い backend・試験の模擬）でも移動可否の判定が壊れないよう既定へ倒す。
+        const received = res.cursors ?? { next: null, prev: null };
+        cursorsRef.current = received;
+        setCursors(received);
+        // d652: 表示するページ番号は、受け取ったカーソルから決める。末尾へ飛ぶ 'last' は行数が分からない
+        // ため、サーバーが返す総ページ数へ合わせる（進めた先のページと取得した位置を食い違わせない）。
+        const totalPageCount = res.meta?.totalPages ?? 1;
+        if (sent.direction === 'last') setPage(totalPageCount);
+        else if (sent.direction) setPage((p) => Math.min(totalPageCount, p));
+        else setPage(1); // 先頭から読み直した（初回・onFirst・再試行・絞り込み）
       } catch {
         if (id === reqId.current) {
           setRows([]);
           setMeta(null);
+          setLoadError('操作ログの読み込みに失敗しました');
           toast.error('操作ログの読み込みに失敗しました');
         }
       } finally {
@@ -361,8 +384,12 @@ export function AuditLogScreen() {
   );
 
   const totalPages = meta?.totalPages ?? 1;
-  const canPrev = page > 1;
-  const canNext = page < totalPages;
+  // d652: 移動の可否は「今のページがサーバーから受け取ったカーソル」で決め、取得中と移動中は押せない。
+  // 取得中に押せてしまうと、カーソルが差し替わる前の同じ位置から取り直し、行は同じままページ番号だけが
+  // 進んで末尾の行へ届かなくなる（41 件・20 件表示のとき 3/3 が 21〜40 行目になる）。押し込みの窓を
+  // 閉じるため、受け取ったカーソルは state にも持ち、描画のたびに ref の値を読まないようにする。
+  const canPrev = !isLoading && page > 1 && !!cursors.prev;
+  const canNext = !isLoading && !!cursors.next;
 
   // ── CSV エクスポート ──
   async function handleDownload(from: string, to: string) {
@@ -532,6 +559,13 @@ export function AuditLogScreen() {
                 isLoading={isLoading}
                 empty={rows.length === 0}
                 emptyLabel={search ? '操作ログが見つかりませんでした' : '操作ログがありません'}
+                // 取得失敗は「見つかりませんでした」（0 件の文言）へ落とさない（空一覧と区別する表示）。
+                errorLabel={loadError ? '操作ログの読み込みに失敗しました' : null}
+                // d659: 再試行は先頭ページから取り直す（失敗したページのカーソルに依存させない）。
+                onRetry={() => {
+                  setPage(1);
+                  setFetchAction({});
+                }}
               />
             </tbody>
           </table>
@@ -539,22 +573,31 @@ export function AuditLogScreen() {
             pageLabel={`${page} / ${totalPages} page`}
             // set-0150: 件数の語彙は設定タブ 7 画面で「全 N 件」へ統一（意味は絞り込み後の件数のまま。
             // reference の use-client-pagination も絞り込み後の件数を「全 N 件」と出す）。
-            total={`全 ${meta?.total ?? 0} 件`}
+            total={loadError ? '全 — 件' : `全 ${meta?.total ?? 0} 件`}
             onFirst={() => {
               setPage(1);
               setFetchAction({});
+              setCursors({ next: null, prev: null });
             }}
             onPrev={() => {
+              const cursor = cursorsRef.current.prev;
+              if (!cursor) return; // d652: 戻り先が無いページからは動かさない
               setPage((p) => Math.max(1, p - 1));
-              setFetchAction({ direction: 'prev', cursor: cursorsRef.current.prev ?? undefined });
+              setFetchAction({ direction: 'prev', cursor });
+              // 同じカーソルで二度取り直さないよう、次に受け取るまで手元のカーソルを空にする。
+              setCursors({ next: null, prev: null });
             }}
             onNext={() => {
+              const cursor = cursorsRef.current.next;
+              if (!cursor) return; // d652: 次が無いページからは動かさない
               setPage((p) => Math.min(totalPages, p + 1));
-              setFetchAction({ direction: 'next', cursor: cursorsRef.current.next ?? undefined });
+              setFetchAction({ direction: 'next', cursor });
+              setCursors({ next: null, prev: null });
             }}
             onLast={() => {
-              setPage(totalPages);
+              // 'last' はカーソルを使わない（サーバーが末尾から取る）ため、ページ番号は受け取り後に決める。
               setFetchAction({ direction: 'last' });
+              setCursors({ next: null, prev: null });
             }}
             canPrev={canPrev}
             canNext={canNext}

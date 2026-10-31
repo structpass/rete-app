@@ -1,5 +1,6 @@
 'use client';
 import { ActionButton, TableCard } from '@/features/settings/components/primitives';
+import { TableStatusRows } from '@/features/settings/components/table-status-rows';
 import type { ProjectDto } from '@rete/shared';
 import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react';
 
@@ -11,8 +12,11 @@ export function ProjectPane({
   projects,
   selectedProjectId,
   updating,
+  isLoading,
   searching,
   includeArchived,
+  error,
+  onRetry,
   onSelect,
   onRename,
   onArchive,
@@ -22,8 +26,13 @@ export function ProjectPane({
   projects: ProjectDto[];
   selectedProjectId: string | null;
   updating: boolean;
+  isLoading: boolean;
   searching: boolean;
   includeArchived: boolean;
+  /** 一覧取得の失敗文言。渡すと 0 件行の代わりに領域内 role="alert" を出す（v2-410）。 */
+  error?: string | null;
+  /** 取得失敗の表示から取り直す（d659）。 */
+  onRetry?: () => void;
   onSelect: (project: ProjectDto) => void;
   onRename: (project: ProjectDto) => void;
   onArchive: (project: ProjectDto) => void;
@@ -40,6 +49,8 @@ export function ProjectPane({
           </tr>
         </thead>
         <tbody>
+          {/* 取得中も既に持っている行を描き続ける（読み直しのたびに一覧が空へ戻らない）。
+              読み込み中・失敗・0 件の行は TableStatusRows が受け持つ。 */}
           {projects.map((proj) => {
             const selected = proj.id === selectedProjectId;
             return (
@@ -114,23 +125,20 @@ export function ProjectPane({
               </tr>
             );
           })}
-          {/* 空状態は「〜がありません」のラベルで示し、アプリ共通の既定に揃える（v2-168）。 */}
-          {projects.length === 0 && (
-            <tr>
-              <td
-                colSpan={2}
-                className="text-[var(--sp-text-warm-mute)]"
-                style={{ textAlign: 'center', padding: '1.25rem' }}
-              >
-                {searching ? 'プロジェクトが見つかりませんでした' : 'プロジェクトがありません'}
-                {searching && !includeArchived && (
-                  <span style={{ display: 'block', marginTop: '0.25rem' }}>
-                    アーカイブ済みは表示していません
-                  </span>
-                )}
-              </td>
-            </tr>
-          )}
+          <TableStatusRows
+            colSpan={2}
+            isLoading={isLoading}
+            empty={projects.length === 0}
+            emptyLabel={
+              searching ? 'プロジェクトが見つかりませんでした' : 'プロジェクトがありません'
+            }
+            emptyDescription={
+              searching && !includeArchived ? 'アーカイブ済みは表示していません' : undefined
+            }
+            // 取得失敗は「見つかりませんでした」（0 件の文言）へ落とさない（空一覧と区別する表示）。
+            errorLabel={error ? 'プロジェクトの取得に失敗しました' : null}
+            onRetry={onRetry}
+          />
         </tbody>
       </table>
     </TableCard>

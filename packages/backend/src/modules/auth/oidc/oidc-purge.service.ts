@@ -11,6 +11,7 @@ import { PrismaService } from '../../../database';
  * §2 データアクセス境界: OIDC サブシステムは adapter が prisma を直接呼ぶ data-access 層であり
  * （汎用 Repository を介さない既存の文書化済み例外）、本 purge も同サブシステムのメンテナンス
  * 用 data-access として prisma を直接呼ぶ。ドメイン Service ではなく OIDC 専用の維持ジョブ。
+ * 例外の範囲・代案・再検討条件: docs/decisions/0073-oidc-sso-decisions-consolidated.md 判断4。
  */
 @Injectable()
 export class OidcPurgeService {

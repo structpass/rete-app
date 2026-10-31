@@ -8,7 +8,8 @@
 import type { PaginationMeta } from '../dto/response.dto';
 import { buildPaginatedMeta } from '../dto/response.dto';
 
-export interface ListQueryParams {
+// 引数の型は各関数のシグネチャに現れるため、利用側は型名を取り込まない（d611）。
+interface ListQueryParams {
   page?: number;
   limit?: number;
   sort?: string;

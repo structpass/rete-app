@@ -11,6 +11,9 @@ import {
   FixedExtensionList,
 } from '@/features/files/components/extension-list-editor';
 import { Spinner } from '@/components/ui/spinner';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 
 /**
  * アップロード設定画面（設定タブ / テナントカテゴリ・set-0043）。
@@ -41,6 +44,7 @@ export function FileUploadSettingsScreen() {
 /** ADMIN 専用の本体（useFileSettings のフェッチはマウント時に走るため非 ADMIN では描画しない）。 */
 function FileUploadSettingsBody() {
   const s = useFileSettings();
+  const discard = useDiscardConfirm();
 
   async function handleSave() {
     const res = await s.save();
@@ -55,13 +59,28 @@ function FileUploadSettingsBody() {
 
   /** v2-203: キャンセルは保存せず、途中の追加・解除を取得値へ戻す（要求の 5）。 */
   function handleCancel() {
-    s.reset();
-    toast.success('変更を破棄しました');
+    discard.request(s.dirty, () => {
+      s.reset();
+      toast.success('変更を破棄しました');
+    });
   }
+
+  // Esc は「キャンセル」と同じ経路にする（UI 共通仕様 escape-key 規約①②。破棄確認の表示中は
+  // AlertDialog 側が Esc を消費するため何もしない）。
+  useEscapeConsume(handleCancel, {
+    enabled: !s.loading && !s.error,
+    guardSelector: '[role="alertdialog"]',
+  });
 
   return (
     <main className="sp-page" style={{ overflowY: 'auto' }}>
       <PageTitle title="アップロード設定" />
+
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
 
       {/* v2-180: 全幅(1153px)で間延びしていたフォームを内容に合う幅へ絞り左寄せにする（表のある画面と同じ 680px）。 */}
       <div style={{ maxWidth: 680 }}>
@@ -70,9 +89,10 @@ function FileUploadSettingsBody() {
           title="アップロード制限"
           description="設定した上限は Files タブ・Desk のファイル添付の両方に反映されます。"
         >
+          {/* d754: 読み込みに失敗した理由を捨てずに出す（保存失敗の理由を出す扱い＝v2-198 に揃える）。 */}
           {s.error ? (
             <p className="text-[0.8125rem] text-[var(--sp-text-warm-mute)]">
-              設定の読み込みに失敗しました
+              {s.loadErrorReason || '設定の読み込みに失敗しました'}
             </p>
           ) : s.loading ? (
             <div className="flex justify-center py-2">
@@ -80,12 +100,16 @@ function FileUploadSettingsBody() {
             </div>
           ) : (
             <>
-              <FormLabel htmlFor="upload-max-size">最大ファイルサイズ（MB）</FormLabel>
+              {/* Files タブの同名オーバーレイ（settings-overlay）と同じ面なので、必須の出し方も揃える。 */}
+              <FormLabel htmlFor="upload-max-size" required>
+                最大ファイルサイズ（MB）
+              </FormLabel>
               <input
                 id="upload-max-size"
                 type="number"
                 min={1}
                 max={100}
+                aria-required="true"
                 className="sp-input"
                 value={s.maxSizeMb}
                 onChange={(e) =>

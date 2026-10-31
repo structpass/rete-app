@@ -210,6 +210,24 @@ export class AuthService {
     return createHmac('sha256', secret).update(passwordHash).digest('base64url');
   }
 
+  /** Compare the first factor's version and original time, including pending MFA and in-flight requests. */
+  async assertCurrentOidcLogin(user: AuthenticatedUser, authenticatedAt: number): Promise<void> {
+    const current = await this.accounts.findOidcCredentialState(user.id);
+    if (
+      !current?.isActive ||
+      !user.sessionCredentialVersion ||
+      user.sessionCredentialVersion !== this.sessionCredentialVersion(current.passwordHash) ||
+      !Number.isSafeInteger(authenticatedAt) ||
+      (current.credentialsChangedAt &&
+        authenticatedAt * 1000 <= current.credentialsChangedAt.getTime())
+    ) {
+      // OIDC auth_time uses integer seconds: a password change in the same second requires a retry.
+      throw new UnauthorizedException(
+        '認証の有効期限が切れました。少し待ってログインし直してください',
+      );
+    }
+  }
+
   /**
    * 認証済みユーザー自身のパスワードを変更し、強制変更フラグ（mustChangePassword）を落とす（set-0035）。
    * 強制パスワード変更フローの本線。検証順:

@@ -71,11 +71,6 @@ export function ModelSidebar({
                       onClick={() => onSelect(theme.id)}
                     >
                       <span className="flex-1 text-left">{theme.navLabel ?? theme.title}</span>
-                      {theme.status === 'stub' && (
-                        <span className="ml-auto rounded-full bg-[var(--sp-status-progress-bg)] px-1.5 text-[0.6875rem] font-semibold leading-[1.1rem] text-[var(--sp-status-progress-fg)]">
-                          整備中
-                        </span>
-                      )}
                     </button>
                   );
                 })}

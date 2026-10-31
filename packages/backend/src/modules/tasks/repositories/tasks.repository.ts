@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { DEFAULT_CHANNEL_ID } from '@rete/shared';
 import { Task, Prisma, TaskMentionField } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import {
@@ -75,6 +76,7 @@ export const MAX_TASK_DEPTH = 4;
  * 挿入位置（afterTaskId 指定で兄弟挿入、省略で末尾追加）を表す。
  */
 export interface SortOrderContext {
+  spaceId: string;
   // 兄弟グループのカテゴリ。null = 未分類グループ（rete-desk-0158。Prisma は IS NULL で扱う）。
   categoryId: number | null;
   parentTaskId: number | null;
@@ -88,11 +90,13 @@ export interface SortOrderContext {
  * - afterTaskId: 差し込み先の直前兄弟（兄弟グループ先頭は null）
  */
 export interface MoveContext {
+  /** Service が可視性を検証した移動元。保存までに器が変わった場合は適用しない。 */
+  expectedSpaceId?: string;
   parentTaskId: number | null;
   // 移動先カテゴリ。null = 未分類（rete-desk-0158）。クロス Space 移動時は Service が null へリセット済み。
   categoryId: number | null;
   afterTaskId: number | null;
-  // 移動先の器（Space）ID（CM-2 / ADR 0037 §6）。指定時のみ task.spaceId を付け替える（未指定＝器を変えない）。
+  // 移動先の器（Space）ID（CM-2 / ADR 0037 §6）。指定時はサブツリー全体を付け替える。
   spaceId?: string;
 }
 
@@ -445,141 +449,215 @@ export class TasksRepository {
       tenmatsuMentionAccountIds?: string[];
     },
   ): Promise<Task> {
-    const { categoryId, parentTaskId, afterTaskId } = ctx;
+    const { categoryId, parentTaskId, afterTaskId, spaceId } = ctx;
     const descriptionIds = mentions?.descriptionMentionAccountIds ?? [];
     const tenmatsuIds = mentions?.tenmatsuMentionAccountIds ?? [];
-    return this.prisma.$transaction(async (tx) => {
-      let sortOrder: number;
+    return runInSerializableTransaction(
+      this.prisma,
+      async (tx) => {
+        await this.assertParentSpaceTx(tx, parentTaskId, spaceId);
+        let sortOrder: number;
 
-      if (afterTaskId !== undefined) {
-        // 兄弟挿入: 基準兄弟の直後（sortOrder+1）に入れ、それ以上の兄弟を +1 シフト。
-        // 基準読み取りも同一 tx（tx.task）で行い、シフト判定の一貫性を保つ。
-        const after = await tx.task.findUnique({
-          where: { id: afterTaskId },
-          select: { sortOrder: true },
-        });
-        const insertAt = (after?.sortOrder ?? -1) + 1;
-        // 単一ユーザー MVP 前提。同一兄弟グループへの高並行ドロップではこの shift UPDATE が
-        // lock 競合・デッドロックを起こし得る。将来 SELECT FOR UPDATE 等で挿入を直列化する必要がある（既知の制約）。
-        await tx.task.updateMany({
-          where: { categoryId, parentTaskId, sortOrder: { gte: insertAt } },
-          data: { sortOrder: { increment: 1 } },
-        });
-        sortOrder = insertAt;
-      } else {
-        // 末尾追加: 兄弟グループの最大 + 1（兄弟不在なら 0）。
-        const agg = await tx.task.aggregate({
-          where: { categoryId, parentTaskId },
-          _max: { sortOrder: true },
-        });
-        sortOrder = agg._max.sortOrder == null ? 0 : agg._max.sortOrder + 1;
-      }
+        if (afterTaskId !== undefined) {
+          // 兄弟挿入: 基準兄弟の直後（sortOrder+1）に入れ、それ以上の兄弟を +1 シフト。
+          // 基準読み取りも同一 tx（tx.task）で行い、シフト判定の一貫性を保つ。
+          const after = await tx.task.findUnique({
+            where: { id: afterTaskId },
+            select: { sortOrder: true, spaceId: true, categoryId: true, parentTaskId: true },
+          });
+          this.assertSiblingGroup(after, spaceId, categoryId, parentTaskId);
+          const insertAt = after!.sortOrder + 1;
+          // 同時挿入による競合は Serializable の共通リトライへ委ねる。
+          await tx.task.updateMany({
+            where: { spaceId, categoryId, parentTaskId, sortOrder: { gte: insertAt } },
+            data: { sortOrder: { increment: 1 } },
+          });
+          sortOrder = insertAt;
+        } else {
+          // 末尾追加: 兄弟グループの最大 + 1（兄弟不在なら 0）。
+          const agg = await tx.task.aggregate({
+            where: { spaceId, categoryId, parentTaskId },
+            _max: { sortOrder: true },
+          });
+          sortOrder = agg._max.sortOrder == null ? 0 : agg._max.sortOrder + 1;
+        }
 
-      const task = await tx.task.create({ data: { ...data, sortOrder } });
-      if (descriptionIds.length > 0) {
-        await tx.taskMention.createMany({
-          data: descriptionIds.map((accountId) => ({
-            taskId: task.id,
-            accountId,
-            field: TaskMentionField.DESCRIPTION,
-          })),
-        });
-      }
-      if (tenmatsuIds.length > 0) {
-        await tx.taskMention.createMany({
-          data: tenmatsuIds.map((accountId) => ({
-            taskId: task.id,
-            accountId,
-            field: TaskMentionField.TENMATSU,
-          })),
-        });
-      }
-      return task;
-    });
+        const task = await tx.task.create({ data: { ...data, sortOrder } });
+        if (descriptionIds.length > 0) {
+          await tx.taskMention.createMany({
+            data: descriptionIds.map((accountId) => ({
+              taskId: task.id,
+              accountId,
+              field: TaskMentionField.DESCRIPTION,
+            })),
+          });
+        }
+        if (tenmatsuIds.length > 0) {
+          await tx.taskMention.createMany({
+            data: tenmatsuIds.map((accountId) => ({
+              taskId: task.id,
+              accountId,
+              field: TaskMentionField.TENMATSU,
+            })),
+          });
+        }
+        return task;
+      },
+      INTERACTIVE_SAVE_TX_OPTIONS,
+    );
   }
 
   /**
    * タスク（サブツリーのルート）を別の親 / カテゴリ / 並び順へ移動する。
-   * 以下 4 操作を単一 $transaction に束ね、部分適用でツリーが壊れないことを保証する:
+   * 以下の操作を単一 $transaction に束ね、部分適用でツリーが壊れないことを保証する:
    *   (a) 移動元の兄弟グループの穴埋め: 旧 sortOrder より後ろを -1 で詰める
    *   (b) 移動先の兄弟グループで挿入位置を確定（afterTaskId 基準。null は先頭=0）
    *   (c) 移動先の兄弟グループの押し出し: 挿入位置以上を +1
    *   (d) 対象自身の parentTaskId / categoryId / sortOrder を update
-   *   (e) カテゴリ変更時は子孫 categoryId を一括波及
+   *   (e) カテゴリ・Space 変更時は子孫へ一括波及
    * 読み取りも全て tx 経由（tx 外 read 禁止）で一貫性を保つ。
    * 同一グループ内の並べ替えは「(a) 穴埋め → (b) 穴埋め後の afterTask.sortOrder を基準に挿入」の順で
    * 行うため、afterTask の読み取りは穴埋め後に行いインデックスのズレを吸収する。
-   * 単一ユーザー MVP 前提（createWithSortOrder と同じく高並行ドロップでの lock 競合は既知の制約）。
-   * TOCTOU: 構造検証（findById / getAncestorIds / getSubtreeHeight）は Service 側で tx 外に走るため、
-   * 検証-適用間に他リクエストがツリーを変えると本 tx の前提が崩れ得る。これは createWithSortOrder と
-   * 同水準の単一ユーザー MVP 既知制約として受容する（検証を tx 内へ移す改修はしない＝非対称負債回避）。
+   * 深さと循環の検証は Service 側で tx 外に走る（既存の並行構造変更の制約）。
+   * Space と親・兄弟の整合は Serializable tx 内でも再検証する。
    */
   moveTask(id: number, ctx: MoveContext): Promise<TaskWithSource> {
     const { parentTaskId, categoryId, afterTaskId, spaceId } = ctx;
-    return this.prisma.$transaction(async (tx) => {
-      // 対象本体の旧グループ（categoryId / parentTaskId / sortOrder）を tx 内で取得。
-      const moving = await tx.task.findUnique({
-        where: { id },
-        select: { categoryId: true, parentTaskId: true, sortOrder: true },
-      });
-      // Service が存在検証済み（NOT_FOUND）。防御的に握りつぶさず Prisma の例外に委ねる。
-      const oldCategoryId = moving!.categoryId;
-      const oldParentTaskId = moving!.parentTaskId;
-      const oldSortOrder = moving!.sortOrder;
-
-      // (a) 移動元グループの穴埋め: 旧 sortOrder より後ろの兄弟を -1。
-      // 対象自身は今から動かす（後で sortOrder を再設定）ため、gt: oldSortOrder で自身を除外する。
-      await tx.task.updateMany({
-        where: {
-          categoryId: oldCategoryId,
-          parentTaskId: oldParentTaskId,
-          sortOrder: { gt: oldSortOrder },
-        },
-        data: { sortOrder: { decrement: 1 } },
-      });
-
-      // (b) 移動先の挿入位置を確定。afterTaskId 指定時は穴埋め後の afterTask.sortOrder+1、null は先頭=0。
-      let insertAt: number;
-      if (afterTaskId != null) {
-        const after = await tx.task.findUnique({
-          where: { id: afterTaskId },
-          select: { sortOrder: true },
+    return runInSerializableTransaction(
+      this.prisma,
+      async (tx) => {
+        // 対象本体の旧グループ（categoryId / parentTaskId / sortOrder）を tx 内で取得。
+        const moving = await tx.task.findUnique({
+          where: { id },
+          select: { categoryId: true, parentTaskId: true, sortOrder: true, spaceId: true },
         });
-        insertAt = (after?.sortOrder ?? -1) + 1;
-      } else {
-        insertAt = 0;
-      }
-
-      // (c) 移動先グループの押し出し: 挿入位置以上の兄弟を +1。
-      await tx.task.updateMany({
-        where: { categoryId, parentTaskId, sortOrder: { gte: insertAt } },
-        data: { sortOrder: { increment: 1 } },
-      });
-
-      // (e) カテゴリ変更時のみ子孫 categoryId を一括波及。
-      if (categoryId !== oldCategoryId) {
-        const descendantIds = await this.collectDescendantIdsTx(tx, id);
-        if (descendantIds.length > 0) {
-          await tx.task.updateMany({
-            where: { id: { in: descendantIds } },
-            data: { categoryId },
-          });
+        if (!moving) throw new NotFoundException('Task not found');
+        if (
+          ctx.expectedSpaceId !== undefined &&
+          (moving.spaceId ?? DEFAULT_CHANNEL_ID) !== ctx.expectedSpaceId
+        ) {
+          throw new NotFoundException('Task not found');
         }
-      }
+        const oldCategoryId = moving.categoryId;
+        const oldParentTaskId = moving.parentTaskId;
+        const oldSortOrder = moving.sortOrder;
+        const targetSpaceId = spaceId ?? moving.spaceId ?? DEFAULT_CHANNEL_ID;
+        await this.assertParentSpaceTx(tx, parentTaskId, targetSpaceId);
 
-      // (d) 対象自身を移動先へ。sourceTheme を include して更新後も元チャットリンクを保つ。
-      // spaceId 指定時のみ器を付け替える（CM-2 / ADR 0037 §6・service が同一 project を検証済み）。
-      return tx.task.update({
-        where: { id },
-        data: {
-          parentTaskId,
-          categoryId,
-          sortOrder: insertAt,
-          ...(spaceId !== undefined && { spaceId }),
-        },
-        include: { sourceTheme: sourceThemeSelect, assignee: assigneeSelect, owner: ownerSelect },
-      });
+        // (a) 移動元グループの穴埋め: 旧 sortOrder より後ろの兄弟を -1。
+        // 対象自身は今から動かす（後で sortOrder を再設定）ため、gt: oldSortOrder で自身を除外する。
+        // 絞りは実列の値で組む（null に DEFAULT_CHANNEL_ID を当てない）。null の行は migration で
+        // 既定の器へ backfill 済みで、SQL の `space_id = <既定>` は null 行に当たらないため、
+        // まわりの読み取り（targetSpaceId / assertParentSpaceTx / assertSiblingGroup）と同じ null
+        // フォールバックを置くと、null 行だけ既定の器の兄弟を巻き込んで採番をずらす（d687）。
+        await tx.task.updateMany({
+          where: {
+            spaceId: moving.spaceId,
+            categoryId: oldCategoryId,
+            parentTaskId: oldParentTaskId,
+            sortOrder: { gt: oldSortOrder },
+          },
+          data: { sortOrder: { decrement: 1 } },
+        });
+
+        // (b) 移動先の挿入位置を確定。afterTaskId 指定時は穴埋め後の afterTask.sortOrder+1、null は先頭=0。
+        let insertAt: number;
+        if (afterTaskId != null) {
+          const after = await tx.task.findUnique({
+            where: { id: afterTaskId },
+            select: { sortOrder: true, spaceId: true, categoryId: true, parentTaskId: true },
+          });
+          this.assertSiblingGroup(after, targetSpaceId, categoryId, parentTaskId);
+          if (afterTaskId === id)
+            throw new BadRequestException('Cannot insert a task after itself');
+          insertAt = after!.sortOrder + 1;
+        } else {
+          insertAt = 0;
+        }
+
+        // (c) 移動先グループの押し出し: 挿入位置以上の兄弟を +1。
+        await tx.task.updateMany({
+          where: { spaceId: targetSpaceId, categoryId, parentTaskId, sortOrder: { gte: insertAt } },
+          data: { sortOrder: { increment: 1 } },
+        });
+
+        // (e) Space だけが変わる未分類タスクでも子孫を同時に移す。
+        if (
+          categoryId !== oldCategoryId ||
+          targetSpaceId !== (moving.spaceId ?? DEFAULT_CHANNEL_ID)
+        ) {
+          await this.cascadeMoveTx(
+            tx,
+            id,
+            moving.spaceId ?? DEFAULT_CHANNEL_ID,
+            categoryId,
+            spaceId,
+          );
+        }
+
+        // (d) 対象自身を移動先へ。sourceTheme を include して更新後も元チャットリンクを保つ。
+        // spaceId 指定時のみ器を付け替える（CM-2 / ADR 0037 §6・service が同一 project を検証済み）。
+        return tx.task.update({
+          where: { id },
+          data: {
+            parentTaskId,
+            categoryId,
+            sortOrder: insertAt,
+            ...(spaceId !== undefined && { spaceId }),
+          },
+          include: { sourceTheme: sourceThemeSelect, assignee: assigneeSelect, owner: ownerSelect },
+        });
+      },
+      INTERACTIVE_SAVE_TX_OPTIONS,
+    );
+  }
+
+  private async cascadeMoveTx(
+    tx: Prisma.TransactionClient,
+    id: number,
+    sourceSpaceId: string,
+    categoryId: number | null,
+    spaceId?: string,
+  ): Promise<void> {
+    const descendantIds = await this.collectDescendantIdsTx(tx, id, sourceSpaceId);
+    if (descendantIds.length === 0) return;
+    await tx.task.updateMany({
+      where: { id: { in: descendantIds } },
+      data: { categoryId, ...(spaceId !== undefined && { spaceId }) },
     });
+  }
+
+  private async assertParentSpaceTx(
+    tx: Prisma.TransactionClient,
+    parentTaskId: number | null,
+    spaceId: string,
+  ): Promise<void> {
+    if (parentTaskId === null) return;
+    const parent = await tx.task.findUnique({
+      where: { id: parentTaskId },
+      select: { spaceId: true },
+    });
+    if (!parent || (parent.spaceId ?? DEFAULT_CHANNEL_ID) !== spaceId) {
+      throw new NotFoundException('Parent task not found');
+    }
+  }
+
+  private assertSiblingGroup(
+    sibling: {
+      spaceId: string | null;
+      categoryId: number | null;
+      parentTaskId: number | null;
+    } | null,
+    spaceId: string,
+    categoryId: number | null,
+    parentTaskId: number | null,
+  ): void {
+    if (!sibling || (sibling.spaceId ?? DEFAULT_CHANNEL_ID) !== spaceId) {
+      throw new NotFoundException('Sibling task not found');
+    }
+    if (sibling.categoryId !== categoryId || sibling.parentTaskId !== parentTaskId) {
+      throw new BadRequestException('Sibling task does not belong to the target group');
+    }
   }
 
   /**
@@ -591,6 +669,7 @@ export class TasksRepository {
   private async collectDescendantIdsTx(
     tx: Prisma.TransactionClient,
     id: number,
+    spaceId: string,
   ): Promise<number[]> {
     const result: number[] = [];
     let level: number[] = [id];
@@ -605,8 +684,11 @@ export class TasksRepository {
       guard += 1;
       const children = await tx.task.findMany({
         where: { parentTaskId: { in: level } },
-        select: { id: true },
+        select: { id: true, spaceId: true },
       });
+      if (children.some((child) => (child.spaceId ?? DEFAULT_CHANNEL_ID) !== spaceId)) {
+        throw new NotFoundException('Task not found');
+      }
       level = children.map((c) => c.id);
       result.push(...level);
     }

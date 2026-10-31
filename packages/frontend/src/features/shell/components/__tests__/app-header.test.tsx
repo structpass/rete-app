@@ -210,7 +210,7 @@ describe('AppHeader ピルの駆動', () => {
 });
 
 describe('AppHeader ピル計測', () => {
-  const resizeCalls = (spy: { mock: { calls: unknown[][] } }) =>
+  const resizeCalls = (spy: { mock: { calls: ReadonlyArray<readonly unknown[]> } }) =>
     spy.mock.calls.filter(([type]) => type === 'resize').length;
 
   it('resize 監視はマウント時 1 回だけで、ホバーしても張り直さない', () => {

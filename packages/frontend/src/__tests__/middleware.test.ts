@@ -20,8 +20,8 @@ describe('safeOrigin', () => {
   it('有効な URL は origin だけを返す', async () => {
     const { safeOrigin } = await loadMiddleware();
     expect(safeOrigin('http://localhost:3001/api/v1')).toBe('http://localhost:3001');
-    expect(safeOrigin('https://board.example.com:3020/path?q=1')).toBe(
-      'https://board.example.com:3020',
+    expect(safeOrigin('https://app.example.com:3020/path?q=1')).toBe(
+      'https://app.example.com:3020',
     );
   });
 
@@ -47,7 +47,6 @@ describe('buildCsp（本番）', () => {
     const { buildCsp } = await loadMiddleware({
       NODE_ENV: 'production',
       NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-      NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
       NEXT_PUBLIC_REFERENCE_APP_URL: 'https://ref.example.com',
     });
     const csp = buildCsp('n');
@@ -74,7 +73,6 @@ describe('buildCsp（本番）', () => {
     const { buildCsp } = await loadMiddleware({
       NODE_ENV: 'production',
       NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-      NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
       NEXT_PUBLIC_REFERENCE_APP_URL: 'http://localhost:3000',
     });
     const csp = buildCsp('n');
@@ -83,23 +81,21 @@ describe('buildCsp（本番）', () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("object-src 'none'");
-    expect(csp).toContain(
-      "connect-src 'self' https://api.example.com https://board.example.com http://localhost:3000",
-    );
+    expect(csp).toContain("connect-src 'self' https://api.example.com http://localhost:3000");
   });
 
-  it('本番で board URL 未設定なら localhost へ fallback せず CSP から除外し UIR を維持する（cmn-0403）', async () => {
-    // 本番未配線（NEXT_PUBLIC_INSTRUCTION_BOARD_URL 空）: localhost:3020 fallback が焼き込まれると
-    // http 混入扱いで UIR が脱落し、connect-src/frame-src へ localhost が載る（ref-0087 の再発）。
+  it('本番は board を CSP に含めず、frame-src は self だけ・UIR を維持する（Board 廃止）', async () => {
+    // Board（instruction-board）は廃止した。connect-src / frame-src に board のオリジンが
+    // 載らないこと（残骸の許可先を残さない）を固定する。
     const { buildCsp } = await loadMiddleware({
       NODE_ENV: 'production',
       NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-      NEXT_PUBLIC_INSTRUCTION_BOARD_URL: '',
       NEXT_PUBLIC_REFERENCE_APP_URL: 'https://ref.example.com',
     });
     const csp = buildCsp('n');
     expect(csp).toContain('upgrade-insecure-requests');
     expect(csp).not.toContain('localhost');
+    expect(csp).not.toContain('board');
     expect(csp).toContain("frame-src 'self'; ");
   });
 
@@ -108,7 +104,6 @@ describe('buildCsp（本番）', () => {
     const { buildCsp } = await loadMiddleware({
       NODE_ENV: 'production',
       NEXT_PUBLIC_API_BASE_URL: 'not a url',
-      NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
       NEXT_PUBLIC_REFERENCE_APP_URL: 'https://ref.example.com',
     });
     const csp = buildCsp('n');
@@ -122,7 +117,6 @@ describe('buildCsp（本番）', () => {
       const { middleware } = await loadMiddleware({
         NODE_ENV: 'production',
         NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-        NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
         NEXT_PUBLIC_REFERENCE_APP_URL: 'http://localhost:3000',
       });
       middleware(new NextRequest('http://localhost:3000/desk'));
@@ -141,7 +135,6 @@ describe('buildCsp（本番）', () => {
       const { middleware } = await loadMiddleware({
         NODE_ENV: 'production',
         NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-        NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
         NEXT_PUBLIC_REFERENCE_APP_URL: 'https://ref.example.com',
       });
       middleware(new NextRequest('http://localhost:3000/desk'));
@@ -151,18 +144,16 @@ describe('buildCsp（本番）', () => {
     }
   });
 
-  it('connect-src / frame-src に env の3オリジンが導出される', async () => {
+  it('connect-src に env の2オリジンが導出され、frame-src は self だけになる', async () => {
     const { buildCsp } = await loadMiddleware({
       NODE_ENV: 'production',
       NEXT_PUBLIC_API_BASE_URL: 'https://api.example.com/api/v1',
-      NEXT_PUBLIC_INSTRUCTION_BOARD_URL: 'https://board.example.com',
       NEXT_PUBLIC_REFERENCE_APP_URL: 'https://ref.example.com',
     });
     const csp = buildCsp('n');
-    expect(csp).toContain(
-      "connect-src 'self' https://api.example.com https://board.example.com https://ref.example.com",
-    );
-    expect(csp).toContain("frame-src 'self' https://board.example.com");
+    expect(csp).toContain("connect-src 'self' https://api.example.com https://ref.example.com");
+    // Board 廃止に伴い、iframe の許可先は自オリジンだけ（外部オリジンを許可しない）。
+    expect(csp).toContain("frame-src 'self'; ");
     // 本番は ws 系を許可しない
     expect(csp).not.toContain('ws:');
   });

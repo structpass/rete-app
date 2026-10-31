@@ -12,11 +12,12 @@ import { AuthenticatedUser } from '../auth.service';
 import { API_GLOBAL_PREFIX_PATH } from '../../../common/config/api-routes';
 
 /**
- * 全体強制 MFA の遮断ガード（R8）。login-settings.mfaEnforced=true かつ session.authMethod==='local' かつ
+ * 全体強制 MFA の遮断ガード（R8）。login-settings.mfaEnforced=true かつ session の出自が 'local' かつ
  * 当該 account が confirmed な MfaSetting を持たない場合、保護ルートを 403 MFA_SETUP_REQUIRED で遮断する。
  *
- * 適用は 'local' 認証経路のみ（SSO 経由は IdP MFA を尊重・R9）。本ガードはグローバル登録し、例外（通す）を
- * EXEMPT_PATHS で持つ: MFA セットアップ系・GET /auth/me・POST /auth/logout（設定画面へ到達させるため）。
+ * 適用は 'local' 出自のみ（外部 IdP 認証は IdP の MFA を尊重・R9）。外部アプリへ認証を渡す OIDC interaction の
+ * 完了は出自を変えないため、後から MFA を必須にしても同じセッションへ効く（d955）。本ガードはグローバル登録し、
+ * 例外（通す）を EXEMPT_PATHS で持つ: MFA セットアップ系・GET /auth/me・POST /auth/logout（設定画面へ到達させるため）。
  * 未認証リクエストは AuthenticatedGuard / 各所の認証境界に委ね、本ガードは認証済のみ判定する（req.user 不在は素通し）。
  */
 @Injectable()
@@ -59,10 +60,10 @@ export class MfaEnforcementGuard implements CanActivate {
     const user = req.user as AuthenticatedUser | undefined;
     if (!user) return true;
 
-    // SSO 経由は IdP MFA を尊重し強制しない（R9）。authMethod 未設定（古いセッション等）は
-    // 'local' 相当として強制対象に含める（fail-open 防止・明示的に 'local' 以外のみ除外）。
-    const authMethod = req.session?.authMethod ?? 'local';
-    if (authMethod !== 'local') return true;
+    // 出自は authOrigin で見る（d955）。素通しは「外部 IdP が認証した」と明示された時だけにして、
+    // 未知の値・空文字・未設定では fail-open しない（Rete 自身の資格情報で入ったセッションは、
+    // 外部アプリへ認証を渡した後でも強制の対象に残す）。
+    if (req.session?.authOrigin === 'external-idp') return true;
 
     // 除外 path（セットアップ導線 / me / logout / login）は常に通す。
     // グローバル prefix を剥がし、`base` 完全一致 or `base/...` のみ除外（部分文字列一致はしない）。
@@ -73,6 +74,10 @@ export class MfaEnforcementGuard implements CanActivate {
     if (MfaEnforcementGuard.EXEMPT_BASES.some((b) => path === b || path.startsWith(`${b}/`))) {
       return true;
     }
+
+    // 出口（強制を外す操作）は EXEMPT_BASES の /settings/login 配下で既に通している。
+    // ここで先に通すための別リストは置かない（同じ判断を 2 箇所に書くと、片方だけを直す時に
+    // 「出口を開けたつもりで塞がる」「塞いだつもりで開いている」のどちらかが静かに起きる・d849）。
 
     // 全体強制 OFF なら素通し。
     if (!(await this.loginSettings.isMfaEnforced())) return true;

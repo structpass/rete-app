@@ -22,6 +22,7 @@ describe('AuthService', () => {
   let accounts: {
     findByEmail: jest.Mock;
     findById: jest.Mock;
+    findOidcCredentialState: jest.Mock;
     registerFailedAttempt: jest.Mock;
     resetLoginState: jest.Mock;
     updatePasswordAndClearFlag: jest.Mock;
@@ -54,6 +55,7 @@ describe('AuthService', () => {
     accounts = {
       findByEmail: jest.fn(),
       findById: jest.fn(),
+      findOidcCredentialState: jest.fn(),
       registerFailedAttempt: jest.fn(),
       resetLoginState: jest.fn(),
       updatePasswordAndClearFlag: jest.fn(),

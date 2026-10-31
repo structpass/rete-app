@@ -6,7 +6,7 @@ import {
   FilterSearchInput,
 } from '@/components/shared/filter-bar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ListActionRow, PageTitle, TableCard } from '@/features/settings/components/primitives';
+import { ListActionRow, PageTitle } from '@/features/settings/components/primitives';
 import { Archive } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useOrganizationManagement } from '../hooks/use-organization-management';
@@ -44,8 +44,13 @@ export function OrganizationsScreen() {
     orgCrud,
     projectsLoading,
     projectsBusy,
+    projectsError,
     channelsLoading,
     channelsBusy,
+    channelsError,
+    reloadOrgs,
+    reloadProjects,
+    reloadChannels,
     handleSelectOrg,
     handleSelectProject,
     query,
@@ -113,10 +118,13 @@ export function OrganizationsScreen() {
           </ListActionRow>
           <OrgPane
             orgs={visibleOrgs}
+            isLoading={orgCrud.isLoading}
             selectedOrgId={selectedOrgId}
             updating={orgCrud.updating}
             searching={query !== ''}
             includeArchived={includeArchived}
+            error={orgCrud.error}
+            onRetry={reloadOrgs}
             onSelect={handleSelectOrg}
             onRename={(org) => setDialog({ kind: 'rename-org', id: org.id, currentName: org.name })}
             onArchive={(org) =>
@@ -169,33 +177,25 @@ export function OrganizationsScreen() {
               disabled={projectsBusy}
             />
           </ListActionRow>
-          {projectsLoading ? (
-            <TableCard>
-              <div
-                className="text-[var(--sp-text-warm-mute)] text-[0.8125rem]"
-                style={{ padding: '1.25rem', textAlign: 'center' }}
-              >
-                読み込み中…
-              </div>
-            </TableCard>
-          ) : (
-            <ProjectPane
-              projects={visibleProjects}
-              selectedProjectId={selectedProjectId}
-              updating={projectsBusy}
-              searching={projectQuery !== ''}
-              includeArchived={projectIncludeArchived}
-              onSelect={handleSelectProject}
-              onRename={(p) => setDialog({ kind: 'rename-project', id: p.id, currentName: p.name })}
-              onArchive={(p) =>
-                setDeleteTarget({ action: 'archive', kind: 'project', id: p.id, name: p.name })
-              }
-              onRestore={handleProjectRestore}
-              onDelete={(p) =>
-                setDeleteTarget({ action: 'delete', kind: 'project', id: p.id, name: p.name })
-              }
-            />
-          )}
+          <ProjectPane
+            projects={visibleProjects}
+            isLoading={projectsLoading}
+            selectedProjectId={selectedProjectId}
+            updating={projectsBusy}
+            searching={projectQuery !== ''}
+            includeArchived={projectIncludeArchived}
+            error={projectsError}
+            onRetry={() => void reloadProjects()}
+            onSelect={handleSelectProject}
+            onRename={(p) => setDialog({ kind: 'rename-project', id: p.id, currentName: p.name })}
+            onArchive={(p) =>
+              setDeleteTarget({ action: 'archive', kind: 'project', id: p.id, name: p.name })
+            }
+            onRestore={handleProjectRestore}
+            onDelete={(p) =>
+              setDeleteTarget({ action: 'delete', kind: 'project', id: p.id, name: p.name })
+            }
+          />
         </section>
 
         {/* 右: チャネル（選択 PJ 配下） */}
@@ -238,33 +238,25 @@ export function OrganizationsScreen() {
               disabled={channelsBusy}
             />
           </ListActionRow>
-          {channelsLoading ? (
-            <TableCard>
-              <div
-                className="text-[var(--sp-text-warm-mute)] text-[0.8125rem]"
-                style={{ padding: '1.25rem', textAlign: 'center' }}
-              >
-                読み込み中…
-              </div>
-            </TableCard>
-          ) : (
-            <ChannelPane
-              channels={visibleChannels}
-              updating={channelsBusy}
-              searching={channelQuery !== ''}
-              includeArchived={channelIncludeArchived}
-              onRename={(ch) =>
-                setDialog({ kind: 'rename-channel', id: ch.id, currentName: ch.name })
-              }
-              onArchive={(ch) =>
-                setDeleteTarget({ action: 'archive', kind: 'channel', id: ch.id, name: ch.name })
-              }
-              onRestore={handleChannelRestore}
-              onDelete={(ch) =>
-                setDeleteTarget({ action: 'delete', kind: 'channel', id: ch.id, name: ch.name })
-              }
-            />
-          )}
+          <ChannelPane
+            channels={visibleChannels}
+            isLoading={channelsLoading}
+            updating={channelsBusy}
+            searching={channelQuery !== ''}
+            includeArchived={channelIncludeArchived}
+            error={channelsError}
+            onRetry={() => void reloadChannels()}
+            onRename={(ch) =>
+              setDialog({ kind: 'rename-channel', id: ch.id, currentName: ch.name })
+            }
+            onArchive={(ch) =>
+              setDeleteTarget({ action: 'archive', kind: 'channel', id: ch.id, name: ch.name })
+            }
+            onRestore={handleChannelRestore}
+            onDelete={(ch) =>
+              setDeleteTarget({ action: 'delete', kind: 'channel', id: ch.id, name: ch.name })
+            }
+          />
         </section>
       </div>
 

@@ -1,6 +1,7 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
+import { DEFAULT_CHANNEL_ID } from '@rete/shared';
 import { TasksRepository } from './tasks.repository';
 import { PrismaService } from '../../../database/prisma.service';
 import { INTERACTIVE_SAVE_TX_OPTIONS } from '../../../common/database/serializable-tx';
@@ -505,11 +506,15 @@ describe('TasksRepository', () => {
       txMock.task.aggregate.mockResolvedValue({ _max: { sortOrder: 4 } });
       txMock.task.create.mockResolvedValue(makeTaskEntity({ sortOrder: 5 }));
 
-      await repo.createWithSortOrder(baseData, { categoryId: 1, parentTaskId: null });
+      await repo.createWithSortOrder(baseData, {
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+      });
 
       // 兄弟グループ（categoryId + parentTaskId）の max(sortOrder) を集計
       expect(txMock.task.aggregate).toHaveBeenCalledWith({
-        where: { categoryId: 1, parentTaskId: null },
+        where: { spaceId: DEFAULT_CHANNEL_ID, categoryId: 1, parentTaskId: null },
         _max: { sortOrder: true },
       });
       // 末尾に追加: max(4)+1 = 5
@@ -522,19 +527,28 @@ describe('TasksRepository', () => {
       txMock.task.aggregate.mockResolvedValue({ _max: { sortOrder: null } });
       txMock.task.create.mockResolvedValue(makeTaskEntity({ sortOrder: 0 }));
 
-      await repo.createWithSortOrder(baseData, { categoryId: 1, parentTaskId: null });
+      await repo.createWithSortOrder(baseData, {
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+      });
 
       expect(txMock.task.create.mock.calls[0][0].data.sortOrder).toBe(0);
     });
 
     it('child（parentTaskId 指定・afterTaskId 省略）: 子グループ max+1 で末尾 create', async () => {
+      txMock.task.findUnique.mockResolvedValue({ spaceId: DEFAULT_CHANNEL_ID });
       txMock.task.aggregate.mockResolvedValue({ _max: { sortOrder: 1 } });
       txMock.task.create.mockResolvedValue(makeTaskEntity({ parentTaskId: 7, sortOrder: 2 }));
 
-      await repo.createWithSortOrder(baseData, { categoryId: 1, parentTaskId: 7 });
+      await repo.createWithSortOrder(baseData, {
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: 7,
+      });
 
       expect(txMock.task.aggregate).toHaveBeenCalledWith({
-        where: { categoryId: 1, parentTaskId: 7 },
+        where: { spaceId: DEFAULT_CHANNEL_ID, categoryId: 1, parentTaskId: 7 },
         _max: { sortOrder: true },
       });
       expect(txMock.task.create.mock.calls[0][0].data.sortOrder).toBe(2);
@@ -543,10 +557,16 @@ describe('TasksRepository', () => {
 
     it('sibling（afterTaskId 指定）: 基準兄弟の直後に挿入し、それ以降の兄弟を +1 シフトしてから create', async () => {
       // 基準兄弟（afterTaskId=42）の sortOrder=3。read は tx 経由（tx.task.findUnique）。
-      txMock.task.findUnique.mockResolvedValueOnce({ sortOrder: 3 });
+      txMock.task.findUnique.mockResolvedValueOnce({
+        sortOrder: 3,
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+      });
       txMock.task.create.mockResolvedValue(makeTaskEntity({ sortOrder: 4 }));
 
       await repo.createWithSortOrder(baseData, {
+        spaceId: DEFAULT_CHANNEL_ID,
         categoryId: 1,
         parentTaskId: null,
         afterTaskId: 42,
@@ -555,13 +575,18 @@ describe('TasksRepository', () => {
       // 基準兄弟の sortOrder を tx 内で取得（tx 外 read 禁止）
       expect(txMock.task.findUnique).toHaveBeenCalledWith({
         where: { id: 42 },
-        select: { sortOrder: true },
+        select: { sortOrder: true, spaceId: true, categoryId: true, parentTaskId: true },
       });
       // tx 外の prisma.task.findUnique は使われない
       expect(mockPrisma.task.findUnique).not.toHaveBeenCalled();
       // sortOrder >= 4 の兄弟を +1 シフト（同一兄弟グループ内）
       expect(txMock.task.updateMany).toHaveBeenCalledWith({
-        where: { categoryId: 1, parentTaskId: null, sortOrder: { gte: 4 } },
+        where: {
+          spaceId: DEFAULT_CHANNEL_ID,
+          categoryId: 1,
+          parentTaskId: null,
+          sortOrder: { gte: 4 },
+        },
         data: { sortOrder: { increment: 1 } },
       });
       // 挿入: afterTask.sortOrder + 1 = 4
@@ -581,7 +606,11 @@ describe('TasksRepository', () => {
         category: { connect: { id: 1 } },
         sourceTheme: { connect: { id: 'theme-1' } },
       } as never;
-      await repo.createWithSortOrder(data, { categoryId: 1, parentTaskId: null });
+      await repo.createWithSortOrder(data, {
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+      });
 
       expect(txMock.task.create.mock.calls[0][0].data.sourceTheme).toEqual({
         connect: { id: 'theme-1' },
@@ -594,7 +623,7 @@ describe('TasksRepository', () => {
 
       await repo.createWithSortOrder(
         baseData,
-        { categoryId: 1, parentTaskId: null },
+        { spaceId: DEFAULT_CHANNEL_ID, categoryId: 1, parentTaskId: null },
         {
           descriptionMentionAccountIds: ['u1', 'u2'],
         },
@@ -613,7 +642,7 @@ describe('TasksRepository', () => {
 
       await repo.createWithSortOrder(
         baseData,
-        { categoryId: 1, parentTaskId: null },
+        { spaceId: DEFAULT_CHANNEL_ID, categoryId: 1, parentTaskId: null },
         {
           tenmatsuMentionAccountIds: ['u3'],
         },
@@ -631,7 +660,7 @@ describe('TasksRepository', () => {
 
       await repo.createWithSortOrder(
         baseData,
-        { categoryId: 1, parentTaskId: null },
+        { spaceId: DEFAULT_CHANNEL_ID, categoryId: 1, parentTaskId: null },
         {
           descriptionMentionAccountIds: ['u1'],
           tenmatsuMentionAccountIds: ['u2'],
@@ -650,7 +679,11 @@ describe('TasksRepository', () => {
       txMock.task.aggregate.mockResolvedValue({ _max: { sortOrder: null } });
       txMock.task.create.mockResolvedValue(makeTaskEntity({ id: 12 }));
 
-      await repo.createWithSortOrder(baseData, { categoryId: 1, parentTaskId: null });
+      await repo.createWithSortOrder(baseData, {
+        spaceId: DEFAULT_CHANNEL_ID,
+        categoryId: 1,
+        parentTaskId: null,
+      });
 
       expect(txMock.taskMention.createMany).not.toHaveBeenCalled();
     });
@@ -712,6 +745,7 @@ describe('TasksRepository', () => {
     // 移動対象 id=100。読み取りは tx 経由（tx 外 read を禁止）。
     const movingTask = (over = {}) => ({
       id: 100,
+      spaceId: DEFAULT_CHANNEL_ID,
       categoryId: 1,
       parentTaskId: null,
       sortOrder: 2,
@@ -722,7 +756,12 @@ describe('TasksRepository', () => {
       // 対象は categoryId=1 トップレベル sortOrder=2。同グループ内で afterTaskId=5（sortOrder=4）の直後へ。
       txMock.task.findUnique
         .mockResolvedValueOnce(movingTask()) // 対象本体
-        .mockResolvedValueOnce({ sortOrder: 4 }); // afterTask（穴埋め後の読み取り）
+        .mockResolvedValueOnce({
+          sortOrder: 4,
+          spaceId: DEFAULT_CHANNEL_ID,
+          categoryId: 1,
+          parentTaskId: null,
+        }); // afterTask（穴埋め後の読み取り）
       txMock.task.findMany.mockResolvedValue([]); // 子孫なし（カテゴリ波及なし）
       txMock.task.update.mockResolvedValue(makeTaskEntity({ id: 100, sortOrder: 4 }));
 
@@ -730,7 +769,12 @@ describe('TasksRepository', () => {
 
       // 穴埋め: 移動元グループで old(2) より後ろを -1
       expect(txMock.task.updateMany).toHaveBeenCalledWith({
-        where: { categoryId: 1, parentTaskId: null, sortOrder: { gt: 2 } },
+        where: {
+          spaceId: DEFAULT_CHANNEL_ID,
+          categoryId: 1,
+          parentTaskId: null,
+          sortOrder: { gt: 2 },
+        },
         data: { sortOrder: { decrement: 1 } },
       });
       // 押し出し: 移動先グループで insertAt(=afterSortOrder 4 +1? ) 以上を +1
@@ -746,6 +790,29 @@ describe('TasksRepository', () => {
       expect(typeof updateCall.data.sortOrder).toBe('number');
     });
 
+    it('未設定の Space（null）のタスクは、既定の器の兄弟を巻き込まずに自分のグループで穴埋めすること（d687）', async () => {
+      // null 行は migration で既定の器へ backfill 済み。万一残っていても、穴埋めの絞りは実列の
+      // 値（null）で組み、`space_id = 既定の器` に当たらない。null を既定の器へ読み替えると
+      // 既定の器の兄弟まで -1 して採番がずれる。
+      txMock.task.findUnique.mockResolvedValueOnce(
+        movingTask({ spaceId: null, categoryId: 1, parentTaskId: null, sortOrder: 2 }),
+      );
+      txMock.task.findMany.mockResolvedValue([]);
+      txMock.task.update.mockResolvedValue(makeTaskEntity({ id: 100, sortOrder: 0 }));
+
+      await repo.moveTask(100, { parentTaskId: null, categoryId: 1, afterTaskId: null });
+
+      const fillCall = txMock.task.updateMany.mock.calls.find(
+        (c) => c[0].data.sortOrder?.decrement === 1,
+      );
+      expect(fillCall?.[0].where).toEqual({
+        spaceId: null,
+        categoryId: 1,
+        parentTaskId: null,
+        sortOrder: { gt: 2 },
+      });
+    });
+
     it('afterTaskId=null（兄弟グループ先頭挿入）: insertAt=0 で押し出し、sortOrder=0 で update', async () => {
       txMock.task.findUnique.mockResolvedValueOnce(
         movingTask({ categoryId: 1, parentTaskId: null, sortOrder: 3 }),
@@ -753,11 +820,17 @@ describe('TasksRepository', () => {
       txMock.task.findMany.mockResolvedValue([]);
       txMock.task.update.mockResolvedValue(makeTaskEntity({ id: 100, sortOrder: 0 }));
 
+      txMock.task.findUnique.mockResolvedValue({ spaceId: DEFAULT_CHANNEL_ID });
       await repo.moveTask(100, { parentTaskId: 7, categoryId: 1, afterTaskId: null });
 
       // 移動先グループ（parentTaskId=7）で sortOrder>=0 を +1 押し出し
       expect(txMock.task.updateMany).toHaveBeenCalledWith({
-        where: { categoryId: 1, parentTaskId: 7, sortOrder: { gte: 0 } },
+        where: {
+          spaceId: DEFAULT_CHANNEL_ID,
+          categoryId: 1,
+          parentTaskId: 7,
+          sortOrder: { gte: 0 },
+        },
         data: { sortOrder: { increment: 1 } },
       });
       const updateCall = txMock.task.update.mock.calls[0][0];

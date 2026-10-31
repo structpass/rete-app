@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Role } from '@rete/shared';
+import { Role, NO_HOME_GROUP_PERMISSIONS } from '@rete/shared';
 import { useSession } from '@/features/auth';
 import { useAsyncAction } from '@/hooks/use-async-action';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
+import { useDiscardConfirm } from '@/hooks/use-discard-confirm';
+import { useEscapeConsume } from '@/hooks/use-escape-consume';
+import { DiscardConfirmDialog } from '@/components/ui/discard-confirm-dialog';
 import { FormActions, FormButton, PageTitle } from './primitives';
 import { GroupFormCard } from './group-form-card';
 import { GroupMemberPicker } from './group-member-picker';
@@ -32,11 +35,31 @@ export function GroupCreateScreen() {
   const router = useRouter();
 
   const [name, setName] = useState('');
+  const [permissions, setPermissions] = useState({ ...NO_HOME_GROUP_PERMISSIONS });
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const { run } = useAsyncAction();
+  const discard = useDiscardConfirm();
+  // 未保存の入力と所属の選択は、編集画面と同じく正規化した値で「書きかけか」を判定する
+  // （空白だけの題名で破棄確認を出し、空題名では出さない差を作らない / d543）。
+  const trimmedName = name.trim();
+  const handleBack = () => {
+    if (saving) return;
+    discard.request(
+      trimmedName !== '' ||
+        selectedAccountIds.length > 0 ||
+        Object.values(permissions).some(Boolean),
+      () => router.push('/settings/groups'),
+    );
+  };
+  // Esc はキャンセルと同じ経路にする（UI 共通仕様 escape-key 規約①。破棄確認の表示中は
+  // AlertDialog 側が Esc を消費するため何もしない）。
+  useEscapeConsume(handleBack, {
+    enabled: !loading,
+    guardSelector: '[role="alertdialog"]',
+  });
 
   useMountedFetch(
     async (alive) => {
@@ -53,13 +76,11 @@ export function GroupCreateScreen() {
     [isAdmin],
   );
 
-  const trimmedName = name.trim();
-
   async function handleCreate() {
     if (!trimmedName) return;
     await run(
       async () => {
-        const created = await createUserGroup({ name: trimmedName });
+        const created = await createUserGroup({ name: trimmedName, ...permissions });
         try {
           for (const accountId of selectedAccountIds) {
             await addUserGroupMember({ groupId: created.id, accountId });
@@ -100,38 +121,59 @@ export function GroupCreateScreen() {
     );
   }
 
+  // 編集画面と同じ順で、見出しを先に置いてから読み込み中を示す（d594）。
+  // 読み込み中に入力欄と作成ボタンを出さないのは、空の名前で押せてしまうため。
+  if (loading) {
+    return (
+      <main className="sp-page" style={{ overflowY: 'auto' }}>
+        <PageTitle title="管理グループを作成" />
+        <p className="text-sm text-[var(--sp-text-warm-mute)]">読み込み中…</p>
+      </main>
+    );
+  }
+
   return (
     <main className="sp-page" style={{ overflowY: 'auto' }}>
       <PageTitle title="管理グループを作成" />
+      <DiscardConfirmDialog
+        open={discard.open}
+        onConfirm={discard.onConfirm}
+        onCancel={discard.onCancel}
+      />
       <p className="mb-3 text-sm text-[var(--sp-text-warm-mute)]">
-        <Link className="text-[var(--sp-accent-red)] underline" href="/settings/groups">
+        <Link
+          className="text-[var(--sp-accent-red)] underline"
+          href="/settings/groups"
+          onClick={(event) => {
+            event.preventDefault();
+            handleBack();
+          }}
+        >
           管理グループ一覧
         </Link>
         へ戻る
       </p>
 
-      <GroupFormCard name={name} onNameChange={setName} nameDisabled={saving}>
-        {loading ? (
-          <p className="text-sm text-[var(--sp-text-warm-mute)]">読み込み中…</p>
-        ) : (
-          <GroupMemberPicker
-            accounts={accounts}
-            selectedAccountIds={selectedAccountIds}
-            disabled={saving}
-            onAdd={(accountId) => setSelectedAccountIds((cur) => [...cur, accountId])}
-            onRemove={(accountId) =>
-              setSelectedAccountIds((cur) => cur.filter((id) => id !== accountId))
-            }
-          />
-        )}
+      <GroupFormCard
+        name={name}
+        onNameChange={setName}
+        nameDisabled={saving}
+        permissions={permissions}
+        onPermissionsChange={setPermissions}
+      >
+        <GroupMemberPicker
+          accounts={accounts}
+          selectedAccountIds={selectedAccountIds}
+          disabled={saving}
+          onAdd={(accountId) => setSelectedAccountIds((cur) => [...cur, accountId])}
+          onRemove={(accountId) =>
+            setSelectedAccountIds((cur) => cur.filter((id) => id !== accountId))
+          }
+        />
 
         <FormActions>
           {/* キャンセルは背景なし系（ghost）で統一する（v2-224。オーバーレイのキャンセルと同じ字面）。 */}
-          <FormButton
-            variant="ghost"
-            onClick={() => router.push('/settings/groups')}
-            disabled={saving}
-          >
+          <FormButton variant="ghost" onClick={handleBack} disabled={saving}>
             キャンセル
           </FormButton>
           <FormButton

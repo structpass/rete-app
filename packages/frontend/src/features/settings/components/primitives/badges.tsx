@@ -39,8 +39,10 @@ export function Avatar({ initials, tone = 'muted' }: { initials: string; tone?: 
 }
 
 /**
- * 角丸のステータス/権限バッジ。strong=true は権限の強調表示（ADMIN 等・小さめ padding + 太字）、
+ * ステータス/権限バッジ。strong=true は権限の強調表示（ADMIN 等・小さめ padding + 太字）、
  * 既定は状態バッジ（有効 等）。
+ * 形は正本 comp-badge の rounded-full（四角ラベルを作らない）。色は画面の tone トークンを
+ * 引き続き使う（comp-badge の variant はタスク状態専用のため、設定タブの分類トーンはここが正）。
  */
 export function StatusBadge({
   tone = 'muted',
@@ -56,8 +58,8 @@ export function StatusBadge({
     <span
       className="text-[10px] font-semibold"
       style={{
-        padding: strong ? '1px 6px' : '2px 8px',
-        borderRadius: '3px',
+        padding: strong ? '1px 8px' : '2px 10px',
+        borderRadius: '9999px',
         background: t.bg,
         color: t.fg,
       }}

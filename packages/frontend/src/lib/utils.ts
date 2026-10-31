@@ -49,6 +49,18 @@ export function formatDateTime(date: string | null | undefined): string {
 }
 
 /**
+ * Date を `YYYY-MM-DD`（閲覧者のローカル時刻の年月日）に組み立てる。input[type=date] の値・期間の判定用。
+ *
+ * `toISOString().slice(0, 10)` は UTC の年月日になるため、日付がまたぐ時刻帯（例: JST の朝 8 時前）で
+ * 1 日ずれる。画面の壁時計（getFullYear/getMonth/getDate）で組む。日付を組む実装は本ファイル 1 箇所に限る
+ * （画面ファイル側へ自前実装しない・d755）。
+ */
+export function toLocalYmd(date: Date): string {
+  const p = (n: number) => `${n}`.padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+/**
  * ISO 8601 文字列（または null）を `YYYY/MM/DD HH:mm:ss`（秒まで・ローカル時刻）に整形する。
  * 秒が意味を持つ監査ログ系（操作ログ画面＝ST-6）用。秒精度は当該画面の意図した仕様で、
  * 分までの formatDateTime へ寄せると機能後退になるため統合しない（set-0146 の裁定）。

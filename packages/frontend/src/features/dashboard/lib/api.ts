@@ -1,3 +1,4 @@
+import type { HomeTagKind } from '@rete/shared';
 import apiClient from '@/lib/api-client';
 import {
   ApiResponse,
@@ -152,7 +153,7 @@ export type AnnouncementTagKind = AnnouncementKind;
  * includeArchived: true でアーカイブ済みタグも含めて返す（既定は除外・hom-0083・タグ管理画面専用）。
  */
 export async function fetchAnnouncementTags(
-  kind: AnnouncementTagKind = 'board',
+  kind: HomeTagKind = 'board',
   includeArchived?: boolean,
 ): Promise<AnnouncementTagDto[]> {
   const res = await apiClient.get<ApiResponse<AnnouncementTagDto[]>>('/announcement-tags', {
@@ -163,7 +164,7 @@ export async function fetchAnnouncementTags(
 
 /** お知らせタグ作成（POST /announcement-tags・ADMIN 限定・kind でスコープ・hom-0074）→ 作成された AnnouncementTagDto。 */
 export async function createAnnouncementTag(
-  kind: AnnouncementTagKind,
+  kind: HomeTagKind,
   name: string,
   icon: string,
   color: string,

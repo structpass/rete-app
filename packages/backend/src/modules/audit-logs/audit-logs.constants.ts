@@ -1,6 +1,7 @@
 /**
  * 操作ログ / 監査（Settings ST-6・H5）の定数。期間上限・検索長・エクスポート安全上限・記録定数を集約する。
- * 期間上限（日数）は frontend と共有するため @rete/shared の AUDIT_EXPORT_MAX_DAYS を SSOT とする。
+ * 期間上限（日数）と一覧の 1 頁の件数は frontend と共有するため @rete/shared の
+ * AUDIT_EXPORT_MAX_DAYS / AUDIT_PAGE_SIZE を SSOT とする。
  */
 
 /**
@@ -13,8 +14,7 @@ export const AUDIT_RETE_SYSTEM_NAME = '共通操作';
 /** 検索フリーワード（ユーザー名 / メール部分一致）の最大長（過大入力の早期 reject）。 */
 export const AUDIT_SEARCH_MAX_LENGTH = 100;
 
-/** 一覧の既定 / 最大ページサイズ。 */
-export const AUDIT_DEFAULT_LIMIT = 20;
+/** 一覧の最大ページサイズ。既定は共有定数（frontend の画面と同じ 1 値・AUDIT_PAGE_SIZE）を各所で直接指す。 */
 export const AUDIT_MAX_LIMIT = 100;
 
 /**

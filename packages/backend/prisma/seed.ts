@@ -19,11 +19,6 @@ import { dirname, resolve } from 'path';
 // set-0096: 姓・名分割は backend common の SSOT を使う（invite / migration と同型）。
 import { splitDisplayName } from '../src/common/display-name';
 import { validateDatabasePoolLimits } from '../src/common/config/env-validation';
-import {
-  DEFAULT_ADMIN_PASSWORD,
-  DEFAULT_DEMO_PASSWORD,
-  validateSeedEnvironment,
-} from './seed-guards';
 
 const prisma = new PrismaClient();
 
@@ -33,10 +28,11 @@ const NOW = new Date();
 // dev 用ログインアカウント。譲渡先・本番では SEED_ADMIN_PASSWORD を必ず変更する。
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@rete.local';
 // 既定（= 公開リポジトリに平文で存在する）パスワード。強制パスワード変更フローを撤去したため、
-// development/test以外のseedは、両公知値をmain()冒頭で拒否する。起動時の検査ではない。
+// この値のまま admin が OIDC ログインできてしまう。production では未設定を main() 冒頭で fail-fast 禁止する。
+const DEFAULT_ADMIN_PASSWORD = 'ReteAdmin1234!';
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
 // デモ連携アカウント共通パスワード（dev のみ）。SSO 動作確認用に frictionless にしておく。
-const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD ?? DEFAULT_DEMO_PASSWORD;
+const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD ?? 'ReteDemo1234!';
 
 // 初期管理者の OIDC sub（= rete Account.id）。struct-pass-reference 側 seed の User.oidcSub と
 // 同じ値で揃えることで、初回 SSO ログインを sub 直接ヒットさせる（decision 0007: bootstrap=sub 直接指定）。
@@ -99,7 +95,8 @@ const DEMO_ACCOUNT_DEFS = [
   { id: DEMO_SUBS.ofUser, email: 'of-user@struct-pass.example', name: '事務 花子' },
   { id: DEMO_SUBS.ofAdmin, email: 'of-admin@struct-pass.example', name: '事務 管理子' },
   { id: DEMO_SUBS.tanaka, email: 'tanaka@struct-pass.example', name: '田中 太郎' },
-  // reference 未ミラー → 初回 SSO で pending 承認待ちを実演
+  // reference 未ミラー → 初回 SSO で pending 承認待ちを実演。E2E の招待の受諾（S-SET-08）は、
+  // この人を**招待の宛先に使わない**（受諾の成立を試すとこの行が後始末で消えるため・d834）
   { id: PENDING_DEMO_SUB, email: 'newcomer@struct-pass.example', name: '新人 太郎' },
   // cmn-0139: mfa-login.feature 専用。MFA 無効で seed 固定、シナリオ内で setup→confirm→teardown disable。
   { id: MFA_DEMO_SUB, email: 'mfa-user@rete.local', name: 'MFA 検証子' },
@@ -153,7 +150,6 @@ async function upsertAccount(def: AccountSeed) {
 }
 
 async function main() {
-  validateSeedEnvironment(process.env);
   // cmn-0347: 接続プール上限の検査はアプリ本体（main.ts）の起動時が本線で、seed は独立プロセス
   // （PrismaClient 直生成）のため素通りする。環境構築の順序（DB 作成 → seed → アプリ配備）で
   // プール指定なしのまま進み、後でアプリだけ起動失敗するのを防ぐため、seed でも同じ検査を走らせ
@@ -164,6 +160,35 @@ async function main() {
     console.warn(
       '[seed] このまま続行しますが、アプリ本体（main.ts）は本番で起動を拒否します（dev は警告のみ）。' +
         ' .env の DATABASE_URL へ ?connection_limit=5&pool_timeout=20 相当を設定してください。',
+    );
+  }
+
+  // fail-closed ガード（rete-hardening-0004）。seed は dev/test 専用の破壊的スクリプト（全件 createMany 等）。
+  // NODE_ENV が development/test 以外（production・未設定・想定外値）では、明示 opt-in（ALLOW_SEED=1）が無い限り
+  // 実行そのものを拒否する。**未設定も拒否**するのが肝＝NODE_ENV 設定を忘れた本番環境への seed 混入を技術的に防ぐ
+  // （fail-open=「未設定なら走る」を排除）。dev は .env の NODE_ENV=development（または `pnpm prisma:seed` の cross-env
+  // 注入）で素通りする。opt-in は厳密に `=== '1'` で判定（`ALLOW_SEED=0`/`false` を「無効化」と誤信したまま走らせない）。
+  // 本番リストア等で意図的に seed したい時のみ ALLOW_SEED=1 を付ける。
+  const seedEnv = process.env.NODE_ENV;
+  if (seedEnv !== 'development' && seedEnv !== 'test' && process.env.ALLOW_SEED !== '1') {
+    throw new Error(
+      `Refusing to seed: NODE_ENV is "${seedEnv ?? '(unset)'}" (expected development/test). ` +
+        'Set ALLOW_SEED=1 to seed explicitly (e.g. production restore).',
+    );
+  }
+  // 強制パスワード変更フロー撤去に伴う安全弁。production で SEED_ADMIN_PASSWORD 未設定（= 既定の公開
+  // パスワードのまま）の seed を拒否する。既知パスワードで IdP admin が奪取され全 RP へ SSO 横展開
+  // されるのを技術的に防ぐ（operational-policy §4: env 必須値は起動時 fail-fast）。
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) {
+    throw new Error(
+      'SEED_ADMIN_PASSWORD must be set in production. Refusing to seed bootstrap admin with the public default password.',
+    );
+  }
+  // 同じ安全弁をデモアカウント共通パスワードにも適用する。production で SEED_DEMO_PASSWORD 未設定
+  // （= 公開リポ掲載の既定パスワード）の seed を拒否し、既知パスワードでのデモアカウント奪取を防ぐ。
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_DEMO_PASSWORD) {
+    throw new Error(
+      'SEED_DEMO_PASSWORD must be set in production. Refusing to seed demo accounts with the public default password.',
     );
   }
 

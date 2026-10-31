@@ -244,6 +244,7 @@ function DraftRow({
         disabled={submitting}
         placeholder="フォルダ名"
         aria-label="新規フォルダ名"
+        aria-required="true"
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => {

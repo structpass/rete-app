@@ -26,6 +26,7 @@ const mockService = {
   setFolderTags: jest.fn(),
   assignTagsBatch: jest.fn(),
   searchByTags: jest.fn(),
+  resolveRefs: jest.fn(),
 };
 
 /**
@@ -55,6 +56,14 @@ describe('FilesController', () => {
 
     expect(await controller.getTree(ACTOR, 'space-1')).toBe(expected);
     expect(mockService.getTree).toHaveBeenCalledWith(ACTOR, 'space-1');
+  });
+
+  it('resolveRefs は参照ノードの id と認証ユーザーを service.resolveRefs へ委譲する（fil-0163・d688）', async () => {
+    const expected = { success: true, data: { items: [] } };
+    mockService.resolveRefs.mockResolvedValue(expected);
+
+    expect(await controller.resolveRefs({ ids: 'folder-1,file-2' }, ACTOR)).toBe(expected);
+    expect(mockService.resolveRefs).toHaveBeenCalledWith('folder-1,file-2', ACTOR);
   });
 
   it('getFolderContent は id を service.getFolderContent へ委譲する', async () => {

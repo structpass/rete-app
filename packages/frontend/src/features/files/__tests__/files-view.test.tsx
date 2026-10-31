@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { UseFileBrowserResult } from '../hooks/use-file-browser';
 
@@ -38,6 +38,8 @@ vi.mock('../hooks/use-file-browser', () => ({
 
 import { DEFAULT_CHANNEL_ID } from '@rete/shared';
 import { FilesView } from '../components/files-view';
+import { useFileEditLink } from '../hooks/use-file-edit-link';
+import { unlockFileLink } from '../hooks/use-file-id-from-location';
 
 const SAVED_SPACE = '11111111-1111-4111-b111-111111111111';
 
@@ -121,5 +123,62 @@ describe('FilesView — 非可視/削除済み space のフォールバック（
     // mock は selectedSpaceId を SAVED_SPACE のまま返し続ける＝ガードが無ければ再描画で再発火する。
     rerender(<FilesView initialFolderId={null} initialFileId={null} />);
     expect(setSelectedSpaceId).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('FilesView — お気に入りファイル★の deep link（d560）', () => {
+  const useFileEditLinkMock = vi.mocked(useFileEditLink);
+
+  beforeEach(() => {
+    useFileEditLinkMock.mockReset();
+    window.history.replaceState({}, '', '/files');
+  });
+
+  /** 直近の描画で useFileEditLink に渡された fileId。 */
+  function passedFileId(): string | null | undefined {
+    const calls = useFileEditLinkMock.mock.calls;
+    return calls.length ? (calls[calls.length - 1]?.[0] as string | null) : undefined;
+  }
+
+  it('URL の fileId を解決の指示として渡す', () => {
+    window.history.replaceState({}, '', '/files?fileId=from-url');
+    renderView();
+    expect(passedFileId()).toBe('from-url');
+  });
+
+  it('画面を開いた後に URL が変わっても（pushState）新しい fileId を渡す', () => {
+    renderView();
+    expect(passedFileId()).toBeNull();
+    act(() => {
+      window.history.pushState({}, '', '/files?fileId=late');
+    });
+    expect(passedFileId()).toBe('late');
+  });
+
+  it('URL が fileId を持たない時だけ、開いた時点の値（server から渡る prop）を使う', () => {
+    render(<FilesView initialFolderId={null} initialFileId="from-prop" />);
+    expect(passedFileId()).toBe('from-prop');
+  });
+
+  it('URL と開いた時点の値が両方あっても、URL（今の対象）を優先する', () => {
+    // 開いた時点の値は「その後別の★へ移っても残る」ため、優先すると古いファイルが開いてしまう。
+    window.history.replaceState({}, '', '/files?fileId=from-url');
+    render(<FilesView initialFolderId={null} initialFileId="from-prop" />);
+    expect(passedFileId()).toBe('from-url');
+  });
+
+  it('★を押し直すと（URL が同じでも）、同じ fileId を渡し直して再解決させる', async () => {
+    window.history.replaceState({}, '', '/files?fileId=same-1');
+    renderView();
+    await act(async () => {});
+    // null → same-1 の2回で、最後が URL の値になっていることを先に確かめる。
+    expect(passedFileId()).toBe('same-1');
+    const before = useFileEditLinkMock.mock.calls.length;
+    act(() => {
+      unlockFileLink('same-1');
+    });
+    // 押し直しの合図は一度 null を経てから戻す（＝呼出元が同じ fileId で再解決する）。
+    await waitFor(() => expect(passedFileId()).toBe('same-1'));
+    expect(useFileEditLinkMock.mock.calls.length).toBeGreaterThan(before);
   });
 });

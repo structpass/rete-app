@@ -1,0 +1,16 @@
+.calendar-time-day {
+  --calendar-work-hours: #fff;
+  --calendar-off-hours: #f5f6f8;
+}
+.calendar-time-day.is-weekend {
+  --calendar-work-hours: #e8eff6;
+  --calendar-off-hours: #e8eff6;
+}
+.calendar-time-week .calendar-time-event.calendar-week-band {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  padding: 2px 4px;
+}

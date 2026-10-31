@@ -1,9 +1,43 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  ValidateIf,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { MembershipScopeType } from '@rete/shared';
+import { MembershipScopeType, type HomeGroupPermissionKey } from '@rete/shared';
 
-/** ユーザーグループ作成 DTO（POST /user-groups・システム ADMIN のみ）。 */
-export class CreateUserGroupDto {
+/**
+ * ユーザーグループ作成 DTO（POST /user-groups・システム ADMIN のみ）。
+ * Home の設定値は入力の検査（真偽値）のために名前を並べる。
+ */
+class HomeGroupPermissionsDto {
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
+  @IsBoolean()
+  canEditHomeBoard?: boolean;
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
+  @IsBoolean()
+  canEditHomeCalendar?: boolean;
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
+  @IsBoolean()
+  canEditHomeFaq?: boolean;
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
+  @IsBoolean()
+  canManageHomeTags?: boolean;
+}
+
+/**
+ * 設定値の名前が 1 つでも欠けたら型エラーにする（d874）。正本（HOME_PERMISSIONS）に許可を足した
+ * 時に、入力の検査（この DTO）の書き足し忘れを黙って通さない。
+ */
+type MissingInDto = Exclude<HomeGroupPermissionKey, keyof HomeGroupPermissionsDto>;
+export const dtoHasAllHomeGroupFlags: Record<MissingInDto, never> = {};
+
+export class CreateUserGroupDto extends HomeGroupPermissionsDto {
   @ApiProperty({ description: 'グループ名（表示名）' })
   @IsString()
   @MinLength(1)
@@ -12,7 +46,7 @@ export class CreateUserGroupDto {
 }
 
 /** ユーザーグループ更新 DTO（PATCH /user-groups/:id・システム ADMIN のみ）。 */
-export class UpdateUserGroupDto {
+export class UpdateUserGroupDto extends HomeGroupPermissionsDto {
   @ApiProperty({ description: 'グループ名（表示名）', required: false })
   @IsOptional()
   @IsString()

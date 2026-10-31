@@ -35,7 +35,7 @@ interface ChatListProps {
  *   .sp-row-ring の teal 内枠線 1px＝mdl-0055、正本はモデルタブ「マウスホバー表現」「アクティブ表現」）
  * - 状況列 .desk-chat-card-status-cell はモック JS（正本 / desk/index.html syncChatStatusColumn）準拠で
  *   アーカイブ → クローズ → 顛末 → メンション の最大 4 アイコンを左→右に並べる。コメント数の数字は
- *   モック自身が廃止済（未読はタイトル太字 .is-unread のみ）。
+ *   モック自身が廃止済（d539: 未読は行内の未読マークで示し、題名の太さは変えない）。
  *
  * 空状態（dsk-0416）: 絞り込み有無で文言を分けず、task-tree の基本空状態（task-tree.tsx:589-598）と
  * 揃えた「チャットがありません」＋ MessageSquare アイコン（h-8 w-8・mb-3・同色 class）を表示する。
@@ -133,25 +133,26 @@ function ChatListBody({
     );
   }
 
-  if (themes.length === 0) {
-    // dsk-0416: 絞り込み有無で文言を分けず task-tree.tsx:589-598（タスクがありません/ListTree）と
-    // 揃えた単一表現にする。アイコンは lucide-react の MessageSquare（h-8 w-8・mb-3・同色）採用。
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-[var(--sp-text-warm-mute)]">
-        <MessageSquare className="mb-3 h-8 w-8 text-[var(--sp-text-warm-mute)]" aria-hidden />
-        <p className="text-sm font-medium">チャットがありません</p>
-      </div>
-    );
-  }
-
   return (
-    <div ref={bodyRef} className="desk-pane-body flex-1">
+    <div
+      ref={bodyRef}
+      className="desk-pane-body flex flex-1 flex-col"
+      style={themes.length === 0 ? { paddingTop: 0 } : undefined}
+    >
       <div
         ref={listRef}
-        className="desk-chat-list relative"
+        className={`desk-chat-list relative${themes.length === 0 ? ' flex flex-1 flex-col justify-center' : ''}`}
+        style={themes.length === 0 ? { paddingBottom: 0 } : undefined}
         onMouseOver={onMouseOver}
         onMouseLeave={onMouseLeave}
       >
+        {/* dsk-0416の空文言と中央配置を保ち、絞り込み0でも一覧の骨格は残す。 */}
+        {themes.length === 0 && (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-[var(--sp-text-warm-mute)]">
+            <MessageSquare className="mb-3 h-8 w-8 text-[var(--sp-text-warm-mute)]" aria-hidden />
+            <p className="text-sm font-medium">チャットがありません</p>
+          </div>
+        )}
         {ordered.map((theme) => (
           <ChatListRow
             key={theme.id}
@@ -235,6 +236,15 @@ function ChatListRow({ theme, isSelected, isActive, onSelect, highlight }: ChatL
       {...listeners}
     >
       <div className="desk-chat-card-title-row">
+        {/* d539: 未読は文字の太さでなく行内の未読マークで示す（ホームの明細行と同じ語彙・色は
+            --sp-accent-ink の印。旧 .is-unread の題名太字は正本 comp-table の「見出しは 500」と割れるため撤回）。 */}
+        {unread && (
+          <span
+            aria-hidden
+            data-testid="desk-unread-dot"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sp-accent-ink)]"
+          />
+        )}
         <span className="desk-chat-card-title sp-row-title">
           {highlightMatches(theme.title, highlight)}
         </span>

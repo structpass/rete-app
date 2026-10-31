@@ -1,18 +1,36 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { MembershipScopeType } from '@rete/shared';
+import {
+  MembershipScopeType,
+  type HomeGroupPermissionKey,
+  type HomeGroupPermissions,
+} from '@rete/shared';
 import { PrismaService } from '../../../database/prisma.service';
 import { MembershipsRepository } from '../../memberships/repositories/memberships.repository';
 import { runInSerializableTransaction } from '../../../common/database/serializable-tx';
 
-/** user_group の select 射影（DTO 変換に必要な列のみ・createdAt/updatedAt 込み）。 */
+/**
+ * user_group の select 射影（DTO 変換に必要な列のみ・createdAt/updatedAt 込み）。
+ * Home の設定値の列はここに並べ、正本（HOME_PERMISSIONS）との抜けは下の型で止める（d874）。
+ */
 const userGroupSelect = {
+  canEditHomeBoard: true,
+  canEditHomeCalendar: true,
+  canEditHomeFaq: true,
+  canManageHomeTags: true,
   id: true,
   name: true,
   sortOrder: true,
   createdAt: true,
   updatedAt: true,
 } as const;
+
+/**
+ * 設定値の列が 1 つでも欠けたら型エラーにする（d874）。正本（HOME_PERMISSIONS）に許可を足した
+ * 時に、ここの書き足し忘れを黙って通さない。
+ */
+type MissingHomeGroupColumns = Exclude<HomeGroupPermissionKey, keyof typeof userGroupSelect>;
+export const homeGroupColumnsComplete: Record<MissingHomeGroupColumns, never> = {};
 
 export type UserGroupRow = Prisma.UserGroupGetPayload<{ select: typeof userGroupSelect }>;
 
@@ -79,11 +97,14 @@ export class UserGroupsRepository {
   }
 
   /** グループ作成（sortOrder は兄弟最大 +1 で採番・tx 内）。 */
-  async create(name: string): Promise<UserGroupRow> {
+  async create(
+    name: string,
+    permissions: Partial<HomeGroupPermissions> = {},
+  ): Promise<UserGroupRow> {
     return this.prisma.$transaction(async (tx) => {
       const max = await tx.userGroup.aggregate({ _max: { sortOrder: true } });
       return tx.userGroup.create({
-        data: { name, sortOrder: (max._max.sortOrder ?? -1) + 1 },
+        data: { ...permissions, name, sortOrder: (max._max.sortOrder ?? -1) + 1 },
         select: userGroupSelect,
       });
     });

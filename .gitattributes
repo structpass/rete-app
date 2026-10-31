@@ -1,0 +1,38 @@
+# Auto detect text files and perform LF normalization.
+# eol=lf を併記しないと core.autocrlf=true の Windows 作業ツリーが CRLF で展開され、
+# prettier（endOfLine: lf）の format:check が改行だけを理由に赤くなる（.editorconfig も LF を宣言）。
+* text=auto eol=lf
+
+# Source code
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Configuration
+*.config.* text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaries
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

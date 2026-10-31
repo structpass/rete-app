@@ -11,6 +11,7 @@ const mockPrisma = {
     findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     delete: jest.fn(),
   },
   account: {
@@ -226,6 +227,50 @@ describe('InviteRepository', () => {
       });
       expect(call.select).toHaveProperty('tokenHash', true);
       expect(result).toBe(row);
+    });
+  });
+
+  // d622: 再送の書き換えは「読んだ時の tokenHash のまま PENDING」を条件にする。
+  // 受諾済み・同時再送のどちらも巻き戻さない。
+  describe('renewPendingByTokenHash（再送の条件付き書き換え）', () => {
+    const renewData = {
+      tokenHash: 'hash-new',
+      expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+      status: InviteStatus.PENDING,
+    };
+
+    it('id・読んだ時の tokenHash・PENDING を条件に新しい token と期限へ書き換える', async () => {
+      mockPrisma.invite.updateMany.mockResolvedValue({ count: 1 });
+
+      const outcome = await repo.renewPendingByTokenHash('inv-1', 'hash-old', renewData);
+
+      expect(outcome).toBe('renewed');
+      expect(mockPrisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv-1', tokenHash: 'hash-old', status: InviteStatus.PENDING },
+        data: {
+          tokenHash: 'hash-new',
+          expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+          status: InviteStatus.PENDING,
+        },
+      });
+    });
+
+    it('対象が無く、招待が受諾済みなら accepted を返す（未受諾へ戻さない）', async () => {
+      mockPrisma.invite.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.invite.findUnique.mockResolvedValue({ status: InviteStatus.ACCEPTED });
+
+      const outcome = await repo.renewPendingByTokenHash('inv-1', 'hash-old', renewData);
+
+      expect(outcome).toBe('accepted');
+    });
+
+    it('対象が無く、招待が PENDING のままなら pending_mismatch を返す（同時再送で譲る）', async () => {
+      mockPrisma.invite.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.invite.findUnique.mockResolvedValue({ status: InviteStatus.PENDING });
+
+      const outcome = await repo.renewPendingByTokenHash('inv-1', 'hash-old', renewData);
+
+      expect(outcome).toBe('pending_mismatch');
     });
   });
 
