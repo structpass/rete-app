@@ -6,6 +6,28 @@ import { spawn, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+// 打ち切りの実体はプロセスのツリーごと落とすこと。Windows は taskkill、それ以外は
+// プロセスグループへ SIGKILL を送る（taskkill は Linux に無く、失敗すると子が残って
+// テストが終わらない）。
+const isWindows = process.platform === 'win32';
+
+function killTree(child) {
+  if (!child || !child.pid) return;
+  if (isWindows) {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try {
+      process.kill(child.pid, 'SIGKILL');
+    } catch {
+      // すでに終わっている
+    }
+  }
+}
+
 const runner = fileURLToPath(new URL('./run-tests-agent.mjs', import.meta.url));
 // d894: 入口が「どこまで行ったか」を書く控え（決まったパス。成功した回は消える）
 const STAGE_DIR = join(tmpdir(), 'rete-test-agent-stage');
@@ -105,7 +127,11 @@ test('d894: 打ち切られて殺された回は、走っていた段を控え�
   const child = spawn(
     process.execPath,
     [runner, '--', process.execPath, '-e', 'setInterval(()=>{},1000)'],
-    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      detached: !isWindows,
+    },
   );
   let err = '';
   child.stdout.on('data', () => {});
@@ -124,7 +150,7 @@ test('d894: 打ち切られて殺された回は、走っていた段を控え�
     const record = await waitFor();
     assert.ok(record, `走っている段が控えに書かれていない: ${err}`);
     // 打ち切りの実体はツリーの強制終了（Windows の node へは合図が届かない）
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    killTree(child);
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     assert.equal(existsSync(record), true, '殺された回は控えを残す');
@@ -142,7 +168,11 @@ test('d894: 同時に走らせても、先に成功した回が他の回の控�
   const slow = spawn(
     process.execPath,
     [runner, '--', process.execPath, '-e', 'setInterval(()=>{},1000)'],
-    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      detached: !isWindows,
+    },
   );
   let err = '';
   slow.stdout.on('data', () => {});
@@ -168,7 +198,7 @@ test('d894: 同時に走らせても、先に成功した回が他の回の控�
     assert.equal(existsSync(record), true, '先に成功した回が、他の回の控えを消している');
 
     // 打ち切り（ツリーごと落とす）。落とした後も段が残ることを確かめる
-    spawnSync('taskkill', ['/PID', String(slow.pid), '/T', '/F'], { stdio: 'ignore' });
+    killTree(slow);
     for (let i = 0; i < 30 && slow.exitCode === null; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -176,7 +206,7 @@ test('d894: 同時に走らせても、先に成功した回が他の回の控�
   } finally {
     // 走っている回が残ると置き場を消せないので、必ず落としてから片付ける
     if (slow.exitCode === null) {
-      spawnSync('taskkill', ['/PID', String(slow.pid), '/T', '/F'], { stdio: 'ignore' });
+      killTree(slow);
     }
     rmSync(STAGE_DIR, { recursive: true, force: true });
   }
