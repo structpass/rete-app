@@ -71,7 +71,7 @@ E2E の feature は、このトラックのケースの `実行` 列に付けた
 | `ops-resilience.feature`         | `@S-OPS-01` `@S-OPS-02` `@S-OPS-04` `@S-OPS-05` `@S-OPS-11` `@S-OPS-12`                                                                                     | 7 運用                         |
 | `zz-ops-screen.feature`          | `@S-OPS-10`（実ブラウザ・project `screen`）                                                                                                                 | 7 運用                         |
 | `zz-screen.feature`              | `@S-SCR-01` `@S-SCR-02` `@S-SCR-03`                                                                                                                         | 8 画面の点検                   |
-| `zz-files-screen.feature`        | `@S-FILE-14` `@S-FILE-04-開発エージェント`（実ブラウザ・project `screen`）                                                                                                | 4 ファイル／8 画面の点検       |
+| `zz-files-screen.feature`        | `@S-FILE-14` `@S-FILE-04-開発エージェント`（実ブラウザ・project `screen`）                                                                                  | 4 ファイル／8 画面の点検       |
 
 - **対応の付け方は、feature のタグをケースの `実行` 欄に書くこと**。ケースを足したら feature とタグも足す。
 - 状態（ユースケース表の ✅）は**実行の結果でだけ**更新する（`README.md` §5 の「実行の結果」は、通信の応答に限らず、画面の部品の試験も含む）。✅ にできるのは、対応する feature か部品の試験が緑で、期待結果をその結果で確かめきれるものだけ。画面の見え方・並び順・重なりなど、通信では判定できない期待は、**その期待を持つ画面の部品の試験**へ紐付ける（ケースの `実行` 欄に「部品の試験」として担保先を書く。例: Desk の S-DESK-08 / 09 は `desk-shell`・`use-desk-view-state` の試験が持つ）。

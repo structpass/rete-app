@@ -86,7 +86,12 @@ const tree: DeskTaskTree = {
         node({ id: 5, title: '親B' }),
       ],
     },
-    { id: 2, name: '開発エージェント', sortOrder: 1, tasks: [node({ id: 6, title: '親C', categoryId: 2 })] },
+    {
+      id: 2,
+      name: '開発エージェント',
+      sortOrder: 1,
+      tasks: [node({ id: 6, title: '親C', categoryId: 2 })],
+    },
     {
       id: null,
       name: '未分類',
@@ -187,7 +192,11 @@ describe('buildDeskTreeRows — 表示行の全件照合', () => {
     const master = [cat(1, 'C1', 0), cat(3, 'C3', 2), cat(2, '開発エージェント', 1)];
     const { groups } = buildDeskTreeRows(tree, master);
     // C3 は取得ツリーに無い＝空分類なので落ちる。未分類は末尾。
-    expect(groups.map((g) => `${g.id}:${g.name}`)).toEqual(['1:C1', '2:開発エージェント', 'null:未分類']);
+    expect(groups.map((g) => `${g.id}:${g.name}`)).toEqual([
+      '1:C1',
+      '2:開発エージェント',
+      'null:未分類',
+    ]);
   });
 
   it('分類マスタ未指定／空（既定の全件ビュー）はツリーの並びをそのまま使うこと', () => {
