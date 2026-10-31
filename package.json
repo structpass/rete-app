@@ -87,7 +87,8 @@
       "follow-redirects": "^1.16.2",
       "smol-toml": "^1.9.0",
       "minimatch": "^11.0.3",
-      "glob": "^14.0.3"
+      "glob": "^14.0.3",
+      "test-exclude>glob": "7.2.3"
     },
     "patchedDependencies": {
       "test-exclude@6.0.0": "patches/test-exclude@6.0.0.patch"

@@ -1,24 +1,23 @@
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-deleted file mode 100644
-index 9fb9ce015eb7ef36f714b0cbfead3f8e0363d87e..0000000000000000000000000000000000000000
 diff --git a/index.js b/index.js
-index aecb72d02adcc32a77824b4f61428e2a5234124f..6413d3c173b612a80781e3afd6d3465509be68e1 100644
+index aecb72d02adcc32a77824b4f61428e2a5234124f..f67fb154f3d42dd5b6d969dd6d9d8393b57825ee 100644
 --- a/index.js
 +++ b/index.js
-@@ -2,8 +2,10 @@
+@@ -2,8 +2,12 @@
  
  const path = require('path');
  const { promisify } = require('util');
 -const glob = promisify(require('glob'));
 -const minimatch = require('minimatch');
 +// d962-hf: glob 14 は Promise API と globSync を持ち、関数を返さない（promisify 不可）。
-+const { glob, globSync } = require('glob');
++const globModule = require('glob');
++// glob 7 は .sync、glob 14 は globSync（.sync も別名で残る）。
++const globSync = globModule.globSync ?? globModule.sync;
 +// d962-hf: minimatch 11 は関数 export を持たないため、named export を関数として使う。
 +const { minimatch } = require('minimatch');
  const { defaults } = require('@istanbuljs/schema');
  const isOutsideDir = require('./is-outside-dir');
  
-@@ -112,8 +114,8 @@ class TestExclude {
+@@ -112,8 +116,8 @@ class TestExclude {
              globOptions.ignore = this.exclude;
          }
  
