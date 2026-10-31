@@ -43,7 +43,7 @@ overrides:
 
 patchedDependencies:
   test-exclude@6.0.0:
-    hash: 11ccbf4f0eee4a1abd4caa02de79d35f9b8adb27e5a2608d8decc22767e48416
+    hash: 5f58b6aeeb902ef81967bba011c159db1c8ad76289a682b10839c7b5a8427203
     path: patches/test-exclude@6.0.0.patch
 
 importers:
@@ -8702,7 +8702,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@20.19.41)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1)(vite@6.4.5(@types/node@20.19.41)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+      vitest: 4.1.12(@types/node@20.19.41)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1)(vite@6.4.5(@types/node@20.19.41)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
 
   '@vitest/expect@4.1.12':
     dependencies:
@@ -9074,7 +9074,7 @@ snapshots:
       '@istanbuljs/load-nyc-config': 1.1.0
       '@istanbuljs/schema': 0.1.6
       istanbul-lib-instrument: 5.2.1
-      test-exclude: 6.0.0(patch_hash=11ccbf4f0eee4a1abd4caa02de79d35f9b8adb27e5a2608d8decc22767e48416)
+      test-exclude: 6.0.0(patch_hash=5f58b6aeeb902ef81967bba011c159db1c8ad76289a682b10839c7b5a8427203)
     transitivePeerDependencies:
       - supports-color
 
@@ -12558,7 +12558,7 @@ snapshots:
       commander: 2.20.3
       source-map-support: 0.5.21
 
-  test-exclude@6.0.0(patch_hash=11ccbf4f0eee4a1abd4caa02de79d35f9b8adb27e5a2608d8decc22767e48416):
+  test-exclude@6.0.0(patch_hash=5f58b6aeeb902ef81967bba011c159db1c8ad76289a682b10839c7b5a8427203):
     dependencies:
       '@istanbuljs/schema': 0.1.6
       glob: 7.2.3
