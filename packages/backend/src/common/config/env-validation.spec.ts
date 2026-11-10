@@ -2,14 +2,21 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   assertValidNodeEnv,
-  parseReferenceRedirectUris,
+  parseOidcRedirectUris,
   validateDatabasePoolLimits,
+  validateGmisRedirectUriRequiredInProduction,
   validateReferenceRedirectUriRequiredInProduction,
   REQUIRED_DB_POOL_PARAMS,
   VALID_NODE_ENVS,
 } from './env-validation';
 
-const OIDC_ENV_KEYS = ['NODE_ENV', 'OIDC_REFERENCE_CLIENT_SECRET', 'OIDC_REFERENCE_REDIRECT_URIS'];
+const OIDC_ENV_KEYS = [
+  'NODE_ENV',
+  'OIDC_REFERENCE_CLIENT_SECRET',
+  'OIDC_REFERENCE_REDIRECT_URIS',
+  'OIDC_GMIS_CLIENT_SECRET',
+  'OIDC_GMIS_REDIRECT_URIS',
+];
 
 describe('assertValidNodeEnv', () => {
   it.each(VALID_NODE_ENVS)('既知値 %s は通過する', (value) => {
@@ -31,8 +38,9 @@ describe('assertValidNodeEnv', () => {
 });
 
 // cmn-0249: redirect_uris のパースを 1 本化し、起動ガード側と実登録側が同じ結果を返すようにした。
+// d1167: Reference と gmis の 2 RP で同じパーサを使う（RP 定義の env 名は OIDC_RP_DEFINITIONS が正本）。
 // 共通退避（beforeEach / afterEach）で env を巻き戻し、it ごとの手書き退避を不要にしている。
-describe('parseReferenceRedirectUris（cmn-0249）', () => {
+describe('parseOidcRedirectUris（cmn-0249）', () => {
   let envBackup: NodeJS.ProcessEnv;
 
   beforeEach(() => {
@@ -66,7 +74,7 @@ describe('parseReferenceRedirectUris（cmn-0249）', () => {
     ],
     ['重複除去', 'https://a.example.com/cb,https://a.example.com/cb', ['https://a.example.com/cb']],
   ])('%s を渡したとき %j を返すこと', (_label, input, expected) => {
-    expect(parseReferenceRedirectUris(input)).toEqual(expected);
+    expect(parseOidcRedirectUris(input)).toEqual(expected);
   });
 });
 
@@ -164,6 +172,99 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
       /有効な URL 形式ではありません/,
     );
+  });
+});
+
+// d1167: 2 つ目の RP（報告管理 gmis）を追加した。本番の起動検査は Reference と同型・同粒度に揃える
+// （secret 設定済みで redirect URI の有効値がゼロなら起動エラー、dev/staging では warn に留める）。
+describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
+  let envBackup: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    envBackup = { ...process.env };
+    for (const key of OIDC_ENV_KEYS) delete process.env[key];
+  });
+
+  afterEach(() => {
+    for (const key of OIDC_ENV_KEYS) {
+      if (envBackup[key] === undefined) delete process.env[key];
+      else process.env[key] = envBackup[key];
+    }
+  });
+
+  it('NODE_ENV 未設定 / development なら redirect URI 不備でも起動を止めないこと', () => {
+    process.env.OIDC_GMIS_CLIENT_SECRET = 's3cret';
+    process.env.OIDC_GMIS_REDIRECT_URIS = '';
+    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+
+    process.env.NODE_ENV = 'development';
+    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+  });
+
+  it('本番＋CLIENT_SECRET 未設定なら redirect URI 検査は走らないこと（連携を使わない本番は起動できる）', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'invalid';
+    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+  });
+
+  it('本番＋CLIENT_SECRET 設定＋有効 URI なら起動 OK', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
+    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+  });
+
+  it.each([
+    ['未設定', undefined],
+    ['空文字', ''],
+    ['空白・カンマのみ', '   ,   ,'],
+  ])(
+    '本番で CLIENT_SECRET 設定済＋戻り先未設定（%s）なら起動エラーの理由を返すこと',
+    (_label, redirectUris) => {
+      process.env.NODE_ENV = 'production';
+      process.env.OIDC_GMIS_CLIENT_SECRET = 's3cret';
+      if (redirectUris === undefined) delete process.env.OIDC_GMIS_REDIRECT_URIS;
+      else process.env.OIDC_GMIS_REDIRECT_URIS = redirectUris;
+
+      const reason = validateGmisRedirectUriRequiredInProduction();
+      expect(reason).not.toBeNull();
+      expect(reason).toMatch(/OIDC_GMIS_REDIRECT_URIS/);
+      expect(reason).toMatch(/d1167/);
+    },
+  );
+
+  it('本番で localhost 宛 URI は起動エラーを返すこと（Reference と同型）', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
+    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(
+      /localhost 宛のため本番では使用できません/,
+    );
+  });
+
+  it('本番で URL として解析できない値・http(s) 以外の scheme は起動エラーを返すこと', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'not-a-url';
+    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(/有効な URL 形式ではありません/);
+
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'ftp://gmis.example.com/cb';
+    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(/scheme は http\/https のみ/);
+  });
+
+  it('gmis の検査は Reference の env を見ないこと（RP ごとに独立）', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 's3cret';
+    process.env.OIDC_GMIS_REDIRECT_URIS = '';
+    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateGmisRedirectUriRequiredInProduction()).not.toBeNull();
+  });
+
+  it('main.ts が起動経路で両方の redirect URI 検査を呼ぶこと（配線の回帰ガード）', () => {
+    // 純関数の spec だけでは main.ts の呼び出しが消えても緑のままになる（DB プール検査と同じ手法）。
+    const mainSource = readFileSync(join(__dirname, '../../main.ts'), 'utf8');
+    expect(mainSource).toContain('validateReferenceRedirectUriRequiredInProduction()');
+    expect(mainSource).toContain('validateGmisRedirectUriRequiredInProduction()');
   });
 });
 

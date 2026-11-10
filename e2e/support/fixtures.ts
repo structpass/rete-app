@@ -30,15 +30,52 @@ import {
   type DeferredStep,
 } from './deferred-teardown';
 import { resolvePlaceholders } from './placeholders';
+import { resolveOwnContext, teardownCreatedResource } from './teardown';
 import { beginScenario, endScenario, resetVerifiedCases, verifiedCasesFor } from './verified-cases';
 
 /** teardown 方法（DELETE が実在するか、無い場合は PATCH archive） */
 export type TeardownMethod = 'DELETE' | 'PATCH';
 
+/**
+ * 作った資源を、作った人と同じ立場で消す手順（d971）。
+ *
+ * 目的は「その資源を作った人の接続で、作った時と同じ口で消す」こと。今の手順は作った時と同じ口を
+ * 控えるため、admin 接続での消し方と同じ手段になることが多い（保存セッションで作ったものだけは
+ * 接続が違う＝その人にしか見えない資源を消せる）。個人メモなど API に消す口が無い資源は、今後
+ * 消す口ができた時にここへ足す。
+ */
+export type OwnTeardownAttempt = {
+  /** 作った人と同じ立場の接続（用意できなければ null） */
+  ctx: APIRequestContext | null;
+  /** どの保存セッションで作ったか（手順が body の「保存セッション "x" で」で名乗っている時） */
+  session?: string;
+  method: TeardownMethod;
+  path: string;
+};
+
 export type CreatedResource = {
   method: TeardownMethod;
   /** id を含む full path（例: /api/v1/roles/<id>） */
   path: string;
+  /** 既存の消し方が通らない時に試す、作った人と同じ立場での消し方（d971） */
+  own?: OwnTeardownAttempt;
+  /**
+   * 作った人自身の接続そのもの（d1024）。
+   *
+   * 後始末は、登録の時点の `world.apiCtx` をそのまま控える。だが手順の途中で `world.apiCtx` は
+   * 差し替わる（保存セッションを開く手順・別の人のログインを試す手順）。控えを手放すと、
+   * 「作った人と同じ立場で消す」つもりの手順が別の人の接続で動き、権限の無い消し方として 1 度目が
+   * 空振りし、最後に作った人が消せない資源が残る。接続はシナリオの後始末（fixtures の finally）
+   * まで破棄されないため、ここに持ち続けてよい。
+   */
+  ownCtx?: APIRequestContext | null;
+  /** どの保存セッションで作ったか（後始末で `world.sessions` から同じ接続を引き直す） */
+  session?: string;
+  /**
+   * 作った器の id（個人メモなど、中身を共有する器の中に作った時）。個別に消せない資源を、
+   * 器ごと消して道連れにするために使う（d971）。
+   */
+  ownerSpaceId?: string;
 };
 
 /**
@@ -461,13 +498,13 @@ export const test = base.extend<{ world: World; screen: Screen; screenFaults: Sc
       // 作成リソースを admin context で LIFO 後始末し、失敗を握りつぶさない。
       for (const r of [...w.createdIds].reverse()) {
         if (!cleanupCtx) break;
-        const res =
-          r.method === 'DELETE'
-            ? await cleanupCtx.delete(r.path)
-            : await cleanupCtx.patch(r.path, { data: { archived: true } });
-        if (res.status() >= 400) {
-          throw new Error(`[teardown] ${r.method} ${r.path} failed: ${res.status()}`);
-        }
+        // d971: まず作った人の接続で消し、通らなければ今までどおり admin 接続で消す。
+        // d1024: 保存セッションを名乗った資源は、後始末の時点の接続（シナリオ中に替わる）ではなくその接続を使う。
+        // 名乗っていない資源も、登録の時点で控えた接続（r.ownCtx）を使う。`own.ctx` は登録時の
+        // `world.apiCtx` で、シナリオ中に差し替わると作った人とは別人の接続になりうる。
+        // 手順そのもの（器の道連れ・404 の読み分け・throw）は support/teardown.ts の
+        // teardownCreatedResource に置き、試験が同じ道を通れるようにしてある（d1139）。
+        await teardownCreatedResource(r, resolveOwnContext(r, w.sessions), cleanupCtx);
       }
     } finally {
       const contexts = new Set([

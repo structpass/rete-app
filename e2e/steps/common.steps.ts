@@ -10,7 +10,7 @@
  */
 
 import { request, expect } from '@playwright/test';
-import { Given, When, Then } from '../support/fixtures';
+import { Given, When, Then, type CreatedResource, type World } from '../support/fixtures';
 import { createAuthenticatedContext, BASE_URL, credByEmail } from '../support/auth';
 import { resolvePlaceholders, resolveRequest } from '../support/placeholders';
 import { buildCreatedResourceTeardown } from '../support/teardown';
@@ -161,28 +161,88 @@ When(
   },
 );
 
+/**
+ * POST を 1 度だけ撃ち、応答の資源を表す `data` を後始末の登録へ渡す。
+ *
+ * `直前のレスポンスの id を…`（後続の When）や直後の検証が同じ応答を読むため、応答は world に控える。
+ * 「叩き id を記録する」と「直前のレスポンス…を保存する」を並べて書く手順が多く、後始末の登録を
+ * 前者にだけ頼ると 1 行の書き漏らしで資源が残る（d964: S-HOME-10/11/12 がこれで残留した）。
+ */
+/**
+ * 後始末の登録に、作った人と同じ立場での消し方を添える（d971）。
+ *
+ * 組織・プロジェクト・器は作成者がそのスコープの ADMIN になる。admin 接続の system ADMIN 経由の
+ * archive（PATCH :id）は「そのスコープの ADMIN」を求めないため、作成者と一緒に最後まで消せる。
+ * 既存の消し方が通らない時の受け皿として、作った時点の接続と path を控える（接続はシナリオの後始末
+ * まで破棄されない＝fixtures の finally で破棄）。
+ */
+function attachOwnTeardown(
+  world: World,
+  entry: CreatedResource,
+  session?: string,
+  ownerSpaceId?: string,
+): CreatedResource {
+  const ctx = session ? (world.sessions[session] ?? world.apiCtx) : world.apiCtx;
+  return {
+    ...entry,
+    own: { ctx, session, method: entry.method, path: entry.path },
+    // d1024: 登録の時点の接続そのものを控える（`world.apiCtx` はシナリオ中に差し替わる）。
+    ownCtx: ctx,
+    session,
+    ownerSpaceId,
+  };
+}
+
+/**
+ * 作成元の path から「どの器の中に作ったか」を読む（d971）。
+ * /chat/themes は body の spaceId、/files/folders/:id/files はそのフォルダの id。
+ */
+function ownerSpaceIdOf(world: World, urlPath: string, body: unknown): string | undefined {
+  if (urlPath === '/api/v1/chat/themes' && body && typeof body === 'object') {
+    const spaceId = (body as { spaceId?: unknown }).spaceId;
+    return typeof spaceId === 'string' ? spaceId : undefined;
+  }
+  const folder = /^\/api\/v1\/files\/folders\/([^/]+)\/files$/.exec(urlPath);
+  if (folder) return folder[1];
+  void world;
+  return undefined;
+}
+
+async function postAndRecordTeardown(
+  world: World,
+  urlPath: string,
+  bodyStr: string,
+  session?: string,
+): Promise<void> {
+  if (!world.apiCtx) throw new Error('APIRequestContext が未初期化');
+  const req = resolveRequest(urlPath, bodyStr, world.uniqueNames);
+  world.lastResponse = await world.apiCtx.post(req.path, { data: req.body });
+
+  // 失敗時・id 抽出不可時は記録しない（テスト本体で status code 検証が先に落ちる）
+  if (!world.lastResponse.ok()) return;
+  try {
+    const resBody = (await world.lastResponse.json()) as {
+      success: boolean;
+      data: { id: unknown; revision?: unknown } | null;
+    };
+    // teardown も解決後の path を基準にする（DELETE step が resolved path で
+    // createdIds を引くため、ここを生のままにすると照合が外れる）。
+    // revision を要求する消し口（予定）は support/teardown.ts が revision を添える（d793）。
+    const entry = resBody.success ? buildCreatedResourceTeardown(req.path, resBody) : null;
+    if (entry) {
+      world.createdIds.push(
+        attachOwnTeardown(world, entry, session, ownerSpaceIdOf(world, req.path, req.body)),
+      );
+    }
+  } catch {
+    // id 抽出失敗時は記録しない（テスト失敗を優先）
+  }
+}
+
 When(
   'POST {string} を body {string} で叩き id を記録する',
   async ({ world }, urlPath: string, bodyStr: string) => {
-    if (!world.apiCtx) throw new Error('APIRequestContext が未初期化');
-    const req = resolveRequest(urlPath, bodyStr, world.uniqueNames);
-    world.lastResponse = await world.apiCtx.post(req.path, { data: req.body });
-
-    // 失敗時・id 抽出不可時は記録しない（テスト本体で status code 検証が先に落ちる）
-    if (!world.lastResponse.ok()) return;
-    try {
-      const resBody = (await world.lastResponse.json()) as {
-        success: boolean;
-        data: { id: unknown; revision?: unknown } | null;
-      };
-      // teardown も解決後の path を基準にする（DELETE step が resolved path で
-      // createdIds を引くため、ここを生のままにすると照合が外れる）。
-      // revision を要求する消し口（予定）は support/teardown.ts が revision を添える（d793）。
-      const entry = resBody.success ? buildCreatedResourceTeardown(req.path, resBody.data) : null;
-      if (entry) world.createdIds.push(entry);
-    } catch {
-      // id 抽出失敗時は記録しない（テスト失敗を優先）
-    }
+    await postAndRecordTeardown(world, urlPath, bodyStr);
   },
 );
 
@@ -194,6 +254,25 @@ When('直前のレスポンスの id を {string} に保存する', async ({ wor
   };
   expect(body.success, 'success フラグが true であること').toBe(true);
   if (!body.data?.id) throw new Error('data.id が無い — 直前のレスポンスが想定外');
+  // この保存まで進めた時点で、作った資源は後始末の登録へ入れる（`叩き id を記録する` を
+  // 書き漏らしたシナリオでも、途中で落ちた場合に資源が開発DBへ残らない・d964）。
+  // 同じ手順で二重に登録しないよう、path で重複を除く。
+  const response = world.lastResponse;
+  if (world.apiCtx) {
+    try {
+      const resBody = (await response.json()) as {
+        success: boolean;
+        data: { id: unknown; revision?: unknown } | null;
+      };
+      const requestPath = new URL(response.url()).pathname;
+      const entry = resBody.success ? buildCreatedResourceTeardown(requestPath, resBody) : null;
+      if (entry && !world.createdIds.some((r) => r.path === entry.path)) {
+        world.createdIds.push(attachOwnTeardown(world, entry));
+      }
+    } catch {
+      // 要点は id の保存（応答の読み直しに失敗しても保存済みの値は使える）。
+    }
+  }
   world.uniqueNames[key] = body.data.id;
 });
 
@@ -230,10 +309,13 @@ When('DELETE {string} を叩く', async ({ world }, urlPath: string) => {
 
   // 明示削除成功時は teardown 登録から除外する（同じ resource の二重 DELETE を防ぐ）。
   // 予定は登録側の path に `?revision=` が付いているため、クエリを落とした path でも照合する（d793）。
+  // 登録の path は「作成先 + /id」の形（作成先が 1 階層でも 2 階層でも同じ）。末尾一致で同じ資源を見る
+  // （`/api/v1/calendar-events` と `/api/v1/spaces/sp-1/calendar-events` を id の同じ別資源と取り違えない）。
   if (world.lastResponse.status() < 400) {
     const bare = resolved.split('?')[0];
+    const tail = (p: string): string => `/${p.split('?')[0].replace(/^\//, '')}`;
     world.createdIds = world.createdIds.filter(
-      (r) => r.path !== resolved && r.path.split('?')[0] !== bare,
+      (r) => r.path !== resolved && !tail(r.path).endsWith(tail(bare)),
     );
   }
 });

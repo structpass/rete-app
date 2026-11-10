@@ -134,6 +134,15 @@ jobs:
         run: pnpm run check:security
       - name: OIDC credential lifecycle
         run: pnpm run check:oidc-flow
+      # 構造の不変条件（Controller -> Service -> Repository -> Prisma）のうち、
+      # Service が Prisma Client を直接使っていないことを機械で確かめる（d1085）。
+      # 例外は ADR に理由を書いたものだけを検査側の許可一覧へ明示する。
+      - name: Service/Repository boundary
+        run: pnpm run check:service-boundary
+      # raw SQL が Repository の外へ漏れていないことを見る（d1101）。不変条件が
+      # 「Repository 内へ閉じ、必要性と安全性を ADR へ記録する」と定めている。
+      - name: Raw SQL stays in repositories
+        run: pnpm run check:raw-sql
       # backend の jest は生成された Prisma Client を import するため、テスト前に生成する
       # （DB 接続はしない＝スキーマからの型/クライアント生成のみ）。
       - name: Generate Prisma Client

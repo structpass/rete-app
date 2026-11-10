@@ -343,6 +343,46 @@ When(
     const req = resolveRequest(urlPath, bodyStr, world.uniqueNames);
     world.lastResponse = await ctx.post(req.path, { data: req.body });
     world.tappedIds = tappedIdsOf(req.path);
+
+    // 作った資源を後始末の登録へ入れる（d971）。他の人の個人メモの中の話は、管理者の接続では
+    // 消せない（404）ため、作った接続（この保存セッション）を控えて後始末でもそれを使う。
+    if (!world.lastResponse.ok()) return;
+    try {
+      const json = (await world.lastResponse.json()) as {
+        success: boolean;
+        data?: { id?: string | number; revision?: unknown };
+      };
+      const entry = buildCreatedResourceTeardown(req.path, json);
+      if (entry) {
+        // 話なら body の spaceId が「どの器の中に作ったか」（個人メモの中の話を器ごと消すため・d971）。
+        const spaceId =
+          req.path === '/api/v1/chat/themes' && typeof req.body === 'object' && req.body !== null
+            ? (req.body as { spaceId?: unknown }).spaceId
+            : undefined;
+        // 管理経路（/admin）で作った器は、既存の更新口（:id）がスコープの ADMIN を求めて通らない。
+        // 先頭の 1 か所だけを書き換える（置換は最初の一致だけ。入れ子の id には触らない）。
+        // 管理経路は作成者の立場に依らないので、作った人の接続でも同じ管理経路で消す（d971）。
+        const adminPath = entry.path.replace(
+          /^\/api\/v1\/(spaces|projects|organizations)\//,
+          '/api/v1/$1/admin/',
+        );
+        world.createdIds.push({
+          ...entry,
+          own: {
+            ctx,
+            session: key,
+            method: entry.method,
+            path: adminPath.endsWith('admin') ? entry.path : adminPath,
+          },
+          // d1024: 登録の時点の接続そのものを控える（`world.apiCtx` はシナリオ中に差し替わる）。
+          ownCtx: ctx,
+          session: key,
+          ownerSpaceId: typeof spaceId === 'string' ? spaceId : undefined,
+        });
+      }
+    } catch {
+      // 形が想定外なら記録しない（本体のステータス検証が先に落ちる）
+    }
   },
 );
 

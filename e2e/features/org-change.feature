@@ -48,6 +48,7 @@ Feature: P4 組織変更 運用イベント（org-change）
   # ------------------------------------------------------------------
   @P4-01
   Scenario: 退職ロックで既存セッションが次リクエスト 401 になり、復元で復活する
+    # e2e:verified AUTHZ pass "退職ロックで既存セッションが次リクエスト 401 になり、復元で復活する"
     Given システムADMIN "admin@rete.local" でログインする
     # 事前復元: 前回実行がロック後にクラッシュしていても自己修復する（冪等・seed 非破壊担保）
     When PATCH "/api/v1/members/00000000-0000-4000-a000-000000000006" を body "{\"isActive\":true}" で叩く
@@ -76,6 +77,7 @@ Feature: P4 組織変更 運用イベント（org-change）
   # ------------------------------------------------------------------
   @P4-03
   Scenario: membership を外されたメンバーはスコープ一覧から消え、本人の直叩きは 403 になる
+    # e2e:verified AUTHZ pass "membership を外されたメンバーはスコープ一覧から消え、本人の直叩きは 403 になる"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "orgmove-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -118,6 +120,7 @@ Feature: P4 組織変更 運用イベント（org-change）
   # ------------------------------------------------------------------
   @P4-06
   Scenario: 脱退後の再追加は重複なく可視性が復活する（membership upsert 冪等）
+    # e2e:verified AUTHZ pass "脱退後の再追加は重複なく可視性が復活する（membership upsert 冪等）"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "rejoin-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -143,7 +146,6 @@ Feature: P4 組織変更 運用イベント（org-change）
     Then ステータスコード 200 が返る
     And レスポンス配列の "accountId" 一覧に "{{newcomerId}}" が含まれる
     And レスポンス配列で "accountId" が "{{newcomerId}}" と一致する要素は 1 件
-    # 後始末: 復帰分の membership を明示削除（seed 非破壊）
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/memberships/{{membershipId2}}" を叩く
     Then ステータスコード 204 が返る
@@ -153,6 +155,7 @@ Feature: P4 組織変更 運用イベント（org-change）
   # ------------------------------------------------------------------
   @P4-09
   Scenario: チャネル作成はプロジェクト ADMIN のみ（PJ MEMBER は 403）
+    # e2e:verified AUTHZ pass "チャネル作成はプロジェクト ADMIN のみ（PJ MEMBER は 403）"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "chadd-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -196,6 +199,7 @@ Feature: P4 組織変更 運用イベント（org-change）
   # ------------------------------------------------------------------
   @P4-10-11
   Scenario: チャネル参加者の追加で担当者候補に出現し、削除で消失してスコープ一覧は 403 になる
+    # e2e:verified AUTHZ pass "チャネル参加者の追加で担当者候補に出現し、削除で消失してスコープ一覧は 403 になる"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "toggle-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する

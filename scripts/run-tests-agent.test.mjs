@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -31,6 +31,16 @@ function killTree(child) {
 const runner = fileURLToPath(new URL('./run-tests-agent.mjs', import.meta.url));
 // d894: 入口が「どこまで行ったか」を書く控え（決まったパス。成功した回は消える）
 const STAGE_DIR = join(tmpdir(), 'rete-test-agent-stage');
+
+// 打ち切って殺した回は、入口が後片付けを実行できないまま消える。試験が自分で起こした
+// 強制終了のぶんは試験側で掃く（放っておくと 1 回の実行ごとに空の入れ物が増え続ける）。
+function sweepAgentTempDirs() {
+  for (const name of readdirSync(tmpdir())) {
+    if (/^rete-test-agent-[A-Za-z0-9]{6}$/.test(name)) {
+      rmSync(join(tmpdir(), name), { recursive: true, force: true });
+    }
+  }
+}
 
 function runInline(source, { env = process.env } = {}) {
   return spawnSync(process.execPath, [runner, '--', process.execPath, '-e', source], {
@@ -118,6 +128,10 @@ test('d894: 子の出口をそのまま返し、赤の回に PASS を書かな�
   assert.doesNotMatch(failed.stdout, /\[test:agent] PASS/, '赤の回に PASS を書かない');
   assert.match(failed.stderr, /\[test:agent] FAIL exit=3/);
   assert.match(failed.stderr, /stage=1\/1/, '止めた段を残す（どこまで行って止まったかを追える）');
+  // 赤の回は診断用にログを残す作りなので、試験が自分で起こした赤のぶんは自分で片付ける
+  // （片付けないと 1 回の実行ごとに空の入れ物が増え続ける。実測で 261 個たまった）。
+  const failedLog = failed.stderr.match(/full_log=([^\r\n]+)/)?.[1]?.trim();
+  if (failedLog) rmSync(dirname(failedLog), { recursive: true, force: true });
 });
 
 // d894: 待ちを打ち切って殺された回は、入口が FAIL を書く間もなく消える（実測: 残るのは
@@ -159,6 +173,7 @@ test('d894: 打ち切られて殺された回は、走っていた段を控え�
     assert.match(readFileSync(record, 'utf8'), /^running 1\/1 /, 'どこまで行ったかを残す');
   } finally {
     rmSync(STAGE_DIR, { recursive: true, force: true });
+    sweepAgentTempDirs();
   }
 });
 
@@ -211,5 +226,6 @@ test('d894: 同時に走らせても、先に成功した回が他の回の控�
       killTree(slow);
     }
     rmSync(STAGE_DIR, { recursive: true, force: true });
+    sweepAgentTempDirs();
   }
 });

@@ -25,6 +25,7 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
   # ------------------------------------------------------------------
   @S-HOME-04
   Scenario: 掲示板タグを作って掲示に付け、種別違いのタグは拒否される
+    # e2e:verified AUTHZ pass "掲示板タグを作って掲示に付け、種別違いのタグは拒否される"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-tag" を生成して "tagName" に保存する
     When POST "/api/v1/announcement-tags" を body "{\"name\":\"{{tagName}}\",\"icon\":\"Tag\",\"color\":\"red\",\"kind\":\"board\"}" で叩き id を記録する
@@ -51,6 +52,7 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
   # ------------------------------------------------------------------
   @S-HOME-07
   Scenario: 編集フラグを持たない MEMBER は掲示板を作れない
+    # e2e:verified AUTHZ pass "編集フラグを持たない MEMBER は掲示板を作れない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/home/permissions" を叩く
     Then ステータスコード 200 が返る
@@ -63,6 +65,7 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
   # ------------------------------------------------------------------
   @S-HOME-01
   Scenario: 掲示の配信で未読が増え、開くと既読になって削除で消える
+    # e2e:verified AUTHZ pass "掲示の配信で未読が増え、開くと既読になって削除で消える"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/announcements/unread-count" を叩く
     Then レスポンスの "data.count" を "unreadBase" に保存する
@@ -84,6 +87,7 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
   # ------------------------------------------------------------------
   @S-HOME-08
   Scenario: お気に入りを追加し一覧に出て削除で消える
+    # e2e:verified AUTHZ pass "お気に入りを追加し一覧に出て削除で消える"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When POST "/api/v1/favorites" を body "{\"kind\":\"folder\",\"label\":\"e2e-favorite\"}" で叩き id を記録する
     Then ステータスコード 201 が返る
@@ -101,8 +105,10 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
   # ------------------------------------------------------------------
   @S-HOME-10
   Scenario: 予定を作成し期間で取得でき、楽観ロックで競合と削除が分かれる
+    # e2e:verified AUTHZ pass "予定を作成し期間で取得でき、楽観ロックで競合と削除が分かれる"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-event" を生成して "eventTitle" に保存する
+    # 予定の消し口は revision を要求する（`叩き id を記録する` は作った直後の応答から後始末を登録する）。
     When POST "/api/v1/calendar-events" を body "{\"title\":\"{{eventTitle}}\",\"startAt\":\"2026-11-10T01:00:00.000Z\",\"endAt\":\"2026-11-10T02:00:00.000Z\"}" で叩く
     Then ステータスコード 201 が返る
     And 直前のレスポンスの id を "eventId" に保存する
@@ -113,8 +119,10 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
 
   @S-HOME-11
   Scenario: 予定の変更は編集フラグを持たない MEMBER では拒否される
+    # e2e:verified AUTHZ pass "予定の変更は編集フラグを持たない MEMBER では拒否される"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-event" を生成して "eventTitle" に保存する
+    # 予定の消し口は revision を要求する（`叩き id を記録する` は作った直後の応答から後始末を登録する）。
     When POST "/api/v1/calendar-events" を body "{\"title\":\"{{eventTitle}}\",\"startAt\":\"2026-11-11T01:00:00.000Z\",\"endAt\":\"2026-11-11T02:00:00.000Z\"}" で叩く
     Then ステータスコード 201 が返る
     And 直前のレスポンスの id を "eventId" に保存する
@@ -130,8 +138,10 @@ Feature: ホームの権限とカレンダー（S-HOME-04 / 07 / 08 / 10 / 11 / 
 
   @S-HOME-12
   Scenario: 予定の削除は revision が違えば 409、合えば 200
+    # e2e:verified AUTHZ pass "予定の削除は revision が違えば 409、合えば 200"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-event" を生成して "eventTitle" に保存する
+    # 予定の消し口は revision を要求する（`叩き id を記録する` は作った直後の応答から後始末を登録する）。
     When POST "/api/v1/calendar-events" を body "{\"title\":\"{{eventTitle}}\",\"startAt\":\"2026-11-12T01:00:00.000Z\",\"endAt\":\"2026-11-12T02:00:00.000Z\"}" で叩く
     Then ステータスコード 201 が返る
     And 直前のレスポンスの id を "eventId" に保存する

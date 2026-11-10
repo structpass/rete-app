@@ -69,8 +69,14 @@ const REQUIRED_TESTS = [
   'check-e2e-step-arg-resolution.test.mjs',
   'check-e2e-type-check-scope.test.mjs',
   'check-ignored-builds.test.mjs',
+  'check-inventory-demo.test.mjs',
   'check-prisma-client-engine.test.mjs',
   'check-publish-export.test.mjs',
+  // d1139: 新しい検査 2 本（d1101 の raw SQL 置き場所・d1085 の Service/Repository 境界）が
+  // 名簿から漏れていた。実行は自動探索で走るため「実行漏れ」にはならないが、改名・削除で
+  // 検査が静かに消えることを検出できない＝新設したら名簿へ追記する（この節の冒頭の約束）。
+  'check-raw-sql-location.test.mjs',
+  'check-service-repository-boundary.test.mjs',
   'check-time-axis-invariants.test.mjs',
   'check-workspace-scripts.test.mjs',
   // d954: 公開物には deploy/scripts を含めないため、公開文脈では不在を許容する（SNAPSHOT_EXCLUDED_TESTS）。

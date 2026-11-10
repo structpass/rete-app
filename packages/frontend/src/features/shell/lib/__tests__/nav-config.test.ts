@@ -13,6 +13,72 @@ const referenceItem: HubMenuItem = {
 };
 
 describe('resolveTabs', () => {
+  it('places the official medical reporting link beside inventory (d1171)', () => {
+    const gmis: HubMenuItem = {
+      ...referenceItem,
+      key: 'gmis',
+      label: '報告管理',
+      href: 'http://127.0.0.1:4188',
+    };
+    const tabs = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home', true);
+    const index = tabs.findIndex((tab) => tab.key === 'system');
+    expect(tabs[index]).toMatchObject({ label: '在庫管理', disabled: false, external: true });
+    expect(tabs[index + 1]).toMatchObject({
+      key: 'gmis',
+      label: '報告管理',
+      disabled: false,
+      href: 'http://127.0.0.1:4188',
+      external: true,
+    });
+    // 報告管理は reference の実到達で灰色にならない（別システムなので独立に判定する）。
+    const inventoryDown = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home', false);
+    expect(inventoryDown.find((tab) => tab.key === 'system')).toMatchObject({ disabled: true });
+    expect(inventoryDown.find((tab) => tab.key === 'gmis')).toMatchObject({ disabled: false });
+  });
+
+  it('does not surface the reporting link until its connection is enabled', () => {
+    const gmis = {
+      ...referenceItem,
+      key: 'gmis',
+      label: '報告管理',
+      available: false,
+    };
+    const tabs = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home');
+    expect(tabs.some((tab) => tab.key === 'gmis')).toBe(false);
+    expect(tabs.find((tab) => tab.key === 'system')).toMatchObject({ label: 'System' });
+  });
+
+  it('orders the demo after the official reporting link', () => {
+    const gmis = { ...referenceItem, key: 'gmis', label: '報告管理' };
+    const demo = { ...referenceItem, key: 'gmis-demo', label: '医療報告デモ' };
+    const keys = resolveTabs(SHELL_TABS, [referenceItem, gmis, demo], 'home').map((tab) => tab.key);
+    expect(keys.slice(keys.indexOf('system'), keys.indexOf('system') + 3)).toEqual([
+      'system',
+      'gmis',
+      'gmis-demo',
+    ]);
+  });
+
+  it('places the configured demo beside inventory and keeps it independent of Reference reachability', () => {
+    const demo = {
+      ...referenceItem,
+      key: 'gmis-demo',
+      label: '医療報告デモ',
+      href: 'http://127.0.0.1:4177',
+    };
+    const tabs = resolveTabs(SHELL_TABS, [referenceItem, demo], 'home', false);
+    const index = tabs.findIndex((tab) => tab.key === 'system');
+    expect(tabs[index]).toMatchObject({ label: '在庫管理', disabled: true });
+    expect(tabs[index + 1]).toMatchObject({
+      key: 'gmis-demo',
+      disabled: false,
+      href: demo.href,
+      external: true,
+    });
+    const defaultTabs = resolveTabs(SHELL_TABS, [referenceItem], 'home');
+    expect(defaultTabs.find((tab) => tab.key === 'system')).toMatchObject({ label: 'System' });
+    expect(defaultTabs.some((tab) => tab.key === 'gmis-demo')).toBe(false);
+  });
   it('internal タブ（Home）は href をそのまま使い、active を反映する', () => {
     const tabs = resolveTabs(SHELL_TABS, [], 'home');
     const home = tabs.find((t) => t.key === 'home')!;

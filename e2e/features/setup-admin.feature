@@ -26,6 +26,7 @@ Feature: P0 管理者初期設定（setup-admin）
   # ------------------------------------------------------------------
   @P0-01
   Scenario: ADMIN はパスワードポリシー（最小長12・大小+数字+記号・MFA OFF）を保存できる
+    # e2e:verified AUTHZ pass "ADMIN はパスワードポリシー（最小長12・大小+数字+記号・MFA OFF）を保存できる"
     Given システムADMIN "admin@rete.local" でログインする
     When PUT "/api/v1/settings/login/password-policy" を body "{\"requireLowercase\":true,\"requireUppercase\":true,\"requireNumber\":true,\"requireSymbol\":true,\"minLength\":12,\"mfaEnforced\":false}" で叩く
     Then ステータスコード 200 が返る
@@ -37,6 +38,7 @@ Feature: P0 管理者初期設定（setup-admin）
   # ------------------------------------------------------------------
   @P0-02
   Scenario: ADMIN が不正 CIDR（オクテット範囲外 / プレフィクス長不正）を保存しようとすると 400
+    # e2e:verified AUTHZ pass "ADMIN が不正 CIDR（オクテット範囲外 / プレフィクス長不正）を保存しようとすると 400"
     Given システムADMIN "admin@rete.local" でログインする
     When PUT "/api/v1/settings/login/ip-whitelist" を body "{\"entries\":[{\"cidr\":\"192.168.0.300/24\"},{\"cidr\":\"10.0.0.0/40\"}]}" で叩く
     Then ステータスコード 400 が返る
@@ -51,6 +53,7 @@ Feature: P0 管理者初期設定（setup-admin）
   @P0-11
   @P0-12
   Scenario: ADMIN は組織→プロジェクト→チャネルを連鎖作成できる（シナリオ内 PATCH archive teardown）
+    # e2e:verified AUTHZ pass "ADMIN は組織→プロジェクト→チャネルを連鎖作成できる（シナリオ内 PATCH archive teardown）"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "org-logistics" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -69,6 +72,7 @@ Feature: P0 管理者初期設定（setup-admin）
   # ------------------------------------------------------------------
   @P0-11
   Scenario: MEMBER は自分が所属しない組織の配下にプロジェクトを作成できない
+    # e2e:verified AUTHZ pass "MEMBER は自分が所属しない組織の配下にプロジェクトを作成できない"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "org-refuse" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する

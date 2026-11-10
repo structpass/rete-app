@@ -24,6 +24,7 @@ Feature: 日常幸せ道 — デイリーハブ（daily-hub）
   # ------------------------------------------------------------------
   @DAILY-HUB-01
   Scenario: 認証済みセッションで自分情報とハブメニューを取得できる
+    # e2e:verified AUTHZ pass "認証済みセッションで自分情報とハブメニューを取得できる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/auth/me" を叩く
     Then ステータスコード 200 が返る
@@ -37,6 +38,7 @@ Feature: 日常幸せ道 — デイリーハブ（daily-hub）
   # ------------------------------------------------------------------
   @DAILY-HUB-02
   Scenario: ADMIN 配信お知らせが MEMBER の未読+1・一覧反映し、開封で既読化・削除で消える
+    # e2e:verified AUTHZ pass "ADMIN 配信お知らせが MEMBER の未読+1・一覧反映し、開封で既読化・削除で消える"
     # 配信前の MEMBER 未読数を基準として保存する
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/announcements/unread-count" を叩く

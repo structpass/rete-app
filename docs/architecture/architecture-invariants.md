@@ -14,6 +14,7 @@ Reteで継続して守る構造上の境界です。例外を採用する場合�
 - Serviceは業務判断を担当し、Repositoryはquery、永続化、transactionを担当する。
 - RepositoryはEntityを返し、Serviceがmapperを使ってResponse DTOへ変換する。
 - Prismaを直接使う例外は、基盤処理など具体的な必要性をコードとADRで説明する。
+- raw SQLなどの例外はRepository内へ閉じ、必要性と安全性をADRへ記録する。受容済みの例はログインロックアウト（[ADR 0033](decisions/0033-login-lockout-db-store-429.md)）、チャット投稿の親更新（[ADR 0094](decisions/0094-chat-theme-lock-no-key-update.md)）、お気に入りの並べ替え（[ADR 0095](decisions/0095-favorites-reorder-json-lock.md)）。
 
 ## Errors and security
 

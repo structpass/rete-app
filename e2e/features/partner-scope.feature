@@ -31,6 +31,7 @@ Feature: P3c 社外連携 権限境界（partner-scope）
   # ------------------------------------------------------------------
   @P3c-01
   Scenario: MEMBER は自分が membership を持たない PJ のメンバー一覧を GET すると 403
+    # e2e:verified AUTHZ pass "MEMBER は自分が membership を持たない PJ のメンバー一覧を GET すると 403"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "partner-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -49,6 +50,7 @@ Feature: P3c 社外連携 権限境界（partner-scope）
   # ------------------------------------------------------------------
   @P3c-02
   Scenario: MEMBER は他 space への分類追加で 404、files settings PATCH で 403 を受け取る
+    # e2e:verified AUTHZ pass "MEMBER は他 space への分類追加で 404、files settings PATCH で 403 を受け取る"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "mgr-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -71,6 +73,7 @@ Feature: P3c 社外連携 権限境界（partner-scope）
   # ------------------------------------------------------------------
   @P3c-03
   Scenario: chat theme の削除は所有者本人と ADMIN のみ（MEMBER は 404 = 存在秘匿・ADR 0042）
+    # e2e:verified AUTHZ pass "chat theme の削除は所有者本人と ADMIN のみ（MEMBER は 404 = 存在秘匿・ADR 0042）"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "del-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する
@@ -98,6 +101,7 @@ Feature: P3c 社外連携 権限境界（partner-scope）
   # ------------------------------------------------------------------
   @P3c-04
   Scenario: MEMBER は他 scope の chat theme id を直指定 GET すると 404（一覧にも出ない）
+    # e2e:verified AUTHZ pass "MEMBER は他 scope の chat theme id を直指定 GET すると 404（一覧にも出ない）"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "url-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩き id を記録する

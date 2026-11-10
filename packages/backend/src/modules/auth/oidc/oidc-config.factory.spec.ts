@@ -48,6 +48,9 @@ const OIDC_ENV_KEYS = [
   'OIDC_REFERENCE_CLIENT_ID',
   'OIDC_REFERENCE_CLIENT_SECRET',
   'OIDC_REFERENCE_REDIRECT_URIS',
+  'OIDC_GMIS_CLIENT_ID',
+  'OIDC_GMIS_CLIENT_SECRET',
+  'OIDC_GMIS_REDIRECT_URIS',
   'CORS_ORIGIN',
   'PORT',
   'NODE_ENV',
@@ -309,6 +312,98 @@ describe('buildOidcConfiguration', () => {
       const built = await build();
 
       expect(built.oidc.clients?.[0].redirect_uris).toEqual(['http://a/cb']);
+    });
+
+    // d1167: 2 つ目の first-party RP（報告管理 gmis）。Reference と同じ登録条件・同じ scope で登録される。
+    it('gmis は secret と redirect URI が揃った時だけ既定 client_id "gmis" で登録されること（d1167）', async () => {
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+      process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toEqual([
+        {
+          client_id: 'gmis',
+          client_secret: 'gmis-secret',
+          redirect_uris: ['http://127.0.0.1:4188/api/auth/callback'],
+          grant_types: ['authorization_code'],
+          response_types: ['code'],
+          scope: 'openid profile email',
+        },
+      ]);
+    });
+
+    it('gmis は secret 未設定なら redirect URI だけ設定されても登録されないこと（AND 条件）', async () => {
+      process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toEqual([]);
+    });
+
+    it('gmis は redirect URI 未設定なら secret だけ設定されても登録されないこと（AND 条件）', async () => {
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toEqual([]);
+    });
+
+    it('OIDC_GMIS_CLIENT_ID 設定時は gmis の client_id が上書きされること', async () => {
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+      process.env.OIDC_GMIS_CLIENT_ID = 'gmis-custom';
+      process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients?.[0].client_id).toBe('gmis-custom');
+    });
+
+    it('Reference と gmis の両方が設定されれば 2 件登録されること（Reference の登録は従来どおり）', async () => {
+      process.env.OIDC_REFERENCE_CLIENT_SECRET = 's3cret';
+      process.env.OIDC_REFERENCE_REDIRECT_URIS =
+        'https://ref.example.com/api/v1/auth/oidc/callback';
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+      process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
+
+      const built = await build();
+
+      expect(built.oidc.clients?.map((client) => client.client_id)).toEqual([
+        'struct-pass-reference',
+        'gmis',
+      ]);
+      // Reference 側の登録内容（scope / grant / response）は 2 つ目を足しても不変。
+      expect(built.oidc.clients?.[0]).toEqual({
+        client_id: 'struct-pass-reference',
+        client_secret: 's3cret',
+        redirect_uris: ['https://ref.example.com/api/v1/auth/oidc/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        scope: 'openid profile email',
+      });
+    });
+
+    it('gmis の redirect_uris も空要素除去・trim されること（Reference と同じ正規化）', async () => {
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+      process.env.OIDC_GMIS_REDIRECT_URIS = ' http://a/cb , , http://b/cb ';
+
+      const built = await build();
+
+      expect(built.oidc.clients?.[0].redirect_uris).toEqual(['http://a/cb', 'http://b/cb']);
+    });
+
+    it('dev で gmis の secret だけ設定されていると warn を 1 行出して登録しないこと（cmn-0249 と同型）', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+
+      const built = await build();
+
+      expect(built.oidc.clients).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warnArg = String(warnSpy.mock.calls[0][0]);
+      expect(warnArg).toContain('OIDC_GMIS_CLIENT_SECRET is set but OIDC_GMIS_REDIRECT_URIS');
+      expect(warnArg).toContain('gmis');
+      warnSpy.mockRestore();
     });
   });
 
@@ -999,6 +1094,85 @@ describe('buildOidcConfiguration', () => {
         accountId: 'other-acc',
         clientId: 'other-client',
       });
+    });
+
+    // d1167: 自動付与の first-party 判定は Reference 固定ではなく、RP 定義（Reference + gmis）から
+    // 作る client_id 集合で行う。Reference の挙動は従来どおり（上のテスト群）で、gmis も同じ扱いになる。
+    it('gmis client でも first-party として grant を自動付与すること（d1167）', async () => {
+      const { GrantMock, instance } = makeGrant();
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          accountId: 'acc-1',
+          clientId: 'gmis',
+          clientScope: 'openid profile email',
+          requestedScope: 'openid profile email',
+        }),
+      );
+
+      expect(GrantMock).toHaveBeenCalledWith({ accountId: 'acc-1', clientId: 'gmis' });
+      expect(instance.addOIDCScope).toHaveBeenCalledWith('openid profile email');
+      expect(instance.save).toHaveBeenCalled();
+      expect(result).toBe(instance);
+    });
+
+    it('gmis でも付与 scope は「要求 ∩ 登録」に限定されること（over-grant 防止）', async () => {
+      const { GrantMock, instance } = makeGrant();
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          accountId: 'acc-1',
+          clientId: 'gmis',
+          clientScope: 'openid profile email',
+          requestedScope: 'openid admin',
+        }),
+      );
+
+      expect(instance.addOIDCScope).toHaveBeenCalledWith('openid');
+      expect(result).toBe(instance);
+    });
+
+    it('OIDC_GMIS_CLIENT_ID を変えた時もその client_id が first-party として扱われること', async () => {
+      process.env.OIDC_GMIS_CLIENT_ID = 'gmis-custom';
+      const { GrantMock, instance } = makeGrant();
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          accountId: 'acc-1',
+          clientId: 'gmis-custom',
+          clientScope: 'openid profile email',
+          requestedScope: 'openid',
+        }),
+      );
+
+      expect(result).toBe(instance);
+      expect(instance.addOIDCScope).toHaveBeenCalledWith('openid');
+    });
+
+    it('gmis でも必須MFA ON × 未設定なら自動付与しないこと（MFA ガード維持・d963）', async () => {
+      mockPrisma.passwordPolicy.findUnique.mockResolvedValue({ mfaEnforced: true });
+      mockPrisma.mfaSetting.findFirst.mockResolvedValue(null);
+      const { GrantMock } = makeGrant();
+      const built = await build();
+
+      const result = await built.oidc.loadExistingGrant?.(
+        makeCtx({
+          GrantMock,
+          accountId: 'acc-1',
+          clientId: 'gmis',
+          clientScope: 'openid profile email',
+          requestedScope: 'openid profile email',
+        }),
+      );
+
+      expect(result).toBeUndefined();
+      expect(GrantMock).not.toHaveBeenCalled();
     });
   });
 

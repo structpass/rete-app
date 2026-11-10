@@ -30,6 +30,7 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # ------------------------------------------------------------------
   @S-OPS-01
   Scenario: 連続失敗でロックされ、管理者の解除で入れるようになる
+    # e2e:verified AUTHZ pass "連続失敗でロックされ、管理者の解除で入れるようになる"
     Given ロックが残っていても拾えるよう "newcomer@struct-pass.example" の解除を後始末にも登録する
     And システムADMIN "admin@rete.local" でログインする
     And 管理者が "newcomer@struct-pass.example" のログイン試行ロックを解除する
@@ -52,6 +53,7 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # ------------------------------------------------------------------
   @S-OPS-02
   Scenario: 使えない招待で受諾すると理由付きで拒否される
+    # e2e:verified AUTHZ pass "使えない招待で受諾すると理由付きで拒否される"
     Given 未ログインの接続を "invitee" に用意する
     When 保存セッション "invitee" で POST "/api/v1/invites/accept" を body "{\"token\":\"expired-or-unknown-token\",\"name\":\"検証 太郎\",\"password\":\"ReteDemo1234!\"}" で叩く
     Then ステータスコード 400 が返る
@@ -65,6 +67,7 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # ------------------------------------------------------------------
   @S-OPS-05
   Scenario: 停止されたアカウントは入れず、解除すると入れる
+    # e2e:verified AUTHZ pass "停止されたアカウントは入れず、解除すると入れる"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000006" を "targetId" に保存する
     When PATCH "/api/v1/members/{{targetId}}" を body "{\"isActive\":false}" で叩く
@@ -81,6 +84,7 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # ------------------------------------------------------------------
   @S-OPS-11
   Scenario: 表示設定を変えると保存され、別の接続でも同じ値が返る
+    # e2e:verified AUTHZ pass "表示設定を変えると保存され、別の接続でも同じ値が返る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When PUT "/api/v1/accounts/me/display-preference" を body "{\"stripeEnabled\":true,\"stripeColor\":\"#FAFCFF\"}" で叩く
     Then ステータスコード 200 が返る
@@ -103,10 +107,10 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # S-OPS-04 端末も控えも失った（本人では入れない → 管理者のリセット → 設定し直し）
   #   手順は docs/scenarios/tracks/07-ops.md の S-OPS-04-C1。
   #   MFA 有効の人が mfa-user に限られるため、その人で流す（mfa-login.feature と同じ人・同じ控えの土台を使う）。
-  #   後始末: 設定し直した MFA を管理者がリセットして元へ戻す（mfa-login.feature の後始末と同じ）→ 下の @teardown。
   # ------------------------------------------------------------------
   @S-OPS-04
   Scenario: 管理者が MFA をリセットすると、本人は設定し直せる
+    # e2e:verified AUTHZ pass "管理者が MFA をリセットすると、本人は設定し直せる"
     Given admin で MFA ユーザーを MFA リセットする
     And 新しい接続 "lost-device" として "mfa-user@rete.local" のパスワードでログインする
     And 同じ接続 "lost-device" で本人が二段階認証を設定し直す
@@ -133,6 +137,7 @@ Feature: 運用トラック — 失敗した時の振る舞い（S-OPS-01 / 02 /
   # ------------------------------------------------------------------
   @S-OPS-12
   Scenario: メニューは各項目に提供可否を持って返る
+    # e2e:verified AUTHZ pass "メニューは各項目に提供可否を持って返る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/hub/menu" を叩く
     Then ステータスコード 200 が返る

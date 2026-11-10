@@ -27,6 +27,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-03
   Scenario: お知らせを開くと未読が1減り、二度目に開いても減らない
+    # e2e:verified ZZ-HOME-TRACK pass "お知らせを開くと未読が1減り、二度目に開いても減らない"
     # 土台: 先に、一覧が出している未読の行をすべて開いて既読にする（未読が 0 から始まる）。
     # 未読の件数は「既読 0 の人が見た時の数」なので、これをしないと手前の試験の既読ぶんだけずれる。
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
@@ -52,7 +53,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     Then ステータスコード 200 が返る
     When GET "/api/v1/announcements/unread-count" を叩く
     Then 未読の件数を比べる "data.count" が保存値 "unreadBefore" から一覧の差分なし
-    # 後始末: 作った掲示を消す（次の試験へ残さない）。
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/announcements/{{annId}}" を叩く
     Then ステータスコード 200 が返る
@@ -62,6 +62,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-05
   Scenario: 掲示に添付したファイルを、掲示した時の中身のまま取得できる
+    # e2e:verified ZZ-HOME-TRACK pass "掲示に添付したファイルを、掲示した時の中身のまま取得できる"
     Given システムADMIN "admin@rete.local" でログインする
     # 器は既定チャット（seed 済み）。「フォルダ → ファイル → 掲示 → 添付」の順で作る。
     # 作ったものは id を控えておき、このシナリオの終わりに必ず消す。
@@ -93,7 +94,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     When 保存値 "fileName" と同じ名称の添付を取得する
     Then ステータスコード 200 が返る
     And 取得した中身が保存値 "fileBody" と一致する
-    # 後始末: 掲示 → ファイル → フォルダ の順に消す（版を指す添付が先に消える）。
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/announcements/{{annId}}" を叩く
     Then ステータスコード 200 が返る
@@ -107,6 +107,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-06
   Scenario: 掲示の並びを入れ替えると、読み手の一覧でも同じ順で見える
+    # e2e:verified ZZ-HOME-TRACK pass "掲示の並びを入れ替えると、読み手の一覧でも同じ順で見える"
     Given システムADMIN "admin@rete.local" でログインする
     # 並び替えは「現存全件の id」を渡す形なので、元の並びを控えてから入れ替える。
     When GET "/api/v1/announcements" を叩く
@@ -129,7 +130,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/announcements" を叩く
     Then 一覧の "id" は保存値 "firstId" が保存値 "secondId" より先である
-    # 後始末: 元の並びへ戻してから、作った 2 件を消す（並びを変えたまま終わらせない）。
     Given システムADMIN "admin@rete.local" でログインする
     When 掲示の並びを保存値 "originalList" の順へ戻す
     Then ステータスコード 200 が返る
@@ -145,6 +145,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-13
   Scenario: 祝日の日に予定を置いても、祝日と予定の両方が取れる
+    # e2e:verified ZZ-HOME-TRACK pass "祝日の日に予定を置いても、祝日と予定の両方が取れる"
     Given システムADMIN "admin@rete.local" でログインする
     # 祝日は予定とは別の台帳（日付だけで持つ）。日付はその日が他の試験で使われていない日に置く。
     And 一意名 "e2e-holiday" を生成して "holidayName" に保存する
@@ -164,7 +165,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     When GET "/api/v1/calendar-events?from=2027-07-20T00:00:00.000Z&to=2027-07-22T00:00:00.000Z" を叩く
     Then ステータスコード 200 が返る
     And 一覧に "id" が保存値 "eventId" の行で入っている
-    # 後始末: 予定 → 祝日の順に消す（祝日は日付を指す）。
     When DELETE "/api/v1/calendar-events/{{eventId}}?revision={{eventRev}}" を叩く
     Then ステータスコード 200 が返る
     When DELETE "/api/v1/calendar-holidays/2027-07-21" を叩く
@@ -177,6 +177,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-10
   Scenario: 管理者が入れた予定が、作っていない人のカレンダーにも同じ日に出る
+    # e2e:verified ZZ-HOME-TRACK pass "管理者が入れた予定が、作っていない人のカレンダーにも同じ日に出る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     # 予定を作る前に、読み手の画面が持つ予定の件数を控える（増えた 1 件が手順 3 で作ったもの）。
     When GET "/api/v1/calendar-events?from=2027-08-09T00:00:00.000Z&to=2027-08-11T00:00:00.000Z" を叩く
@@ -202,7 +203,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     When GET "/api/v1/calendar-events/{{eventId}}" を叩く
     Then ステータスコード 200 が返る
     And レスポンスの "data.title" が "{{eventTitle}}" と一致する
-    # 後始末: 作った予定を revision 付きで消す。「DELETE ... を叩く」は成功すると後始末の記録からも
     # 外すため、消し済みの予定を後始末がもう一度撃って 404 で落ちることはない。
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/calendar-events/{{eventId}}?revision={{eventRev}}" を叩く
@@ -213,6 +213,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-14
   Scenario: FAQ を投稿するとFAQの一覧と未読に載り、掲示板には載らない
+    # e2e:verified ZZ-HOME-TRACK pass "FAQ を投稿するとFAQの一覧と未読に載り、掲示板には載らない"
     # 既読になる操作（FAQ を開く）の前に数を取る。数は種別ごとに数えているので、
     # FAQ を作る前の「FAQ の未読」を基準にする。
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
@@ -237,7 +238,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     When GET "/api/v1/announcements?kind=board" を叩く
     Then ステータスコード 200 が返る
     And レスポンス配列に "{{faqTitle}}" が含まれない
-    # 後始末: 作った FAQ を消す。
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/announcements/{{faqId}}" を叩く
     Then ステータスコード 200 が返る
@@ -247,6 +247,7 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
   # ------------------------------------------------------------------
   @S-HOME-15
   Scenario: 掲示板とFAQに同じ名前の日本語タグを作っても、互いの一覧と付与に混ざらない
+    # e2e:verified ZZ-HOME-TRACK pass "掲示板とFAQに同じ名前の日本語タグを作っても、互いの一覧と付与に混ざらない"
     Given システムADMIN "admin@rete.local" でログインする
     # 同じ名前で 2 種類（日本語の名前が「大文字小文字を区別しない一意」に乗るか）。
     And 一意名 "既定" を生成して "tagName" に保存する
@@ -274,7 +275,6 @@ Feature: ホームトラックの未確認行（S-HOME-03 / 05 / 06 / 13 / 14 / 
     Then ステータスコード 400 が返る
     When PUT "/api/v1/announcements/{{annId}}/tags" を body "{\"tagIds\":[\"{{boardTagId}}\"]}" で叩く
     Then ステータスコード 200 が返る
-    # 後始末: 掲示 → タグ 2 種類（付与は連鎖削除）。
     When DELETE "/api/v1/announcements/{{annId}}" を叩く
     Then ステータスコード 200 が返る
     When DELETE "/api/v1/announcement-tags/{{boardTagId}}" を叩く

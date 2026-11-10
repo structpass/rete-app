@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { Role } from '@rete/shared';
 import { useSession } from '@/features/auth';
 import { useMountedFetch } from '@/hooks/use-mounted-fetch';
-import { extractErrorMessage } from '@/lib/error-utils';
+import { extractErrorMessage, extractValidationErrorMessage } from '@/lib/error-utils';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OverlayDialog } from '@/components/ui/overlay-dialog';
 import {
@@ -93,7 +93,9 @@ function CalendarHolidaysBody() {
       reset();
       toast.success(original ? '祝日を保存しました' : '祝日を追加しました');
     } catch (err) {
-      toast.error(extractErrorMessage(err, '祝日を保存できませんでした'));
+      // 日付の形の誤りは class-validator 由来で理由が details.validationErrors にしか入らないため、
+      // 詳細を優先して出す（存在しない日付の 404・重複の 409 は error.message の案内文が出る）。
+      toast.error(extractValidationErrorMessage(err, '祝日を保存できませんでした'));
     } finally {
       setBusy(false);
     }

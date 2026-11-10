@@ -335,6 +335,13 @@ test('CI: Build shared が Type check / Coverage より前に実行される (re
       '解決できず、fresh runner で Cannot find module になります',
   );
   assert.ok(typeCheck >= 0, 'test.yml に「Type check」ステップがありません');
+
+  // ステップが在るだけでは足りない。中身が type-check を呼んでいることまで見る（d1070）。
+  // 存在と順序だけを見ていたため、実行行を echo に差し替えても緑のままだった。
+  assert.ok(
+    yaml.includes('run: pnpm run type-check'),
+    'Type check ステップが pnpm run type-check を起動していません（型検査が CI で走らない）',
+  );
   assert.ok(
     buildShared < typeCheck,
     'Build shared が Type check より後にあります＝shared の dist が無いまま型検査が走り、' +
@@ -540,3 +547,128 @@ test('CD: 本番ログイン確認の案内文が、記号の解釈で空にな�
     );
   }
 });
+
+// 品質の歯止めになる CI の実行行が、中身ごと残っていることを 1 か所で見る（d1071）。
+//
+// d1070 で型検査だけを塞いだ時、同じ穴が他のステップにも残っていた。ステップの存在や順序だけを
+// 見ていると、実行行を echo に差し替えられても緑のままになり、歯止めが黙って外れる。
+// ここでは「そのコマンドを起動している行が test.yml に在るか」だけを、歯止めごとに並べて見る。
+// 起動の書き方（script 名・filter）を変える時は、この一覧も同じ変更で直す。
+//
+// d1139: 見るのは**そのステップの区間の中**だけにする。ファイル全体の部分一致だと、
+// コメント行や到達しない別ジョブ・別ステップへ移しても緑になり、歯止めが効かない場所に
+// あっても検査が通る（knip / format / e2e の検査は最初からステップ区間に絞ってある）。
+//
+// d1139（独立の目）: ステップ区間へ絞っただけでは、**ステップごと到達しないジョブへ移す**形が
+// 抜けた（別ジョブに同名のステップを置いても、最初に見つかった name 行を読むため緑になった）。
+// よって「どのジョブの中のステップか」まで固定する。ジョブ名は workflow の job キーと一致させる。
+// 加えて `if:`／`continue-on-error` を持つステップは、実行行が在っても走らないことがあるため赤にする
+// （jscpd ステップの検査が既に同じ厳しさで見ている）。
+// ステップ名・ジョブ名は workflow の name / job キーと一致させる（改名したらこの一覧も直す）。
+const REQUIRED_CI_RUN_LINES = [
+  ['test', 'Repo invariant checks', 'pnpm run check:repo-invariants', 'リポジトリ不変条件の検査'],
+  [
+    'test',
+    'Dependency audit boundary (sprintf-js)',
+    'pnpm run check:audit-boundary',
+    '依存監査の境界検査',
+  ],
+  ['test', 'Dependency security audit', 'pnpm run check:security', '依存の脆弱性監査'],
+  ['test', 'Type check', 'pnpm run type-check', '型検査'],
+  ['test', 'Lint check', 'pnpm run lint:check', 'lint'],
+  ['test', 'Format check', 'pnpm run format:check', '整形ドリフトの検出'],
+  ['test', 'Coverage threshold (all packages)', 'pnpm run test:cov', '被覆率の下限を縛る試験'],
+  ['test', 'Duplication check (jscpd)', 'pnpm run check:duplication', '重複の閾値検査'],
+  [
+    'test',
+    'Knip snapshot check',
+    'pnpm run check:knip-snapshot',
+    '不要コードのスナップショット検査',
+  ],
+  ['test', 'OIDC credential lifecycle', 'pnpm run check:oidc-flow', 'OIDC 資格情報フローの検査'],
+  [
+    'test',
+    'Service/Repository boundary',
+    'pnpm run check:service-boundary',
+    'Service/Repository 境界の検査',
+  ],
+  ['test', 'Raw SQL stays in repositories', 'pnpm run check:raw-sql', 'raw SQL の置き場所の検査'],
+  // e2e は workspace に取り込まれず独自の依存と tsconfig で型検査するため、test ジョブの
+  // `pnpm run type-check` とは別の実行行になる（test.yml の e2e ジョブ）。こちらも見る（d1077）。
+  ['e2e', 'Type check (E2E)', 'npm run type-check', 'e2e の型検査'],
+];
+
+/**
+ * 指定した job の中の、指定した name のステップの本体（コメント行を除いた区間）を返す。無ければ null。
+ *
+ * ファイル全体へ素の includes を掛けると、コメント行や別ジョブの同じ語に当たって歯止めが no-op になる。
+ * さらに job を指定しないと、ステップごと到達しないジョブへ移す形が抜ける（d1139 の独立の目）。
+ */
+function stepBodyByName(yaml, job, name) {
+  const jobBlock = jobBody(yaml, job);
+  if (jobBlock === null) return null;
+  const lines = jobBlock.split('\n').filter((line) => !/^\s*#/.test(line));
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const start = lines.findIndex((line) =>
+    new RegExp(`^\\s*-\\s+name:\\s*${escaped}\\s*$`).test(line),
+  );
+  if (start < 0) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^\s*-\s/.test(line)); // 次のステップの開始
+  return [lines[start], ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
+}
+
+test('CI: 品質の歯止めになる実行行が、中身ごと残っている (d1071)', () => {
+  const yaml = readFileSync(WORKFLOW_PATH, 'utf8');
+  const missing = [];
+  for (const [job, stepName, cmd, label] of REQUIRED_CI_RUN_LINES) {
+    const step = stepBodyByName(yaml, job, stepName);
+    if (step === null) {
+      missing.push(`  - ${label}: 「${stepName}」ステップが ${job} ジョブにありません`);
+      continue;
+    }
+    if (
+      !new RegExp(`^\\s*run: ${cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm').test(step)
+    ) {
+      missing.push(
+        `  - ${label}: run: ${cmd}（${job} ジョブ「${stepName}」ステップの区間内にありません）`,
+      );
+      continue;
+    }
+    // 実行行が在っても、条件や失敗の握り潰しで走らないことがある（jscpd の検査と同じ厳しさ）。
+    if (/continue-on-error|\bif\s*:/.test(step)) {
+      missing.push(
+        `  - ${label}: 「${stepName}」ステップが if: ／ continue-on-error を持っています` +
+          '（実行行が在っても走らない・失敗が素通りします）',
+      );
+    }
+  }
+
+  assert.deepEqual(
+    missing,
+    [],
+    'test.yml から次の実行行が消えています（ステップが在っても、中身が別のコマンド・別のステップ・' +
+      'コメント行・到達しない別ジョブ・条件付きのステップだと歯止めが効きません）。' +
+      '消す・書き換える時は本検査も同じ変更で直してください:\n' +
+      missing.join('\n'),
+  );
+});
+
+// lint の警告は、件数を固定して「増えたら止まる」形にしている（d1117・d1118）。
+// 上限を外すと警告が素通りし、構造上限の規則がまた効かなくなる。
+// shared は警告 0 件なので上限を持たない（0 件を保てている）。
+for (const pkgName of ['frontend', 'backend']) {
+  test(`${pkgName} の lint:check は警告の件数を固定している (d1117・d1118)`, () => {
+    const pkg = JSON.parse(
+      readFileSync(join(REPO_ROOT, `packages/${pkgName}/package.json`), 'utf8'),
+    );
+    const script = pkg.scripts?.['lint:check'] ?? '';
+
+    assert.match(
+      script,
+      /--max-warnings \d+/,
+      `${pkgName} の lint:check から --max-warnings が消えています。外すと警告が増えても CI が` +
+        '緑のままになり、長すぎる関数・複雑すぎる関数が素通りします。',
+    );
+  });
+}

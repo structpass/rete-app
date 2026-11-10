@@ -1,0 +1,6 @@
+/* 画面のタブのアイコン（d1015）。色は共通のアクセント（--sp-accent-teal #1fb6a2 と濃い側）を使う。
+   文字は「R」1 文字。小さく表示されるため、縁取りを外し、太めの字で塗りつぶす。 */
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Rete">
+  <rect width="64" height="64" rx="14" fill="#1fb6a2" />
+  <path d="M20 48V16h13.5c6.4 0 10.5 3.6 10.5 9 0 4.2-2.4 7.2-6.3 8.3L45 48H37.4l-6.2-13.3H27V48H20Zm7-19.4h6.1c2.6 0 4.2-1.4 4.2-3.6s-1.6-3.6-4.2-3.6H27v7.2Z" fill="#ffffff" />
+</svg>

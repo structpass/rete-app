@@ -1,15 +1,9 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  HttpException,
-  HttpStatus,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { LoginSettingsService } from '../../login-settings/login-settings.service';
 import { MfaService } from '../../mfa/mfa.service';
 import { AuthenticatedUser } from '../auth.service';
-import { API_GLOBAL_PREFIX_PATH } from '../../../common/config/api-routes';
+import { isExemptPath, isExternalIdpSession, rejectWithCode } from './enforcement-gate';
 
 /**
  * 全体強制 MFA の遮断ガード（R8）。login-settings.mfaEnforced=true かつ session の出自が 'local' かつ
@@ -22,12 +16,10 @@ import { API_GLOBAL_PREFIX_PATH } from '../../../common/config/api-routes';
  */
 @Injectable()
 export class MfaEnforcementGuard implements CanActivate {
-  /** グローバル prefix（main.ts setGlobalPrefix）。req.path には prefix 込みで載るため照合前に剥がす。 */
-  private static readonly GLOBAL_PREFIX = API_GLOBAL_PREFIX_PATH;
-
   /**
    * 強制から除外する path（prefix 剥がし後の厳密な前方一致）。部分文字列一致（includes）は使わない
    * （`/foo/settings/mfa-export` 等が誤って除外される穴を作らないため・完全な base または `base/...` のみ許可）。
+   * 判定そのものは enforcement-gate が持つ（パスワード変更強制と共通・d1016）。
    * - /settings/mfa 配下 = MFA 設定を完了させるための導線
    * - /auth/me（状態取得）/ /auth/logout（離脱）/ /auth/login（+ /auth/login/mfa の 2 段階）
    * - /settings/login 配下 = MFA 制御盤自体（password-policy・ip-whitelist）。同配下は
@@ -62,18 +54,11 @@ export class MfaEnforcementGuard implements CanActivate {
 
     // 出自は authOrigin で見る（d955）。素通しは「外部 IdP が認証した」と明示された時だけにして、
     // 未知の値・空文字・未設定では fail-open しない（Rete 自身の資格情報で入ったセッションは、
-    // 外部アプリへ認証を渡した後でも強制の対象に残す）。
-    if (req.session?.authOrigin === 'external-idp') return true;
+    // 外部アプリへ認証を渡した後でも強制の対象に残す）。判定は enforcement-gate（d1016）。
+    if (isExternalIdpSession(req)) return true;
 
     // 除外 path（セットアップ導線 / me / logout / login）は常に通す。
-    // グローバル prefix を剥がし、`base` 完全一致 or `base/...` のみ除外（部分文字列一致はしない）。
-    const raw = (req.path || req.url || '').split('?')[0];
-    const path = raw.startsWith(MfaEnforcementGuard.GLOBAL_PREFIX)
-      ? raw.slice(MfaEnforcementGuard.GLOBAL_PREFIX.length)
-      : raw;
-    if (MfaEnforcementGuard.EXEMPT_BASES.some((b) => path === b || path.startsWith(`${b}/`))) {
-      return true;
-    }
+    if (isExemptPath(req, MfaEnforcementGuard.EXEMPT_BASES)) return true;
 
     // 出口（強制を外す操作）は EXEMPT_BASES の /settings/login 配下で既に通している。
     // ここで先に通すための別リストは置かない（同じ判断を 2 箇所に書くと、片方だけを直す時に
@@ -85,9 +70,6 @@ export class MfaEnforcementGuard implements CanActivate {
     // confirmed MFA を持っていれば通す。未設定なら設定フローへ誘導するため 403 で遮断する。
     if (await this.mfaService.hasConfirmedMfa(user.id)) return true;
 
-    throw new HttpException(
-      { code: 'MFA_SETUP_REQUIRED', message: 'MFA の設定が必要です' },
-      HttpStatus.FORBIDDEN,
-    );
+    rejectWithCode('MFA_SETUP_REQUIRED', 'MFA の設定が必要です');
   }
 }

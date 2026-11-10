@@ -17,12 +17,11 @@
 #      グループ削除が通る（塞がると「グループごと消す」しか逃げ道が無くなる）
 #   3) スコープがアーカイブ済み … 付与・降格は 400、剥奪・削除は 409 のまま。回収は復元が先
 #
-# 後始末: 3 は「管理者を直接 membership で戻してから H を消す」→ 組織は teardown の PATCH archive に
-# 任せる（作成を記録する POST step で作る＝e2e の共通作法）。1 も同じ。2 だけはスコープの物理削除が
-# 検証内容そのものなので記録しない POST step で作り、組織 → グループの順に明示削除する。
-# 途中で失敗した場合は「グループが唯一の ADMIN 源」の間だけ teardown の DELETE が 409 になる
-# （fixtures は失敗を握りつぶさない）。その時の片付けは組織の物理削除 → グループ削除の順で行う。
-#
+# 組織と管理グループは、作成を記録する POST step で作る（e2e の共通作法。1 も同じ）。
+# 2 だけはスコープの物理削除が検証内容そのものなので、記録しない POST step で作り、
+# 組織 → グループの順に明示削除する。途中で失敗した場合は「グループが唯一の ADMIN 源」の間だけ
+# teardown の DELETE が 409 になる（fixtures は失敗を握りつぶさない）。その時の片付けは
+# 組織の物理削除 → グループ削除の順で行う。
 # 接続先は step の引数ではなく e2e/support/auth.ts の BASE_URL（環境変数 E2E_BASE_URL）で決まる。
 # 下の Background の URL は資料としての目安表記（既定の dev ポート）。
 
@@ -33,6 +32,7 @@ Feature: v2-231 管理グループの実効 ADMIN 全消失ガードと回収経
     Given バックエンド "http://127.0.0.1:3011" が稼働している
 
   Scenario: 唯一の ADMIN 源グループは4経路とも 409 になり、別の管理グループへ管理者を付けると回収できる
+    # e2e:verified AUTHZ pass "唯一の ADMIN 源グループは4経路とも 409 になり、別の管理グループへ管理者を付けると回収できる"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "v2-231-org" を生成して "orgName" に保存する
     And 一意名 "v2-231-retire" を生成して "retireName" に保存する
@@ -94,7 +94,6 @@ Feature: v2-231 管理グループの実効 ADMIN 全消失ガードと回収経
     And レスポンス配列に "{{retireId}}" が含まれない
     And レスポンス配列に "{{helperId}}" が含まれる
 
-    # 後始末: 組織の管理者を直接 membership で戻してから H を削除する（H はもう唯一の ADMIN 源ではない）。
     # 組織は残し、teardown の PATCH archive に任せる（scratch を可視の一覧へ残さない）。
     When POST "/api/v1/memberships" を body "{\"accountId\":\"{{adminId}}\",\"scopeType\":\"ORGANIZATION\",\"scopeId\":\"{{orgId}}\",\"role\":\"ADMIN\"}" で叩く
     Then ステータスコード 201 が返る
@@ -105,6 +104,7 @@ Feature: v2-231 管理グループの実効 ADMIN 全消失ガードと回収経
     And レスポンス配列に "{{helperId}}" が含まれない
 
   Scenario: スコープが物理削除された後の grant は剥奪もメンバー削除も塞がない
+    # e2e:verified AUTHZ pass "スコープが物理削除された後の grant は剥奪もメンバー削除も塞がない"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "v2-231-dangling" を生成して "orgName" に保存する
     And 一意名 "v2-231-dangle" を生成して "groupName" に保存する
@@ -145,6 +145,7 @@ Feature: v2-231 管理グループの実効 ADMIN 全消失ガードと回収経
     Then ステータスコード 204 が返る
 
   Scenario: アーカイブ済みスコープでは回収手順の前に復元が要る
+    # e2e:verified AUTHZ pass "アーカイブ済みスコープでは回収手順の前に復元が要る"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "v2-231-archived" を生成して "orgName" に保存する
     And 一意名 "v2-231-archretire" を生成して "retireName" に保存する
@@ -192,7 +193,6 @@ Feature: v2-231 管理グループの実効 ADMIN 全消失ガードと回収経
     When DELETE "/api/v1/user-groups/{{retireId}}" を叩く
     Then ステータスコード 204 が返る
 
-    # 後始末: 管理者を直接 membership で戻してから H を削除し、組織は teardown に任せる
     When POST "/api/v1/memberships" を body "{\"accountId\":\"{{adminId}}\",\"scopeType\":\"ORGANIZATION\",\"scopeId\":\"{{orgId}}\",\"role\":\"ADMIN\"}" で叩く
     Then ステータスコード 201 が返る
     When DELETE "/api/v1/user-groups/{{helperId}}" を叩く

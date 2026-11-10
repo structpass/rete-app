@@ -26,6 +26,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
   # ------------------------------------------------------------------
   @S-DESK-02
   Scenario: リアクションは 1 回目で付き 2 回目で外れる
+    # e2e:verified AUTHZ pass "リアクションは 1 回目で付き 2 回目で外れる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -49,6 +50,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
   # ------------------------------------------------------------------
   @S-DESK-14
   Scenario: 自分の発話は編集でき削除すると一覧から消える
+    # e2e:verified AUTHZ pass "自分の発話は編集でき削除すると一覧から消える"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -74,6 +76,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
   # ------------------------------------------------------------------
   @S-DESK-11
   Scenario: 使用中の分類は消せず、タスクを消すと消せる
+    # e2e:verified AUTHZ pass "使用中の分類は消せず、タスクを消すと消せる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-cat" を生成して "catName" に保存する
     When POST "/api/v1/categories" を body "{\"name\":\"{{catName}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -95,6 +98,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
   # ------------------------------------------------------------------
   @S-DESK-05
   Scenario: 子タスクを別の親へ移すとツリーの位置が変わる
+    # e2e:verified AUTHZ pass "子タスクを別の親へ移すとツリーの位置が変わる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-cat" を生成して "catName" に保存する
     When POST "/api/v1/categories" を body "{\"name\":\"{{catName}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -129,6 +133,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
 
   @S-DESK-06
   Scenario: 担当者・期限を変えると属性変更が記録に残る
+    # e2e:verified AUTHZ pass "担当者・期限を変えると属性変更が記録に残る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-task" を生成して "taskTitle" に保存する
     When POST "/api/v1/tasks" を body "{\"title\":\"{{taskTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -152,6 +157,7 @@ Feature: Desk の操作境界（S-DESK-02 / 05 / 06 / 07 / 11 / 14）
   # ------------------------------------------------------------------
   @S-DESK-07
   Scenario: 他人の発話の編集は 403、管理者は通る
+    # e2e:verified AUTHZ pass "他人の発話の編集は 403、管理者は通る"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する

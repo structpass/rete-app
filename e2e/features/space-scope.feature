@@ -27,6 +27,7 @@ Feature: S-SPC-05 スコープ越境の遮断
   # ------------------------------------------------------------------
   @S-SPC-05
   Scenario: membership なしプロジェクトのチャネルは閲覧できない
+    # e2e:verified AUTHZ pass "membership なしプロジェクトのチャネルは閲覧できない"
     Given システムMEMBER "wh-user@struct-pass.example" でログインする
     When GET "/api/v1/spaces?kind=CHANNEL&projectId=00000000-0000-4000-b000-000000000022" を叩く
     Then ステータスコード 403 が返る
@@ -36,6 +37,7 @@ Feature: S-SPC-05 スコープ越境の遮断
   # ------------------------------------------------------------------
   @S-SPC-05-positive
   Scenario: membership ありプロジェクトのチャネルは閲覧できる
+    # e2e:verified AUTHZ pass "membership ありプロジェクトのチャネルは閲覧できる"
     Given システムMEMBER "wh-user@struct-pass.example" でログインする
     When GET "/api/v1/spaces?kind=CHANNEL&projectId=00000000-0000-4000-b000-000000000020" を叩く
     Then ステータスコード 200 が返る
@@ -45,6 +47,7 @@ Feature: S-SPC-05 スコープ越境の遮断
   # ------------------------------------------------------------------
   @S-SPC-05-positive
   Scenario: membership ありプロジェクトのチャネル一覧に入荷・出荷が含まれる
+    # e2e:verified AUTHZ pass "membership ありプロジェクトのチャネル一覧に入荷・出荷が含まれる"
     Given システムMEMBER "wh-user@struct-pass.example" でログインする
     When GET "/api/v1/spaces?kind=CHANNEL&projectId=00000000-0000-4000-b000-000000000020" を叩く
     Then ステータスコード 200 が返る

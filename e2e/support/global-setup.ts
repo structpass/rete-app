@@ -15,7 +15,7 @@ import { request } from '@playwright/test';
 import path from 'path';
 import fs from 'fs/promises';
 import { BASE_URL, CREDENTIALS } from './auth';
-import { isE2EOrgName } from './sweep-e2e-orgs';
+import { isE2ENamedOrg } from './sweep-e2e-orgs';
 
 const SESSION_DIR = path.join(__dirname, '..', '.cache', 'sessions');
 
@@ -61,7 +61,7 @@ async function sweepE2EOrgs(adminCookie: string): Promise<void> {
     data?: Array<{ id: string; name: string; archived?: boolean }>;
   };
   const orgs = listJson.data ?? [];
-  const targets = orgs.filter((o) => !o.archived && isE2EOrgName(o.name));
+  const targets = orgs.filter((o) => !o.archived && isE2ENamedOrg(o.name));
   if (targets.length === 0) {
     console.log('[globalSetup] e2e org sweep: 0 targets');
     return;
@@ -87,12 +87,18 @@ async function sweepE2EOrgs(adminCookie: string): Promise<void> {
 export default async function globalSetup() {
   await fs.mkdir(SESSION_DIR, { recursive: true });
 
-  // dsk-0413: 既存セッションディレクトリに admin のフレッシュな Cookie が無ければ
-  // 先に admin ログインし、その Cookie で stash をスイープする。
-  // セッションが既にフレッシュなら使い回して O(1) でスキップ。
+  // dsk-0413: 残った e2e 一意名組織を、admin のセッションで archived=true にする。
+  // d969: 掃除は admin をログインし直さなくても毎回行う。以前は「セッションが有効なら掃除もしない」
+  // 形で、1 時間以内の再実行では残骸が掃かれなかった（積み上がりの原因の 1 つ）。
   const adminSFile = path.join(SESSION_DIR, `${CREDENTIALS.admin.key}.json`);
   const adminFresh = await isSessionFileFresh(adminSFile);
-  if (!adminFresh) {
+  if (adminFresh) {
+    const state = JSON.parse(await fs.readFile(adminSFile, 'utf-8')) as {
+      cookies?: Array<{ name: string; value: string }>;
+    };
+    const sid = state.cookies?.find((c) => c.name === 'connect.sid')?.value;
+    if (sid) await sweepE2EOrgs(sid);
+  } else {
     const adminCtx = await request.newContext({ baseURL: BASE_URL });
     try {
       const res = await adminCtx.post('/api/v1/auth/login', {

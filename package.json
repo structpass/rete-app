@@ -4,6 +4,7 @@
   "private": true,
   "description": "Struct Rete - サテライトシステム（タスク + チャット連結軸）",
   "scripts": {
+    "demo:inventory": "node scripts/demo/seed-inventory-project.mjs",
     "check:oidc-flow": "node scripts/check-oidc-credential-flow.mjs",
     "dev": "pnpm --parallel --filter \"./packages/**\" dev",
     "build": "pnpm --filter \"./packages/**\" build",
@@ -23,7 +24,9 @@
     "test:agent": "node scripts/run-tests-agent.mjs",
     "test:cov": "pnpm run build:shared && pnpm --filter \"./packages/**\" --sequential test:cov",
     "type-check": "pnpm run build:shared && pnpm --filter \"./packages/**\" --sequential type-check",
-    "clean": "pnpm --filter \"./packages/**\" clean && node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\""
+    "clean": "pnpm --filter \"./packages/**\" clean && node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\"",
+    "check:service-boundary": "node scripts/check-service-repository-boundary.mjs",
+    "check:raw-sql": "node scripts/check-raw-sql-location.mjs"
   },
   "keywords": [
     "struct-rete",

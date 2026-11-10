@@ -25,6 +25,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
   # ------------------------------------------------------------------
   @S-SET-07
   Scenario: 非管理者は設定の更新ができない
+    # e2e:verified AUTHZ pass "非管理者は設定の更新ができない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When PATCH "/api/v1/settings/tenant" を空ボディで叩く
     Then ステータスコード 403 が返る
@@ -41,6 +42,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
   # ------------------------------------------------------------------
   @S-SET-05
   Scenario: ポリシーを保存し直せ、不正な CIDR と自分の外に出るリストは拒否される
+    # e2e:verified AUTHZ pass "ポリシーを保存し直せ、不正な CIDR と自分の外に出るリストは拒否される"
     Given システムADMIN "admin@rete.local" でログインする
     When PUT "/api/v1/settings/login/password-policy" を body "{\"requireLowercase\":true,\"requireUppercase\":true,\"requireNumber\":true,\"requireSymbol\":true,\"minLength\":12,\"mfaEnforced\":false}" で叩く
     Then ステータスコード 200 が返る
@@ -71,6 +73,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
   # ------------------------------------------------------------------
   @S-SET-03
   Scenario: 期間を指定して検索でき、92 日を超える書き出しは拒否される
+    # e2e:verified AUTHZ pass "期間を指定して検索でき、92 日を超える書き出しは拒否される"
     Given システムADMIN "admin@rete.local" でログインする
     When GET "/api/v1/audit-logs?from=2026-10-01&to=2026-10-25" を叩く
     Then ステータスコード 200 が返る
@@ -84,6 +87,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
   # ------------------------------------------------------------------
   @S-SET-01
   Scenario: システムロールの変更が次のリクエストに反映される
+    # e2e:verified AUTHZ pass "システムロールの変更が次のリクエストに反映される"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000006" を "tanakaId" に保存する
     When PATCH "/api/v1/members/{{tanakaId}}/system-role" を body "{\"role\":\"ADMIN\"}" で叩く
@@ -98,6 +102,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
 
   @S-SET-12
   Scenario: 自分のシステムロールは降格できない
+    # e2e:verified AUTHZ pass "自分のシステムロールは降格できない"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000001" を "adminId" に保存する
     When PATCH "/api/v1/members/{{adminId}}/system-role" を body "{\"role\":\"MEMBER\"}" で叩く
@@ -129,6 +134,7 @@ Feature: 設定の管理者操作と境界（S-SET-02 / 03 / 05 / 08 / 13）
   # ------------------------------------------------------------------
   @S-SET-13
   Scenario: 所属を足すと見えるようになり、外すと見えなくなる
+    # e2e:verified AUTHZ pass "所属を足すと見えるようになり、外すと見えなくなる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く

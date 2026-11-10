@@ -26,6 +26,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-01
   Scenario: 組織を作ると作成者がその組織の管理者になる
+    # e2e:verified AUTHZ pass "組織を作ると作成者がその組織の管理者になる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く
@@ -43,6 +44,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-02
   Scenario: 配下のプロジェクトとチャネルは上位の管理者だけが作れる
+    # e2e:verified AUTHZ pass "配下のプロジェクトとチャネルは上位の管理者だけが作れる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く
@@ -70,6 +72,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
 
   @S-SPC-03
   Scenario: プロジェクトの一般メンバーは配下にチャネルを作れない
+    # e2e:verified AUTHZ pass "プロジェクトの一般メンバーは配下にチャネルを作れない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く
@@ -96,6 +99,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-04
   Scenario: 招かれた人だけがデータに届き、外すと 404 に戻る
+    # e2e:verified AUTHZ pass "招かれた人だけがデータに届き、外すと 404 に戻る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く
@@ -135,6 +139,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-05
   Scenario: 所属しないプロジェクトのチャネルは一覧に出ず直叩きも 404
+    # e2e:verified AUTHZ pass "所属しないプロジェクトのチャネルは一覧に出ず直叩きも 404"
     Given システムMEMBER "wh-user@struct-pass.example" でログインする
     When GET "/api/v1/spaces?kind=CHANNEL&projectId=00000000-0000-4000-b000-000000000022" を叩く
     Then ステータスコード 403 が返る
@@ -148,6 +153,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-07
   Scenario: 配下にプロジェクトがある組織は削除できず、片付けは archive で行う
+    # e2e:verified AUTHZ pass "配下にプロジェクトがある組織は削除できず、片付けは archive で行う"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-org" を生成して "orgName" に保存する
     When POST "/api/v1/organizations" を body "{\"name\":\"{{orgName}}\"}" で叩く
@@ -174,6 +180,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-10
   Scenario: 所属を切り替えると旧チャネルは見えず、新チャネルが見える
+    # e2e:verified AUTHZ pass "所属を切り替えると旧チャネルは見えず、新チャネルが見える"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000007" を "ncId" に保存する
     And 一意名 "e2e-org" を生成して "orgName" に保存する
@@ -222,6 +229,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-11
   Scenario: 一度抜けた人を戻すと、所属が重複せず見え方も元に戻る
+    # e2e:verified AUTHZ pass "一度抜けた人を戻すと、所属が重複せず見え方も元に戻る"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000002" を "whId" に保存する
     And 一意名 "e2e-org" を生成して "orgName" に保存する
@@ -278,6 +286,7 @@ Feature: 組織・プロジェクト・チャネルの境界（S-SPC-01 / 02 / 0
   # ------------------------------------------------------------------
   @S-SPC-08
   Scenario: 管理者が他人の個人メモを直に叩いても、存在しない器と見分けられない
+    # e2e:verified AUTHZ pass "管理者が他人の個人メモを直に叩いても、存在しない器と見分けられない"
     Given seed ユーザー "wh-user@struct-pass.example"（パスワード "ReteDemo1234!"）としてログインし、セッションと自分の id を "memoOwner" に保存する
     And seed ユーザー "admin@rete.local"（パスワード "ReteAdmin1234!"）としてログインし、セッションと自分の id を "admin" に保存する
     And 一意名 "e2e-memo" を生成して "memoName" に保存する

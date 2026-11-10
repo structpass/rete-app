@@ -33,12 +33,14 @@ function loadValidateProductionSecrets(): Validate {
   const factory = new Function(
     'process',
     'validateReferenceRedirectUriRequiredInProduction',
+    'validateGmisRedirectUriRequiredInProduction',
     'parseMfaTotpEncKey',
     `${constantsSource}\n${fnSource}\nreturn validateProductionSecrets;`,
   );
   // 補助関数は main.ts と同じ実装を渡す（OIDC の redirect 検査は本テストの対象外なので null 固定）。
   return factory(
     process,
+    () => null,
     () => null,
     jest.requireActual<{ parseMfaTotpEncKey: (raw?: string) => Buffer | null }>(
       './common/security/secret-crypto',
@@ -54,6 +56,9 @@ describe('validateProductionSecrets（本番の MFA 暗号鍵・d558）', () => 
     'OIDC_COOKIE_KEYS',
     'OIDC_JWKS',
     'OIDC_REFERENCE_CLIENT_SECRET',
+    'OIDC_REFERENCE_REDIRECT_URIS',
+    'OIDC_GMIS_CLIENT_SECRET',
+    'OIDC_GMIS_REDIRECT_URIS',
     'MFA_TOTP_ENC_KEY',
   ] as const;
   const original: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
@@ -65,6 +70,7 @@ describe('validateProductionSecrets（本番の MFA 暗号鍵・d558）', () => 
     process.env.OIDC_COOKIE_KEYS = 'c'.repeat(64);
     process.env.OIDC_JWKS = '{"keys":[]}';
     delete process.env.OIDC_REFERENCE_CLIENT_SECRET;
+    delete process.env.OIDC_GMIS_CLIENT_SECRET;
   });
 
   afterEach(() => {
@@ -103,6 +109,36 @@ describe('validateProductionSecrets（本番の MFA 暗号鍵・d558）', () => 
   it('dev は鍵が無くても起動を止めない（graceful degradation を維持）', () => {
     process.env.NODE_ENV = 'development';
     delete process.env.MFA_TOTP_ENC_KEY;
+    expect(() => validateProductionSecrets()).not.toThrow();
+  });
+
+  // d1167: 2 つ目の RP（報告管理 gmis）の client secret も Reference と同水準に検査する。
+  // 認証境界の secret のため placeholder と短さは本番で通さない（未設定なら連携を使わないので起動可）。
+  it('gmis の secret が placeholder なら起動を止める（d1167・Reference と同水準）', () => {
+    process.env.MFA_TOTP_ENC_KEY = 'a'.repeat(64);
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'change-me-gmis-client-secret';
+    expect(() => validateProductionSecrets()).toThrow(
+      /OIDC_GMIS_CLIENT_SECRET looks like a placeholder/,
+    );
+  });
+
+  it('gmis の secret が短すぎるなら起動を止める（d1167・Reference と同水準）', () => {
+    process.env.MFA_TOTP_ENC_KEY = 'a'.repeat(64);
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'short';
+    expect(() => validateProductionSecrets()).toThrow(
+      /OIDC_GMIS_CLIENT_SECRET must be at least 32 characters/,
+    );
+  });
+
+  it('gmis の secret 未設定なら gmis の検査は走らない（連携を使わない本番は従来どおり起動できる）', () => {
+    process.env.MFA_TOTP_ENC_KEY = 'a'.repeat(64);
+    delete process.env.OIDC_GMIS_CLIENT_SECRET;
+    expect(() => validateProductionSecrets()).not.toThrow();
+  });
+
+  it('gmis の secret が実値なら通り、redirect URI 検査だけが効く（d1167）', () => {
+    process.env.MFA_TOTP_ENC_KEY = 'a'.repeat(64);
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'g'.repeat(64);
     expect(() => validateProductionSecrets()).not.toThrow();
   });
 });

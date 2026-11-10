@@ -21,6 +21,7 @@ Feature: 認証セッションの境界（S-AUTH-01 / 06 / 07）
   # ------------------------------------------------------------------
   @S-AUTH-01
   Scenario: ログインすると自分情報とハブメニューが取れる
+    # e2e:verified AUTHZ pass "ログインすると自分情報とハブメニューが取れる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/auth/me" を叩く
     Then ステータスコード 200 が返る
@@ -33,6 +34,7 @@ Feature: 認証セッションの境界（S-AUTH-01 / 06 / 07）
   # ------------------------------------------------------------------
   @S-AUTH-06
   Scenario: 未ログインでは自分情報が null で保護 API は 401
+    # e2e:verified AUTHZ pass "未ログインでは自分情報が null で保護 API は 401"
     Given 未ログインの接続を "anon" に用意する
     When 保存セッション "anon" で GET "/api/v1/auth/me" を叩く
     Then ステータスコード 200 が返る
@@ -48,6 +50,7 @@ Feature: 認証セッションの境界（S-AUTH-01 / 06 / 07）
   # ------------------------------------------------------------------
   @S-AUTH-07
   Scenario: ログアウト後はセッションが無効になる
+    # e2e:verified AUTHZ pass "ログアウト後はセッションが無効になる"
     Given メール "of-admin@struct-pass.example"・パスワード "ReteDemo1234!" で新しくログインした接続を "scratch" に用意する
     When 保存セッション "scratch" で GET "/api/v1/auth/me" を叩く
     Then レスポンスの "data.email" が "of-admin@struct-pass.example" と一致する

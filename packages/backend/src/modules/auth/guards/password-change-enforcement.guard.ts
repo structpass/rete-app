@@ -1,13 +1,7 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  HttpException,
-  HttpStatus,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthenticatedUser } from '../auth.service';
-import { API_GLOBAL_PREFIX_PATH } from '../../../common/config/api-routes';
+import { isExemptPath, isExternalIdpSession, rejectWithCode } from './enforcement-gate';
 
 /**
  * 強制パスワード変更の遮断ガード（set-0035）。session の本人 account が mustChangePassword=true の間、
@@ -21,11 +15,9 @@ import { API_GLOBAL_PREFIX_PATH } from '../../../common/config/api-routes';
  */
 @Injectable()
 export class PasswordChangeEnforcementGuard implements CanActivate {
-  /** グローバル prefix（main.ts setGlobalPrefix）。req.path には prefix 込みで載るため照合前に剥がす。 */
-  private static readonly GLOBAL_PREFIX = API_GLOBAL_PREFIX_PATH;
-
   /**
    * 強制から除外する path（prefix 剥がし後・完全一致 or `base/...` のみ。部分文字列一致はしない）。
+   * 判定そのものは enforcement-gate が持つ（MFA 強制と共通・d1016）。
    * - /auth/change-password = 変更を完了させる本線 API
    * - /settings/login/password-policy = 変更画面の inline ポリシー検証に必要（GET。PUT は別途 ADMIN ガードで保護）
    * - /auth/me（状態取得）/ /auth/logout（離脱）/ /auth/login（再ログイン経路）
@@ -55,24 +47,11 @@ export class PasswordChangeEnforcementGuard implements CanActivate {
 
     // 素通しは「外部 IdP が認証した」と明示された時だけ（未知の値・空文字・未設定で fail-open しない）。
     // OIDC interaction の完了で出自は変わらない（d955）。MfaEnforcementGuard と同旨。
-    if (req.session?.authOrigin === 'external-idp') return true;
+    if (isExternalIdpSession(req)) return true;
 
     // 除外 path（変更導線 / ポリシー取得 / me / logout / login）は常に通す。
-    const raw = (req.path || req.url || '').split('?')[0];
-    const path = raw.startsWith(PasswordChangeEnforcementGuard.GLOBAL_PREFIX)
-      ? raw.slice(PasswordChangeEnforcementGuard.GLOBAL_PREFIX.length)
-      : raw;
-    if (
-      PasswordChangeEnforcementGuard.EXEMPT_BASES.some(
-        (b) => path === b || path.startsWith(`${b}/`),
-      )
-    ) {
-      return true;
-    }
+    if (isExemptPath(req, PasswordChangeEnforcementGuard.EXEMPT_BASES)) return true;
 
-    throw new HttpException(
-      { code: 'PASSWORD_CHANGE_REQUIRED', message: 'パスワードの変更が必要です' },
-      HttpStatus.FORBIDDEN,
-    );
+    rejectWithCode('PASSWORD_CHANGE_REQUIRED', 'パスワードの変更が必要です');
   }
 }

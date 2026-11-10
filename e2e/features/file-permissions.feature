@@ -20,6 +20,7 @@ Feature: S-FILE-10 ファイル設定の管理者境界
   # ------------------------------------------------------------------
   @S-FILE-10
   Scenario: 非ADMIN はファイル設定を変更できない
+    # e2e:verified AUTHZ pass "非ADMIN はファイル設定を変更できない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When PATCH "/api/v1/files/settings" を body "{\"maxSizeBytes\":1048576}" で叩く
     Then ステータスコード 403 が返る
@@ -29,6 +30,7 @@ Feature: S-FILE-10 ファイル設定の管理者境界
   # ------------------------------------------------------------------
   @S-FILE-10-positive
   Scenario: ADMIN はファイル設定を取得できる
+    # e2e:verified AUTHZ pass "ADMIN はファイル設定を取得できる"
     Given システムADMIN "admin@rete.local" でログインする
     When GET "/api/v1/files/settings" を叩く
     Then ステータスコード 200 が返る

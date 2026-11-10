@@ -24,6 +24,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { MfaCodeDto } from '../mfa/dto/mfa-code.dto';
 import { MfaService } from '../mfa/mfa.service';
 import { AuthenticatedGuard } from './guards/authenticated.guard';
+import { setLocalAuthOrigin, setAuthOrigin } from './session-auth-origin';
 import { AuditRecorderService } from '../audit-logs/audit-recorder.service';
 import { AUDIT_RETE_SYSTEM_NAME } from '../audit-logs/audit-logs.constants';
 import { MFA_LOGIN_MAX_ATTEMPTS } from '../mfa/mfa.constants';
@@ -43,8 +44,8 @@ export class AuthController {
   // R7: パスワード検証成功後、当該 account が MFA 有効なら full session を確立せず pendingMfa を session に退避し
   // { mfaRequired:true } を返す（HTTP 200・本人特定情報は最小）。MFA 無効なら従来どおり full session を確立する。
   // R8: enforced かつ MFA 未設定なら full session は確立しつつ { mfaSetupRequired:true } を返す（設定画面へ到達させる）。
-  // R9: ローカル認証経路として session.authOrigin='local' を印付け（MFA チャレンジ/Enforcement は 'local' のみ適用・
-  // authMethod は互換のため併記・d955）。
+  // R9: ローカル認証経路として出自を 'local' に印付け（MFA チャレンジ/Enforcement は 'local' のみ適用・
+  // 旧欄 authMethod は互換のため併記・d955）。書く場所は session-auth-origin の 1 か所だけ（d1022）。
   // H5: login は横断 interceptor 対象外のため AuthController で actionType='login' を明示記録する（二重記録回避）。
   @ApiOperation({ summary: 'ログイン（email + password。MFA 有効時は要追加検証）' })
   @ApiBody({ type: LoginDto })
@@ -56,8 +57,7 @@ export class AuthController {
 
     // MFA 有効なら full session を確立せず pending 状態へ（2 段階・R7）。
     if (await this.mfaService.verifyHasEnabledMfa(user.id)) {
-      req.session.authMethod = 'local';
-      req.session.authOrigin = 'local';
+      setLocalAuthOrigin(req);
       req.session.pendingMfaAccountId = user.id;
       req.session.pendingMfaAttempts = 0;
       delete req.session.pendingMfaInteractionUid;
@@ -66,8 +66,7 @@ export class AuthController {
 
     await this.authService.resetLoginAttempts(user.id);
     await this.establishSession(req, user);
-    req.session.authMethod = 'local';
-    req.session.authOrigin = 'local';
+    setLocalAuthOrigin(req);
     delete req.session.mfaVerifiedAt;
     this.recordLogin(req, user);
 
@@ -132,8 +131,7 @@ export class AuthController {
     delete req.session.pendingMfaAttempts;
     delete req.session.pendingMfaInteractionUid;
     await this.establishSession(req, user);
-    req.session.authMethod = 'local';
-    req.session.authOrigin = 'local';
+    setLocalAuthOrigin(req);
     req.session.mfaVerifiedAt = Date.now();
     this.recordLogin(req, user);
     return ok(toAccountResponse(user));
@@ -210,8 +208,9 @@ export class AuthController {
     const updatedUser = await this.authService.findActiveUser(user.id);
     if (!updatedUser) throw new UnauthorizedException('アカウントが無効です');
     await this.establishSession(req, updatedUser);
+    // セッションを張り直した後も、認証の出自は張り直す前の値を引き継ぐ（d1022。書く場所は 1 か所だけ）。
     if (authMethod) req.session.authMethod = authMethod;
-    if (authOrigin) req.session.authOrigin = authOrigin;
+    if (authOrigin) setAuthOrigin(req, authOrigin);
     if (oidcSsoAt) req.session.oidcSsoAt = oidcSsoAt;
     if (mfaVerifiedAt) req.session.mfaVerifiedAt = mfaVerifiedAt;
 

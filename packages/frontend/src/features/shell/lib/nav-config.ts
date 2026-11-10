@@ -10,7 +10,24 @@ import type { HubMenuItem } from '@/features/hub';
  * （`useFavorites` がユーザー別データを取得。本ファイルは遷移解決のみ担う）。
  */
 
-export type ShellTabKey = 'home' | 'system' | 'desk' | 'files' | 'settings' | 'mock' | 'model';
+export type ShellTabKey =
+  | 'home'
+  | 'system'
+  | 'gmis'
+  | 'gmis-demo'
+  | 'desk'
+  | 'files'
+  | 'settings'
+  | 'mock'
+  | 'model';
+
+/**
+ * 「システム」タブの直後へ並べる外部システム導線（hub menu の key → タブ key）。
+ * 在庫管理（reference）の隣に、繋ぎ先が有効なものだけが並ぶ。並び順はこの配列順。
+ * gmis は正式な報告管理（d1171）、gmis-demo は開発時だけ出る旧デモ。
+ */
+const SYSTEM_COMPANION_KEYS = ['gmis', 'gmis-demo'] as const;
+export type SystemCompanionKey = (typeof SYSTEM_COMPANION_KEYS)[number];
 
 export interface ShellTab {
   key: ShellTabKey;
@@ -155,7 +172,18 @@ export function resolveTabs(
   activeKey: ShellTabKey,
   referenceReachable?: boolean,
 ): ResolvedTab[] {
-  return tabs.map((tab) => {
+  // 「システム」タブの直後へ、hub menu が available な外部システム導線を並べる（在庫管理と報告管理を横並びにする・d1171）。
+  // available でない導線は出さない（未完成の導線を灰色タブとして増やさない）。
+  const companions = SYSTEM_COMPANION_KEYS.flatMap((key): ShellTab[] => {
+    const item = menuItems.find((m) => m.key === key && m.available);
+    return item ? [{ key, label: item.label, kind: 'external', resolveFrom: key }] : [];
+  });
+  const visibleTabs = companions.length
+    ? tabs.flatMap((tab): ShellTab[] =>
+        tab.resolveFrom === 'reference' ? [{ ...tab, label: '在庫管理' }, ...companions] : [tab],
+      )
+    : tabs;
+  return visibleTabs.map((tab) => {
     const base = { key: tab.key, label: tab.label, active: tab.key === activeKey };
 
     if (tab.kind === 'internal') {
@@ -165,7 +193,8 @@ export function resolveTabs(
     if (tab.kind === 'external') {
       const item = menuItems.find((m) => m.key === tab.resolveFrom);
       // available（env 連携フラグ）かつ 実到達不能が確定していない時だけ有効化する。
-      if (item && item.available && referenceReachable !== false) {
+      const reachable = tab.resolveFrom !== 'reference' || referenceReachable !== false;
+      if (item && item.available && reachable) {
         return { ...base, disabled: false, href: item.href, external: true };
       }
       return { ...base, disabled: true, href: null, external: false };

@@ -105,6 +105,38 @@ describe('extractValidationErrorMessage', () => {
     );
   });
 
+  // 祝日設定の保存（d974）は、この関数で 400（日付の形の誤り）・409（同じ日付の重複）の双方を
+  // 画面の理由へ通す。class-validator 由来の 400 と、サーバーが決めた 409 の案内文がどちらも出ること。
+  it('祝日の保存で返る 400 の日付エラーは、その理由が画面の文になる', () => {
+    const err = {
+      response: {
+        data: {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: { validationErrors: ['date must be a valid ISO 8601 date string'] },
+          },
+        },
+      },
+    };
+    expect(extractValidationErrorMessage(err, '祝日を保存できませんでした')).toBe(
+      'date must be a valid ISO 8601 date string',
+    );
+  });
+
+  it('祝日の保存で返る 409 の案内文は、そのまま画面の文になる', () => {
+    const err = {
+      response: {
+        data: {
+          error: { code: 'CONFLICT', message: 'その日付の祝日は既に登録されています' },
+        },
+      },
+    };
+    expect(extractValidationErrorMessage(err, '祝日を保存できませんでした')).toBe(
+      'その日付の祝日は既に登録されています',
+    );
+  });
+
   it('validationErrors が空配列でも fallback へ倒す', () => {
     const err = {
       response: {

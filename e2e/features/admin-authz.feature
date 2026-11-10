@@ -19,6 +19,7 @@ Feature: P5 管理者認可境界（admin-authz）
   # ------------------------------------------------------------------
   @P5-04
   Scenario: ADMIN は自分自身のシステムロールを降格できない
+    # e2e:verified AUTHZ pass "ADMIN は自分自身のシステムロールを降格できない"
     Given システムADMIN "admin@rete.local" でログインする
     When 自分自身の system-role を "MEMBER" に変更しようとする
     Then ステータスコード 400 が返る
@@ -29,6 +30,7 @@ Feature: P5 管理者認可境界（admin-authz）
   # ------------------------------------------------------------------
   @P5-11
   Scenario: システム MEMBER はメンバー管理一覧 API にアクセスできない
+    # e2e:verified AUTHZ pass "システム MEMBER はメンバー管理一覧 API にアクセスできない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When GET "/api/v1/members" を叩く
     Then ステータスコード 403 が返る
@@ -38,6 +40,7 @@ Feature: P5 管理者認可境界（admin-authz）
   # ------------------------------------------------------------------
   @P5-11
   Scenario: システム MEMBER はメンバー編集 API にアクセスできない
+    # e2e:verified AUTHZ pass "システム MEMBER はメンバー編集 API にアクセスできない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When PATCH "/api/v1/members/00000000-0000-4000-a000-000000000099" を空ボディで叩く
     Then ステータスコード 403 が返る
@@ -47,6 +50,7 @@ Feature: P5 管理者認可境界（admin-authz）
   # ------------------------------------------------------------------
   @P5-01
   Scenario: システム ADMIN はメンバー管理一覧 API にアクセスできる
+    # e2e:verified AUTHZ pass "システム ADMIN はメンバー管理一覧 API にアクセスできる"
     Given システムADMIN "admin@rete.local" でログインする
     When GET "/api/v1/members" を叩く
     Then ステータスコード 200 が返る

@@ -17,6 +17,8 @@ tmp/
 .env.production.local
 *.tsbuildinfo
 packages/**/.env
+# 開発用環境設定の控え（.env.bak-<日付> 等）。実値の写しなので作業ツリーに出さない（d965）。
+packages/**/.env.*
 # next dev が毎回書き出す案内（中身は生成物。frontend の作業規約は WORKING_RULES.md が持つ）。
 # next-env.d.ts は除外しない（d704 の判断: .next を指す形で追跡し、差分が出たら元へ戻す）。
 packages/frontend/AGENTS.md

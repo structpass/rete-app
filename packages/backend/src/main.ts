@@ -10,6 +10,7 @@ import { createSessionStore } from './common/session/session-store.config';
 import {
   assertValidNodeEnv,
   validateDatabasePoolLimits,
+  validateGmisRedirectUriRequiredInProduction,
   validateReferenceRedirectUriRequiredInProduction,
 } from './common/config/env-validation';
 import { API_GLOBAL_PREFIX, CROSS_SERVICE_ROUTES } from './common/config/api-routes';
@@ -29,6 +30,12 @@ const PLACEHOLDER_MARKERS = ['change-me', 'insecure', 'placeholder', 'example'];
  * 検査する。未設定の本番は OIDC RP 連携を使わない構成なので起動できる（cmn-0230 採用方針）。
  */
 const OIDC_REFERENCE_CLIENT_SECRET_KEY = 'OIDC_REFERENCE_CLIENT_SECRET';
+
+/**
+ * OIDC_GMIS_CLIENT_SECRET（2 つ目の RP＝報告管理 gmis・d1167）も Reference と同じ条件付き検査。
+ * 本番で「secret 設定あり＋有効な redirect URI ゼロ」なら起動を止める。
+ */
+const OIDC_GMIS_CLIENT_SECRET_KEY = 'OIDC_GMIS_CLIENT_SECRET';
 
 /**
  * MFA の暗号鍵（MFA_TOTP_ENC_KEY）。本番では必須にする。
@@ -112,6 +119,25 @@ function validateProductionSecrets(): void {
     const oidcRedirectProblem = validateReferenceRedirectUriRequiredInProduction();
     if (oidcRedirectProblem) {
       problems.push(oidcRedirectProblem);
+    }
+  }
+  // d1167: 2 つ目の RP（報告管理 gmis）も Reference と同水準に検査する。secret の placeholder・
+  // 長さは Reference と同じ条件で弾き、secret 設定済みで redirect URI の有効値がゼロなら起動を止める
+  // （未設定の本番は連携を使わないので従来どおり起動できる）。
+  const gmisOidcSecret = process.env[OIDC_GMIS_CLIENT_SECRET_KEY];
+  if (gmisOidcSecret) {
+    const gmisLower = gmisOidcSecret.toLowerCase();
+    if (PLACEHOLDER_MARKERS.some((marker) => gmisLower.includes(marker))) {
+      problems.push(`${OIDC_GMIS_CLIENT_SECRET_KEY} looks like a placeholder — set a real secret`);
+    }
+    if (gmisOidcSecret.length < MIN_SECRET_LENGTH) {
+      problems.push(
+        `${OIDC_GMIS_CLIENT_SECRET_KEY} must be at least ${MIN_SECRET_LENGTH} characters`,
+      );
+    }
+    const gmisRedirectProblem = validateGmisRedirectUriRequiredInProduction();
+    if (gmisRedirectProblem) {
+      problems.push(gmisRedirectProblem);
     }
   }
   if (problems.length > 0) {

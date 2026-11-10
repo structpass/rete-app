@@ -30,6 +30,7 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
   # ------------------------------------------------------------------
   @S-DESK-03
   Scenario: チャットの相談をタスクへ昇格すると昇格元がタスクに残る
+    # e2e:verified ZZ-DESK-TRACK pass "チャットの相談をタスクへ昇格すると昇格元がタスクに残る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -54,7 +55,6 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
     When GET "/api/v1/tasks?search={{taskTitle}}&limit=100" を叩く
     Then ステータスコード 200 が返る
     And 一覧に "sourceThemeId" が保存値 "themeId" の行で入っている
-    # 後始末: タスクを消してからテーマを消す（テーマを参照している側を先に）。
     When DELETE "/api/v1/tasks/{{taskId}}" を叩く
     Then ステータスコード 200 が返る
     When DELETE "/api/v1/chat/themes/{{themeId}}" を叩く
@@ -65,6 +65,7 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
   # ------------------------------------------------------------------
   @S-DESK-10
   Scenario: 器を切り替えると前の器の中身が入れ替わり、前の器の内容が残らない
+    # e2e:verified ZZ-DESK-TRACK pass "器を切り替えると前の器の中身が入れ替わり、前の器の内容が残らない"
     Given システムMEMBER "wh-user@struct-pass.example" でログインする
     # 既定チャット（...0003）と入荷チャネル（...0030）の 2 つの器を、両方に居る人（倉庫 一郎）で切り替える。
     And 固定値 "00000000-0000-4000-b000-000000000030" を "spaceId" に保存する
@@ -98,7 +99,6 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
     When GET "/api/v1/tasks/tree?spaceId={{defaultSpaceId}}" を叩く
     Then ステータスコード 200 が返る
     And タスクのツリーに保存値 "taskTitle" が入っている
-    # 後始末: タスク → テーマ の順
     When DELETE "/api/v1/tasks/{{taskId}}" を叩く
     Then ステータスコード 200 が返る
     When DELETE "/api/v1/chat/themes/{{themeA}}" を叩く
@@ -111,6 +111,7 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
   # ------------------------------------------------------------------
   @S-DESK-12
   Scenario: 発話に添付したファイルは添付時点の版に固定され、解除しても実体は残る
+    # e2e:verified ZZ-DESK-TRACK pass "発話に添付したファイルは添付時点の版に固定され、解除しても実体は残る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -153,7 +154,6 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
     # 解除してもファイルの実体は消えない（取得できる）。
     When GET "/api/v1/files/files/{{fileId}}" を叩く
     Then ステータスコード 200 が返る
-    # 後始末: ファイル → フォルダ → テーマ の順（テーマ削除で発話は連鎖して消える）。
     When DELETE "/api/v1/files/files/{{fileId}}" を叩く
     Then ステータスコード 200 が返る
     When DELETE "/api/v1/files/folders/{{folderId}}" を叩く
@@ -166,6 +166,7 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
   # ------------------------------------------------------------------
   @S-DESK-15
   Scenario: 完了には顛末が要り、書いた顛末はツリーからも読める
+    # e2e:verified ZZ-DESK-TRACK pass "完了には顛末が要り、書いた顛末はツリーからも読める"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-cat" を生成して "catName" に保存する
     When POST "/api/v1/categories" を body "{\"name\":\"{{catName}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -199,6 +200,7 @@ Feature: Desk トラックの未確認行（S-DESK-03 / 10 / 12 / 15 / 16）
   # ------------------------------------------------------------------
   @S-DESK-16
   Scenario: 2 つの画面から同じタスクを別の位置へ動かしても循環や欠落が起きない
+    # e2e:verified ZZ-DESK-TRACK pass "2 つの画面から同じタスクを別の位置へ動かしても循環や欠落が起きない"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-p" を生成して "pTitle" に保存する
     When POST "/api/v1/tasks" を body "{\"title\":\"{{pTitle}}\",\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する

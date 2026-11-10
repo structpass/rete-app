@@ -37,6 +37,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-02
   Scenario: 管理グループに足した人へ、付与した範囲の権限が効き、剥がすと見えなくなる
+    # e2e:verified AUTHZ pass "管理グループに足した人へ、付与した範囲の権限が効き、剥がすと見えなくなる"
     # ① 検証用の器とチャネルを用意する（seed の組織とプロジェクトの下に作る）
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-set02-org" を生成して "set02OrgName" に保存する
@@ -76,7 +77,6 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
     Given システムMEMBER "newcomer@struct-pass.example" でログインする
     When GET "/api/v1/spaces?kind=CHANNEL&projectId={{set02PjId}}" を叩く
     Then ステータスコード 403 が返る
-    # ⑥ 後始末: グループを消し、チャネル・プロジェクト・組織を片付ける
     Given システムADMIN "admin@rete.local" でログインする
     When DELETE "/api/v1/user-groups/{{set02GroupId}}" を叩く
     Then ステータスコード 204 が返る
@@ -95,6 +95,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-04
   Scenario: 本人が二段階認証を有効にでき、控えは一度だけ出る
+    # e2e:verified AUTHZ pass "本人が二段階認証を有効にでき、控えは一度だけ出る"
     # 前提: 管理者がまず本人の二段階認証を解除する（前の実行が落ちて残っていても同じ所から始まる）
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "00000000-0000-4000-a000-000000000008" を "set04UserId" に保存する
@@ -117,7 +118,6 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
     And レスポンスの "data.enabled" が真偽値 "true" である
     # 控えは再表示されない（状態の取得の応答に控えの欄自体が無い）
     And レスポンスに "data.backupCodes" の欄が無い
-    # 後始末: 管理者が解除して元へ戻す
     Given システムADMIN "admin@rete.local" でログインする
     When PATCH "/api/v1/members/{{set04UserId}}/mfa-reset" を空ボディで叩く
     Then ステータスコード 200 が返る
@@ -129,6 +129,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-06
   Scenario: 契約システムの並び替えが一覧の順に反映される
+    # e2e:verified AUTHZ pass "契約システムの並び替えが一覧の順に反映される"
     # 前提: 先に seed の並びへ戻す（前の実行が並びを変えたまま落ちていても同じ所から始まる）
     Given システムADMIN "admin@rete.local" でログインする
     When 契約システムの並びを seed の順へ戻す
@@ -230,6 +231,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-11
   Scenario: ロックした人が、管理者の解除で正しいパスワードで入り直せる
+    # e2e:verified AUTHZ pass "ロックした人が、管理者の解除で正しいパスワードで入り直せる"
     Given ロックが残っていても拾えるよう "newcomer@struct-pass.example" の解除を後始末にも登録する
     And システムADMIN "admin@rete.local" でログインする
     And 管理者が "newcomer@struct-pass.example" のログイン試行ロックを解除する
@@ -254,6 +256,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-16
   Scenario: 表示設定は本人の分だけが保存され、他人の設定を読む口は無い
+    # e2e:verified AUTHZ pass "表示設定は本人の分だけが保存され、他人の設定を読む口は無い"
     Given システムADMIN "admin@rete.local" でログインする
     # まず今の値を控える（後で元へ戻す）
     When GET "/api/v1/accounts/me/display-preference" を叩く
@@ -269,7 +272,6 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
     And 固定値 "00000000-0000-4000-a000-000000000006" を "set16OtherId" に保存する
     When GET "/api/v1/accounts/{{set16OtherId}}/display-preference" を叩く
     Then ステータスコード 404 が返る
-    # 後始末: 控えた値へ戻す
     When 直前の応答を控えた保存値 "set16Before" の表示設定へ戻す
     Then ステータスコード 200 が返る
     And 実測して挙動が決まったので "S-SET-16" を確認済みにする
@@ -280,6 +282,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-14
   Scenario: メンバー一覧を書き出すと、読める名簿が落ちてきて件数が一覧と一致する
+    # e2e:verified AUTHZ pass "メンバー一覧を書き出すと、読める名簿が落ちてきて件数が一覧と一致する"
     Given システムADMIN "admin@rete.local" でログインする
     When GET "/api/v1/members/export" を叩く
     Then ステータスコード 200 が返る
@@ -298,6 +301,7 @@ Feature: 設定トラックの後半（S-SET-02 / 04 / 06 / 09 / 10 / 11 / 14 / 
   # ------------------------------------------------------------------
   @S-SET-15
   Scenario: 同じ日付の祝日は二重に登録できず、1 行のまま残る
+    # e2e:verified AUTHZ pass "同じ日付の祝日は二重に登録できず、1 行のまま残る"
     Given システムADMIN "admin@rete.local" でログインする
     And 固定値 "2027-12-31" を "set15Date" に保存する
     When カレンダーの祝日に保存値 "set15Date" の日付を名前とともに登録して同じ日付でもう一度登録する

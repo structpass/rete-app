@@ -4,16 +4,17 @@ import { Logger } from '@nestjs/common';
 import type { PrismaService } from '../../../database';
 import { createOidcPrismaAdapter } from './oidc-prisma.adapter';
 import { buildApiPath } from '../../../common/config/api-routes';
-import { parseReferenceRedirectUris } from '../../../common/config/env-validation';
+import { OIDC_RP_DEFINITIONS, parseOidcRedirectUris } from '../../../common/config/env-validation';
 import { LoginSettingsRepository } from '../../login-settings/repositories/login-settings.repository';
 import { MfaRepository } from '../../mfa/repositories/mfa.repository';
 
 /**
- * reference（first-party RP=struct-pass-reference）へ自動付与する scope の上限値。
- * cmn-0229: 静的 client 登録 (scope) のみが参照する（cmn-0248 で参照箇所を実体確認＝:157 の1箇所のみ）。
+ * first-party RP（静的登録する OIDC client）へ登録する scope。
+ * d1167: Reference と gmis は同じ scope を使う（2 つ目の RP 追加で reference 専用の値ではなくなった）。
+ * cmn-0229: 静的 client 登録 (scope) のみが参照する（cmn-0248 で参照箇所を実体確認）。
  * loadExistingGrant の上限算出は実行時の ctx.oidc.client?.scope を参照するため本定数とは別経路。
  */
-const REFERENCE_CLIENT_SCOPE = 'openid profile email';
+const FIRST_PARTY_CLIENT_SCOPE = 'openid profile email';
 
 /**
  * 自動付与を見送った際の警告ログ用 Logger。cmn-0229 MEDIUM-2: 無記録だと
@@ -52,7 +53,8 @@ export { validateReferenceRedirectUriRequiredInProduction } from '../../../commo
  * - cookie 署名鍵: 本番は `OIDC_COOKIE_KEYS`（カンマ区切り）必須・未設定なら起動を止める（fail-closed）。dev は既定の公開値で継続。
  * - interaction: 自前のログイン画面（frontend）に飛ばす（devInteractions は無効）。
  * - PKCE 必須・claims は最小（sub / name / email）。
- * - reference 連携（RP）は次フェーズ。client は secret が明示設定された時だけ登録する。
+ * - first-party RP（Reference / gmis・d1167）の静的 client は、RP 定義（common/config の
+ *   OIDC_RP_DEFINITIONS）ごとに secret と有効な redirect URI が両方揃った時だけ登録する。
  *
  * 認証 secret の二重ガード（cmn-0213）: 本番の必須・placeholder・長さ検査は main.ts の
  * validateProductionSecrets が担う。本ファイル側では「prod で未設定なら即 throw」だけを追加し、
@@ -144,36 +146,39 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
     return (await mfaRepo.findConfirmedSetting(accountId)) === null;
   };
 
-  // RP client は secret が明示設定された時だけ登録する（既定 secret が本番に流出するのを防ぐ）。
-  // RP 連携（struct-pass-reference）は次フェーズ。未設定の dev では静的 client 0 件で問題ない。
-  // cmn-0230: redirect_uris も「有効値が1件以上ある」ことが登録の必要条件。
+  // 静的 RP client は secret が明示設定された時だけ登録する（既定 secret が本番に流出するのを防ぐ）。
+  // 登録対象の RP（env 名・既定 client_id）は common/config の OIDC_RP_DEFINITIONS を正本とし、
+  // 3 つ目の RP を足す時はあの表へ 1 件追加する（d1167）。
+  // cmn-0230: redirect_uris も「有効値が1件以上ある」ことが登録の必要条件（AND）。
   // cmn-0249: 起動ガード側と同一の parser を common/config から呼ぶ（検査-実施ドリフト防止）。
   // 未設定 / 空要素のみ / 空文字 env / 重複 URI は parser 段階で除去される。
-  const referenceClientId = process.env.OIDC_REFERENCE_CLIENT_ID || 'struct-pass-reference';
-  const referenceSecret = process.env.OIDC_REFERENCE_CLIENT_SECRET;
-  const parsedRedirectUris = parseReferenceRedirectUris(process.env.OIDC_REFERENCE_REDIRECT_URIS);
-  // cmn-0249: 非本番で「合言葉あり・戻り先有効値なし」は無言で client 0 件になると SSO 試行まで
-  // 不備に気づけない。本番は validateProductionSecrets 側で起動エラーになる（cmn-0230）、
-  // dev/staging ではここで warn を 1 行出して気付けるようにする。
-  if (referenceSecret && parsedRedirectUris.length === 0 && !isProd) {
-    OIDC_CONFIG_FACTORY_LOGGER.warn(
-      `OIDC_REFERENCE_CLIENT_SECRET is set but OIDC_REFERENCE_REDIRECT_URIS has no valid entries. ` +
-        `Rete will start with 0 OIDC RP clients; SSO attempts will fail with invalid_client until the URIs are set (cmn-0249).`,
-    );
+  const clients: ClientMetadata[] = [];
+  // first-party（セット売り）の client_id 集合。consent 省略の自動付与はこの集合だけに許す。
+  const firstPartyClientIds = new Set<string>();
+  for (const rp of OIDC_RP_DEFINITIONS) {
+    const clientId = process.env[rp.clientIdEnvKey] || rp.defaultClientId;
+    firstPartyClientIds.add(clientId);
+    const secret = process.env[rp.clientSecretEnvKey];
+    const redirectUris = parseOidcRedirectUris(process.env[rp.redirectUrisEnvKey]);
+    // cmn-0249: 非本番で「合言葉あり・戻り先有効値なし」は無言で client 0 件になると SSO 試行まで
+    // 不備に気づけない。本番は validateProductionSecrets 側で起動エラーになる（cmn-0230）、
+    // dev/staging ではここで warn を 1 行出して気付けるようにする。
+    if (secret && redirectUris.length === 0 && !isProd) {
+      OIDC_CONFIG_FACTORY_LOGGER.warn(
+        `${rp.clientSecretEnvKey} is set but ${rp.redirectUrisEnvKey} has no valid entries. ` +
+          `The ${rp.label} RP client will not be registered; SSO attempts for it will fail with invalid_client until the URIs are set (cmn-0249).`,
+      );
+    }
+    if (!secret || redirectUris.length === 0) continue;
+    clients.push({
+      client_id: clientId,
+      client_secret: secret,
+      redirect_uris: redirectUris,
+      grant_types: ['authorization_code'],
+      response_types: ['code'],
+      scope: FIRST_PARTY_CLIENT_SCOPE,
+    });
   }
-  const clients: ClientMetadata[] =
-    referenceSecret && parsedRedirectUris.length > 0
-      ? [
-          {
-            client_id: referenceClientId,
-            client_secret: referenceSecret,
-            redirect_uris: parsedRedirectUris,
-            grant_types: ['authorization_code'],
-            response_types: ['code'],
-            scope: REFERENCE_CLIENT_SCOPE,
-          },
-        ]
-      : [];
 
   const oidc: Configuration = {
     adapter: createOidcPrismaAdapter(prisma),
@@ -236,8 +241,9 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
         },
       };
     },
-    // first-party（セット売り）の reference client は consent を省略し grant を自動付与する。
-    // これが無いと login 後に consent prompt が発生し、frontend 未配線だと authorize が完了しない。
+    // first-party（セット売り）の RP client（Reference / gmis・d1167）は consent を省略し
+    // grant を自動付与する。これが無いと login 後に consent prompt が発生し、frontend 未配線だと
+    // authorize が完了しない。判定は OIDC_RP_DEFINITIONS から作った first-party の client_id 集合で行う。
     // 第三者 client（将来追加されうる）には適用せず、従来どおり consent prompt を出す（無確認の grant 発行を防ぐ）。
     loadExistingGrant: async (ctx) => {
       const existingGrantId =
@@ -248,7 +254,7 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
       if (existingGrantId) {
         const existingGrant = await ctx.oidc.provider.Grant.find(existingGrantId);
         // d963: 再利用は interaction を省略するため、必須MFAを満たさないアカウントには渡さない
-        // （渡すと Reference のトークンが MFA 無しで再取得でき、Rete のセッション遮断を迂回できる）。
+        // （渡すと RP のトークンが MFA 無しで再取得でき、Rete のセッション遮断を迂回できる）。
         // どのアカウントの grant かを決められない（session 無し）なら再利用しない（fail-closed）。
         const sessionAccountId = ctx.oidc.session?.accountId;
         if (!sessionAccountId) {
@@ -261,7 +267,7 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
       }
       const accountId = ctx.oidc.session?.accountId;
       const clientId = ctx.oidc.client?.clientId;
-      if (!accountId || clientId !== referenceClientId) {
+      if (!accountId || !clientId || !firstPartyClientIds.has(clientId)) {
         return undefined;
       }
       // d963: 自動付与も interaction を省略する。必須MFAを満たさないアカウントには付与せず、

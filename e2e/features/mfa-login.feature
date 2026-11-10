@@ -37,6 +37,7 @@ Feature: MFA ログイン幸せ道（P2-02 TOTP / P2-03 バックアップコー
   # ------------------------------------------------------------------
   @P2-02
   Scenario: TOTP login challenge（誤コード 401 / 正 TOTP 200）
+    # e2e:verified AUTHZ pass "TOTP login challenge（誤コード 401 / 正 TOTP 200）"
     When パスワードでログインし MFA チャレンジを受ける "mfa-user@rete.local"
     Then レスポンスに MFA チャレンジが含まれる
     And full session が未確立
@@ -51,6 +52,7 @@ Feature: MFA ログイン幸せ道（P2-02 TOTP / P2-03 バックアップコー
   # ------------------------------------------------------------------
   @P2-03
   Scenario: バックアップコードで MFA 完了・再投入は 401
+    # e2e:verified AUTHZ pass "バックアップコードで MFA 完了・再投入は 401"
     When パスワードでログインし MFA チャレンジを受ける "mfa-user@rete.local"
     Then レスポンスに MFA チャレンジが含まれる
     When 未使用バックアップコードで MFA ログインを叩く
@@ -71,6 +73,7 @@ Feature: MFA ログイン幸せ道（P2-02 TOTP / P2-03 バックアップコー
   # ------------------------------------------------------------------
   @S-OPS-03
   Scenario: バックアップコードを作り直すと古い控えでは入れない
+    # e2e:verified AUTHZ pass "バックアップコードを作り直すと古い控えでは入れない"
     When パスワードでログインし MFA チャレンジを受ける "mfa-user@rete.local"
     Then レスポンスに MFA チャレンジが含まれる
     When 未使用バックアップコードで MFA ログインを叩く
@@ -89,4 +92,5 @@ Feature: MFA ログイン幸せ道（P2-02 TOTP / P2-03 バックアップコー
   # ------------------------------------------------------------------
   @teardown
   Scenario: テスト後の状態を admin リセット
+    # e2e:verified AUTHZ pass "テスト後の状態を admin リセット"
     When admin で MFA ユーザーを MFA リセットする

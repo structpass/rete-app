@@ -37,6 +37,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-08
   Scenario: MFA を強制すると未設定者はログインできても業務画面は塞がる
+    # e2e:verified ZZ-AUTH-TRACK pass "MFA を強制すると未設定者はログインできても業務画面は塞がる"
     # 行の先頭の `強制 MFA を` は「後始末でも流し直す」手順（02 §途中でも戻す設定）。設定を戻す行を
     # 先頭に置くのは、後の行で落ちても戻しが登録に残っているようにするため（02 §1 の順番の規則）。
     Given 強制 MFA を body "{\"requireLowercase\":true,\"requireUppercase\":true,\"requireNumber\":true,\"requireSymbol\":true,\"minLength\":12,\"mfaEnforced\":false}" で戻す => システムADMIN "admin@rete.local"
@@ -60,6 +61,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-13
   Scenario: 同じ人が画面を開き直しても入り直せる
+    # e2e:verified ZZ-AUTH-TRACK pass "同じ人が画面を開き直しても入り直せる"
     Given メール "of-admin@struct-pass.example"・パスワード "ReteDemo1234!" で新しくログインした接続を "first" に用意する
     When 保存セッション "first" で自分の情報を確かめる
     Then ステータスコード 200 が返る
@@ -80,6 +82,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-03
   Scenario: 控えで入場でき、同じ控えは二度目から通らない
+    # e2e:verified ZZ-AUTH-TRACK pass "控えで入場でき、同じ控えは二度目から通らない"
     Given admin で MFA ユーザーを MFA リセットする
     And MFA ユーザー "mfa-user@rete.local" で MFA を有効化する
     # パスワード段 → 控え 1 本で 2 段目（MFA 有効者なので必ず 2 段になる）。
@@ -98,6 +101,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-09
   Scenario: 連続失敗でロックされ、管理者の解除で入れるようになる
+    # e2e:verified ZZ-AUTH-TRACK pass "連続失敗でロックされ、管理者の解除で入れるようになる"
     Given ロックが残っていても拾えるよう "newcomer@struct-pass.example" の解除を後始末にも登録する
     And システムADMIN "admin@rete.local" でログインする
     And 管理者が "newcomer@struct-pass.example" のログイン試行ロックを解除する
@@ -120,6 +124,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-11
   Scenario: 短すぎるパスワードは理由つきで断る
+    # e2e:verified ZZ-AUTH-TRACK pass "短すぎるパスワードは理由つきで断る"
     # 先頭の行は「後始末でも流し直す」手順（02 §途中でも戻す設定）。本体の行と別に書くのは、
     # 本体の設定値が後で変わっても、戻す値を既定のまま据え置くため。
     Given パスワードポリシーを body "{\"requireLowercase\":true,\"requireUppercase\":true,\"requireNumber\":true,\"requireSymbol\":true,\"minLength\":12,\"mfaEnforced\":false}" で戻す => システムADMIN "admin@rete.local"
@@ -138,6 +143,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-14
   Scenario: 停止されたアカウントは次の通信から締め出され、戻すと復帰する
+    # e2e:verified ZZ-AUTH-TRACK pass "停止されたアカウントは次の通信から締め出され、戻すと復帰する"
     Given システムADMIN "admin@rete.local" でログインする
     # 前の実行が止まった場合に備えて、まず止める前の状態（動いている）へ戻す（冪等）。
     When PATCH "/api/v1/members/00000000-0000-4000-a000-000000000006" を body "{\"isActive\":true}" で叩く
@@ -171,6 +177,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-15
   Scenario: 端末も控えも失った人は、管理者のリセットで MFA 未設定に戻る
+    # e2e:verified ZZ-AUTH-TRACK pass "端末も控えも失った人は、管理者のリセットで MFA 未設定に戻る"
     # 前提: 対象者は MFA を有効にしている（端末に認証アプリを登録した状態）。
     # 後始末でも未設定へ戻す（応答は mfaEnabled を返すため、設定の確認に使える）。
     And MFA ユーザー "mfa-user@rete.local" で MFA を有効化する
@@ -199,6 +206,7 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
   # ------------------------------------------------------------------
   @S-AUTH-12
   Scenario: パスワードを変えると旧パスワードでは入れず、新しいパスワードで入れる
+    # e2e:verified ZZ-AUTH-TRACK pass "パスワードを変えると旧パスワードでは入れず、新しいパスワードで入れる"
     # 変更前の控えを後始末に登録する（この行が無いと、途中で落ちた時に初期パスワードが変わったまま残る）。
     # 合わせてロックの解除も後始末に登録する（誤ったパスワードの試行はロックの回数に数えられるため）。
     Given パスワード変更の控えを用意する "mfa-user@rete.local" を "ReteDemo1234!" で
@@ -212,7 +220,6 @@ Feature: 認証トラックの未確認行（S-AUTH-03 / 08 / 09 / 11 / 12 / 13 
     # 新しいパスワードでは入れる。
     When 新しい接続 "new_pw" として "mfa-user@rete.local" のパスワードでログインする
     Then ステータスコード 200 が返る
-    # 後始末: 元のパスワードへ戻し、ロックも解除する（次のシナリオの前提を崩さない）。
     When アカウント "mfa-user@rete.local" で自己変更する 現在 "Changed1234!x" 新 "ReteDemo1234!"
     Then ステータスコード 200 が返る
     When 管理者が "mfa-user@rete.local" のログイン試行ロックを解除する

@@ -25,6 +25,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-03
   Scenario: 同じ名前で上げると版が増え、版を指定して取り出せる
+    # e2e:verified AUTHZ pass "同じ名前で上げると版が増え、版を指定して取り出せる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -50,6 +51,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-05
   Scenario: タグを単一で置き換え、一括で追加し、タグで横断検索できる
+    # e2e:verified AUTHZ pass "タグを単一で置き換え、一括で追加し、タグで横断検索できる"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-tag" を生成して "tagName" に保存する
     When POST "/api/v1/tags" を body "{\"name\":\"{{tagName}}\",\"icon\":\"Tag\",\"color\":\"blue\"}" で叩き id を記録する
@@ -81,6 +83,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-06
   Scenario: 深い階層のフォルダも名前で見つかる
+    # e2e:verified AUTHZ pass "深い階層のフォルダも名前で見つかる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-parent" を生成して "parentName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{parentName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -103,6 +106,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-09
   Scenario: 中身のあるフォルダは消せず、空にすると消せる
+    # e2e:verified AUTHZ pass "中身のあるフォルダは消せず、空にすると消せる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -124,6 +128,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-10
   Scenario: アップロード設定の変更は管理者だけ
+    # e2e:verified AUTHZ pass "アップロード設定の変更は管理者だけ"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     When PATCH "/api/v1/files/settings" を空ボディで叩く
     Then ステータスコード 403 が返る
@@ -139,6 +144,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-04
   Scenario: ファイルを別フォルダへ移すと移動先に出て元の場所から消える
+    # e2e:verified AUTHZ pass "ファイルを別フォルダへ移すと移動先に出て元の場所から消える"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-move-a" を生成して "folderAName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderAName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -176,6 +182,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-07
   Scenario: タグを 2 つ指定するとどちらかが付いたものが返る
+    # e2e:verified AUTHZ pass "タグを 2 つ指定するとどちらかが付いたものが返る"
     Given システムADMIN "admin@rete.local" でログインする
     And 一意名 "e2e-tag-a" を生成して "tagNameA" に保存する
     When POST "/api/v1/tags" を body "{\"name\":\"{{tagNameA}}\",\"icon\":\"Tag\",\"color\":\"blue\"}" で叩き id を記録する
@@ -218,6 +225,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-14
   Scenario: 許可一覧に無い拡張子は弾かれ、設定を外すと通る
+    # e2e:verified AUTHZ pass "許可一覧に無い拡張子は弾かれ、設定を外すと通る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-ext" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -249,6 +257,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-08
   Scenario: 最新版は最新の版、版を指定するとその版の中身が返る
+    # e2e:verified AUTHZ pass "最新版は最新の版、版を指定するとその版の中身が返る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-dl-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -281,6 +290,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-02
   Scenario: 上げたファイルが一覧に出て、大きさと更新時刻が入る
+    # e2e:verified AUTHZ pass "上げたファイルが一覧に出て、大きさと更新時刻が入る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-up-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -306,6 +316,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-12
   Scenario: 発話の添付を解除してもファイル本体は残る
+    # e2e:verified AUTHZ pass "発話の添付を解除してもファイル本体は残る"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-detach-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する
@@ -350,6 +361,7 @@ Feature: ファイルの版・検索・タグ・アップロード・削除境�
   # ------------------------------------------------------------------
   @S-FILE-13
   Scenario: 同じファイルと同じ空フォルダを 2 回消しても、2 回目は既に無いとして断られる
+    # e2e:verified AUTHZ pass "同じファイルと同じ空フォルダを 2 回消しても、2 回目は既に無いとして断られる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-twice-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"{{spaceId}}\"}" で叩き id を記録する

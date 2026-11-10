@@ -24,6 +24,7 @@ Feature: 日常幸せ道 — 日常協働（daily-collab）
   # ------------------------------------------------------------------
   @DAILY-COLLAB-01
   Scenario: チャットテーマを作成しメッセージ投稿、一覧反映後に削除できる
+    # e2e:verified AUTHZ pass "チャットテーマを作成しメッセージ投稿、一覧反映後に削除できる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-theme" を生成して "themeTitle" に保存する
     When POST "/api/v1/chat/themes" を body "{\"title\":\"{{themeTitle}}\"}" で叩き id を記録する
@@ -48,6 +49,7 @@ Feature: 日常幸せ道 — 日常協働（daily-collab）
   # ------------------------------------------------------------------
   @DAILY-COLLAB-02
   Scenario: タスクを作成し一覧反映後に削除できる
+    # e2e:verified AUTHZ pass "タスクを作成し一覧反映後に削除できる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-task" を生成して "taskTitle" に保存する
     When POST "/api/v1/tasks" を body "{\"title\":\"{{taskTitle}}\"}" で叩き id を記録する
@@ -72,6 +74,7 @@ Feature: 日常幸せ道 — 日常協働（daily-collab）
   # ------------------------------------------------------------------
   @DAILY-COLLAB-03
   Scenario: フォルダを作成し tree 一覧反映後に削除できる
+    # e2e:verified AUTHZ pass "フォルダを作成し tree 一覧反映後に削除できる"
     Given システムMEMBER "of-admin@struct-pass.example" でログインする
     And 一意名 "e2e-folder" を生成して "folderName" に保存する
     When POST "/api/v1/files/folders" を body "{\"name\":\"{{folderName}}\",\"parentFolderId\":null,\"spaceId\":\"00000000-0000-4000-b000-000000000003\"}" で叩き id を記録する

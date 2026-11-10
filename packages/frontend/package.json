@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "start": "node scripts/start.mjs",
     "lint": "eslint src",
-    "lint:check": "eslint src",
+    "lint:check": "eslint src --max-warnings 229",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\"",
     "type-check": "tsc --noEmit",
     "test": "vitest run",

@@ -73,6 +73,17 @@ When(
     const body = (await created.json()) as { data?: { id?: string } };
     if (!body.data?.id) throw new Error('個人メモの作成の応答に id が無い');
     world.uniqueNames[idKey] = body.data.id;
+    // 作った個人メモも後始末へ入れる（d971）。個人メモは既存の更新口（archive）が 400 で断るため、
+    // 作った人の接続で削除する。名前は実行ごとに重ねないので、消しておかないと開発DBに積み上がる。
+    const removePath = `/api/v1/spaces/${body.data.id}`;
+    world.createdIds.push({
+      method: 'DELETE',
+      path: removePath,
+      own: { ctx, method: 'DELETE', path: removePath },
+      // d1024: 登録の時点の接続そのものを控える（`world.apiCtx` はシナリオ中に差し替わる）。
+      ownCtx: ctx,
+      session: sessionKey,
+    });
   },
 );
 
@@ -122,10 +133,18 @@ When(
     const channelId = ((await channel.json()) as { data?: { id?: string } }).data?.id;
     if (!channelId) throw new Error('チャネルの作成の応答に id が無い');
 
-    // 後始末は LIFO（チャネル → プロジェクト → 組織）。物理削除はチャネルだけが対象なので archive を使う。
-    world.createdIds.push({ method: 'PATCH', path: `/api/v1/spaces/admin/${channelId}` });
-    world.createdIds.push({ method: 'PATCH', path: `/api/v1/projects/admin/${projectId}` });
-    world.createdIds.push({ method: 'PATCH', path: `/api/v1/organizations/admin/${orgId}` });
+    // 後始末は LIFO（チャネル → プロジェクト → 組織）。管理経路（system ADMIN 専用）で archive する。
+    // 既存の更新口はそのスコープの ADMIN を求めるが、管理経路で作った器には所属行が無く作った人でも
+    // 通らない（実測 2026-10-31）。管理経路は作成者の立場に依らないので、作った人の接続でも同じ
+    // 管理経路で消す（d971）。
+    const own = (path: string) => ({ ctx, method: 'PATCH' as const, path });
+    for (const path of [
+      `/api/v1/spaces/admin/${channelId}`,
+      `/api/v1/projects/admin/${projectId}`,
+      `/api/v1/organizations/admin/${orgId}`,
+    ]) {
+      world.createdIds.push({ method: 'PATCH', path, own: own(path) });
+    }
     world.uniqueNames[idKey] = channelId;
     world.lastResponse = channel;
   },
