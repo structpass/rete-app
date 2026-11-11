@@ -9,9 +9,10 @@ import { createCorsMiddleware } from './common/security/cors.middleware';
 import { createSessionStore } from './common/session/session-store.config';
 import {
   assertValidNodeEnv,
+  MIN_SECRET_LENGTH,
+  PLACEHOLDER_MARKERS,
   validateDatabasePoolLimits,
-  validateGmisRedirectUriRequiredInProduction,
-  validateReferenceRedirectUriRequiredInProduction,
+  validateOidcRpSecretsInProduction,
 } from './common/config/env-validation';
 import { API_GLOBAL_PREFIX, CROSS_SERVICE_ROUTES } from './common/config/api-routes';
 import { parseMfaTotpEncKey } from './common/security/secret-crypto';
@@ -21,21 +22,6 @@ const REQUIRED_ENV_VARS = ['DATABASE_URL'];
 
 // 本番でのみ存在+強度を検証する認証 secret（operational-policy §4）。dev は未設定で安全な既定にフォールバック。
 const PRODUCTION_REQUIRED_SECRETS = ['SESSION_SECRET', 'OIDC_COOKIE_KEYS', 'OIDC_JWKS'];
-const MIN_SECRET_LENGTH = 32;
-const PLACEHOLDER_MARKERS = ['change-me', 'insecure', 'placeholder', 'example'];
-
-/**
- * OIDC_REFERENCE_CLIENT_SECRET は条件付き検査（cmn-0230・cmn-0249）。
- * PRODUCTION_REQUIRED_SECRETS には入れず、「設定されている時だけ placeholder / 短すぎ」を
- * 検査する。未設定の本番は OIDC RP 連携を使わない構成なので起動できる（cmn-0230 採用方針）。
- */
-const OIDC_REFERENCE_CLIENT_SECRET_KEY = 'OIDC_REFERENCE_CLIENT_SECRET';
-
-/**
- * OIDC_GMIS_CLIENT_SECRET（2 つ目の RP＝報告管理 gmis・d1167）も Reference と同じ条件付き検査。
- * 本番で「secret 設定あり＋有効な redirect URI ゼロ」なら起動を止める。
- */
-const OIDC_GMIS_CLIENT_SECRET_KEY = 'OIDC_GMIS_CLIENT_SECRET';
 
 /**
  * MFA の暗号鍵（MFA_TOTP_ENC_KEY）。本番では必須にする。
@@ -102,44 +88,10 @@ function validateProductionSecrets(): void {
       `${MFA_TOTP_ENC_KEY_NAME} must be a real key: 64 hex characters or base64 of 32 bytes`,
     );
   }
-  // cmn-0230 / cmn-0249: OIDC_REFERENCE_CLIENT_SECRET は「設定されている時だけ」検査する。
-  const oidcSecret = process.env[OIDC_REFERENCE_CLIENT_SECRET_KEY];
-  if (oidcSecret) {
-    const lower = oidcSecret.toLowerCase();
-    if (PLACEHOLDER_MARKERS.some((marker) => lower.includes(marker))) {
-      problems.push(
-        `${OIDC_REFERENCE_CLIENT_SECRET_KEY} looks like a placeholder — set a real secret`,
-      );
-    }
-    if (oidcSecret.length < MIN_SECRET_LENGTH) {
-      problems.push(
-        `${OIDC_REFERENCE_CLIENT_SECRET_KEY} must be at least ${MIN_SECRET_LENGTH} characters`,
-      );
-    }
-    const oidcRedirectProblem = validateReferenceRedirectUriRequiredInProduction();
-    if (oidcRedirectProblem) {
-      problems.push(oidcRedirectProblem);
-    }
-  }
-  // d1167: 2 つ目の RP（報告管理 gmis）も Reference と同水準に検査する。secret の placeholder・
-  // 長さは Reference と同じ条件で弾き、secret 設定済みで redirect URI の有効値がゼロなら起動を止める
-  // （未設定の本番は連携を使わないので従来どおり起動できる）。
-  const gmisOidcSecret = process.env[OIDC_GMIS_CLIENT_SECRET_KEY];
-  if (gmisOidcSecret) {
-    const gmisLower = gmisOidcSecret.toLowerCase();
-    if (PLACEHOLDER_MARKERS.some((marker) => gmisLower.includes(marker))) {
-      problems.push(`${OIDC_GMIS_CLIENT_SECRET_KEY} looks like a placeholder — set a real secret`);
-    }
-    if (gmisOidcSecret.length < MIN_SECRET_LENGTH) {
-      problems.push(
-        `${OIDC_GMIS_CLIENT_SECRET_KEY} must be at least ${MIN_SECRET_LENGTH} characters`,
-      );
-    }
-    const gmisRedirectProblem = validateGmisRedirectUriRequiredInProduction();
-    if (gmisRedirectProblem) {
-      problems.push(gmisRedirectProblem);
-    }
-  }
+  // OIDC の first-party RP は OIDC_RP_DEFINITIONS を正本にする（d1213）。RP ごとに検査を写経すると、
+  // 表へ RP を足した時に登録だけ増えて本番の資格情報検査が素通りする（fail-open）。
+  // 未設定の RP は連携を使わないので検査しない（cmn-0230）。
+  problems.push(...validateOidcRpSecretsInProduction());
   if (problems.length > 0) {
     throw new Error(`Insecure production secrets:\n  - ${problems.join('\n  - ')}`);
   }

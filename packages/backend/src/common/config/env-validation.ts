@@ -19,6 +19,12 @@ export function assertValidNodeEnv(nodeEnv: string | undefined): asserts nodeEnv
   }
 }
 
+/** 本番 secret の最短長（operational-policy §4・main.ts の他の secret 検査と同水準）。 */
+export const MIN_SECRET_LENGTH = 32;
+
+/** 本番 secret で placeholder とみなす語（main.ts の他の secret 検査と共通）。 */
+export const PLACEHOLDER_MARKERS = ['change-me', 'insecure', 'placeholder', 'example'];
+
 /** DATABASE_URL に必須の接続プール指定（cmn-0251）。 */
 export const REQUIRED_DB_POOL_PARAMS = ['connection_limit', 'pool_timeout'] as const;
 
@@ -94,8 +100,9 @@ export function validateDatabasePoolLimits(databaseUrl: string | undefined): str
 /**
  * first-party RP（Rete=IdP へ静的登録する OIDC client）の env 定義。
  *
- * 3 つ目の RP を足す時はこの表へ 1 件追加する。登録側（oidc-config.factory.ts）も本表を読むため、
- * env 名を登録側と検査側で二重に書かずに済む（検査-実施ドリフト防止・cmn-0249）。
+ * 3 つ目の RP を足す時はこの表へ 1 件追加する。登録側（oidc-config.factory.ts）と起動検査側
+ * （main.ts → validateOidcRpSecretsInProduction）の両方が本表を読むため、env 名を登録側と検査側で
+ * 二重に書かずに済む（検査-実施ドリフト防止・cmn-0249・d1213）。
  */
 export interface OidcRpDefinition {
   /** 警告ログ・識別用の名前。 */
@@ -206,12 +213,44 @@ function validateRedirectUriRequiredInProduction(rp: OidcRpDefinition): string |
   return null;
 }
 
-/** reference（struct-pass-reference）の redirect URI 検査。 */
-export function validateReferenceRedirectUriRequiredInProduction(): string | null {
-  return validateRedirectUriRequiredInProduction(OIDC_REFERENCE_RP);
+/**
+ * 1 つの RP の本番起動検査（secret の placeholder / 長さ + redirect URI）。
+ *
+ * main.ts はこの関数を OIDC_RP_DEFINITIONS の全件へ回す＝表へ RP を足せば起動検査も自動で追随する。
+ * 以前は main.ts が RP ごとに同じ検査を写経しており、表だけに 3 つ目の RP を足すと登録は増えるのに
+ * 本番の資格情報検査が素通りした（fail-open・d1213）。
+ *
+ * @returns 起動を止めるべき理由（空配列 = OK）。未設定の RP は連携を使わないので検査しない（cmn-0230）。
+ */
+export function validateOidcRpInProduction(rp: OidcRpDefinition): string[] {
+  if (process.env.NODE_ENV !== 'production') return [];
+  const secret = process.env[rp.clientSecretEnvKey];
+  if (!secret) return [];
+  const problems: string[] = [];
+  const lower = secret.toLowerCase();
+  if (PLACEHOLDER_MARKERS.some((marker) => lower.includes(marker))) {
+    problems.push(`${rp.clientSecretEnvKey} looks like a placeholder — set a real secret`);
+  }
+  if (secret.length < MIN_SECRET_LENGTH) {
+    problems.push(`${rp.clientSecretEnvKey} must be at least ${MIN_SECRET_LENGTH} characters`);
+  }
+  const redirectProblem = validateRedirectUriRequiredInProduction(rp);
+  if (redirectProblem) problems.push(redirectProblem);
+  return problems;
 }
 
-/** gmis（報告管理）の redirect URI 検査（d1167・reference と同型）。 */
-export function validateGmisRedirectUriRequiredInProduction(): string | null {
-  return validateRedirectUriRequiredInProduction(OIDC_GMIS_RP);
+/** OIDC_RP_DEFINITIONS の全 RP を本番起動検査に掛ける（表が SSOT・d1213）。 */
+export function validateOidcRpSecretsInProduction(): string[] {
+  return OIDC_RP_DEFINITIONS.flatMap((rp) => validateOidcRpInProduction(rp));
+}
+
+/**
+ * reference の redirect URI 検査（redirect のみ）。
+ *
+ * d1213 で起動検査は OIDC_RP_DEFINITIONS を回す `validateOidcRpSecretsInProduction` へ一本化した。
+ * 本シンボルは oidc-config.factory が後方互換の再エクスポートとして公開している参照路を
+ * 保つために残す（secret の placeholder / 長さは表を回す側が担う）。
+ */
+export function validateReferenceRedirectUriRequiredInProduction(): string | null {
+  return validateRedirectUriRequiredInProduction(OIDC_REFERENCE_RP);
 }

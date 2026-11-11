@@ -10,24 +10,7 @@ import type { HubMenuItem } from '@/features/hub';
  * （`useFavorites` がユーザー別データを取得。本ファイルは遷移解決のみ担う）。
  */
 
-export type ShellTabKey =
-  | 'home'
-  | 'system'
-  | 'gmis'
-  | 'gmis-demo'
-  | 'desk'
-  | 'files'
-  | 'settings'
-  | 'mock'
-  | 'model';
-
-/**
- * 「システム」タブの直後へ並べる外部システム導線（hub menu の key → タブ key）。
- * 在庫管理（reference）の隣に、繋ぎ先が有効なものだけが並ぶ。並び順はこの配列順。
- * gmis は正式な報告管理（d1171）、gmis-demo は開発時だけ出る旧デモ。
- */
-const SYSTEM_COMPANION_KEYS = ['gmis', 'gmis-demo'] as const;
-export type SystemCompanionKey = (typeof SYSTEM_COMPANION_KEYS)[number];
+export type ShellTabKey = 'home' | 'system' | 'desk' | 'files' | 'settings' | 'mock' | 'model';
 
 export interface ShellTab {
   key: ShellTabKey;
@@ -44,14 +27,14 @@ export interface ShellTab {
   resolveFrom?: string;
 }
 
-/** ヘッダタブ順（Home / Desk / File / System / Mock / Setting / Model）。
- *  ラベルは英語・単数形（cmn-0114 の添付モック準拠）。英語化はグローバルメニューのみで、
+/** ヘッダタブ順（Home / Desk / File / 在庫管理 / Mock / Setting / Model）。
+ *  ラベルは英語・単数形（在庫管理への導線は開発統括の回答により「在庫管理」で固定、d1240）（cmn-0114 の添付モック準拠）。英語化はグローバルメニューのみで、
  *  各画面内タイトルは日本語のまま（スコープ限定）。 */
 export const SHELL_TABS: ShellTab[] = [
   { key: 'home', label: 'Home', kind: 'internal', href: '/hub' },
   { key: 'desk', label: 'Desk', kind: 'internal', href: '/desk' },
   { key: 'files', label: 'File', kind: 'internal', href: '/files' },
-  { key: 'system', label: 'System', kind: 'external', resolveFrom: 'reference' },
+  { key: 'system', label: '在庫管理', kind: 'external', resolveFrom: 'reference' },
   { key: 'mock', label: 'Mock', kind: 'disabled' },
   { key: 'settings', label: 'Setting', kind: 'internal', href: '/settings' },
   // 共通仕様カタログ（rete 固有共通仕様の正本）。開発・参照向けタブ。
@@ -145,7 +128,7 @@ export function resolveFavoriteLink(
 }
 
 export interface ResolvedTab {
-  key: ShellTabKey;
+  key: string;
   label: string;
   active: boolean;
   disabled: boolean;
@@ -165,6 +148,10 @@ export interface ResolvedTab {
  * `ERR_CONNECTION_REFUSED` で空振りする。これを防ぐため、実到達不能（`false`）が確定したら external タブを
  * 灰色（disabled）にして空クリックを止める。`undefined`（未確認 / 確認前）は従来どおり available のみで判定する
  * （楽観的に有効。確認前のグレー点滅を避ける）。env が available=false なら本フラグに関係なく従来どおり灰色。
+ *
+ * 外部システム導線（報告管理 等）は hub menu の category='system' item を正本として導出する（d1214）。
+ * reference は本ファイルの system タブが担い、それ以外の available な system item を menu の並び順で
+ * system タブの直後へ差し込む。SHELL_TABS のラベルは実行時に書き換えない（SSOT を保つ）。
  */
 export function resolveTabs(
   tabs: ShellTab[],
@@ -172,18 +159,7 @@ export function resolveTabs(
   activeKey: ShellTabKey,
   referenceReachable?: boolean,
 ): ResolvedTab[] {
-  // 「システム」タブの直後へ、hub menu が available な外部システム導線を並べる（在庫管理と報告管理を横並びにする・d1171）。
-  // available でない導線は出さない（未完成の導線を灰色タブとして増やさない）。
-  const companions = SYSTEM_COMPANION_KEYS.flatMap((key): ShellTab[] => {
-    const item = menuItems.find((m) => m.key === key && m.available);
-    return item ? [{ key, label: item.label, kind: 'external', resolveFrom: key }] : [];
-  });
-  const visibleTabs = companions.length
-    ? tabs.flatMap((tab): ShellTab[] =>
-        tab.resolveFrom === 'reference' ? [{ ...tab, label: '在庫管理' }, ...companions] : [tab],
-      )
-    : tabs;
-  return visibleTabs.map((tab) => {
+  const resolved = tabs.map((tab): ResolvedTab => {
     const base = { key: tab.key, label: tab.label, active: tab.key === activeKey };
 
     if (tab.kind === 'internal') {
@@ -203,4 +179,31 @@ export function resolveTabs(
     // disabled
     return { ...base, disabled: true, href: null, external: false };
   });
+
+  // 外部システム導線は hub menu（category='system'）を正本にする（d1214）。reference は
+  // SHELL_TABS の system タブが担うため、それ以外の available な system item を menu の
+  // 並び順のまま system タブの直後へ差し込む。frontend に key の固定配列を持たない
+  // （backend の hub menu と key 集合・並び順を二重定義しない）。ラベルは item の表示名を使い、
+  // SHELL_TABS のラベルを実行時に書き換えない（接続状態でラベルが反転する原因）。
+  const companions: ResolvedTab[] = menuItems
+    // 外部システム導線は external 遷移だけをタブにする（system カテゴリに internal が来ても
+    // window.location へ飛ばさない・独立検証の指摘）。
+    .filter(
+      (m) =>
+        m.category === 'system' && m.type === 'external' && m.key !== 'reference' && m.available,
+    )
+    .map((m) => ({
+      key: m.key,
+      label: m.label,
+      active: false,
+      disabled: false,
+      href: m.href,
+      external: true,
+    }));
+  if (companions.length === 0) return resolved;
+  const anchor = resolved.findIndex((t) => t.key === 'system');
+  // system タブが SHELL_TABS から消えても導線を黙って落とさない（末尾へ出す）。
+  return anchor >= 0
+    ? [...resolved.slice(0, anchor + 1), ...companions, ...resolved.slice(anchor + 1)]
+    : [...resolved, ...companions];
 }

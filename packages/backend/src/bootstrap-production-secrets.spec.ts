@@ -30,21 +30,31 @@ function loadValidateProductionSecrets(): Validate {
     '',
   );
 
+  // d1213: OIDC の RP 検査は main.ts が OIDC_RP_DEFINITIONS を回す 1 関数へ寄せた。
+  // 補助関数・定数は main.ts と同じ実装を渡す（本体は表を読むので、この spec でも表の全 RP が効く）。
+  const { MIN_SECRET_LENGTH, PLACEHOLDER_MARKERS, validateOidcRpSecretsInProduction } =
+    jest.requireActual<{
+      MIN_SECRET_LENGTH: number;
+      PLACEHOLDER_MARKERS: string[];
+      validateOidcRpSecretsInProduction: () => string[];
+    }>('./common/config/env-validation');
+
   const factory = new Function(
     'process',
-    'validateReferenceRedirectUriRequiredInProduction',
-    'validateGmisRedirectUriRequiredInProduction',
+    'validateOidcRpSecretsInProduction',
     'parseMfaTotpEncKey',
+    'MIN_SECRET_LENGTH',
+    'PLACEHOLDER_MARKERS',
     `${constantsSource}\n${fnSource}\nreturn validateProductionSecrets;`,
   );
-  // 補助関数は main.ts と同じ実装を渡す（OIDC の redirect 検査は本テストの対象外なので null 固定）。
   return factory(
     process,
-    () => null,
-    () => null,
+    validateOidcRpSecretsInProduction,
     jest.requireActual<{ parseMfaTotpEncKey: (raw?: string) => Buffer | null }>(
       './common/security/secret-crypto',
     ).parseMfaTotpEncKey,
+    MIN_SECRET_LENGTH,
+    PLACEHOLDER_MARKERS,
   ) as Validate;
 }
 
@@ -136,9 +146,12 @@ describe('validateProductionSecrets（本番の MFA 暗号鍵・d558）', () => 
     expect(() => validateProductionSecrets()).not.toThrow();
   });
 
-  it('gmis の secret が実値なら通り、redirect URI 検査だけが効く（d1167）', () => {
+  it('gmis の secret が実値なら通り、redirect URI が揃っていれば起動できる（d1167）', () => {
     process.env.MFA_TOTP_ENC_KEY = 'a'.repeat(64);
     process.env.OIDC_GMIS_CLIENT_SECRET = 'g'.repeat(64);
+    // d1213: 表を回す検査は redirect URI も見るため、実値 secret だけでは通らない
+    // （redirect URI の条件分岐は env-validation.spec が同型を網羅している）。
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
     expect(() => validateProductionSecrets()).not.toThrow();
   });
 });

@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   assertValidNodeEnv,
+  OIDC_GMIS_RP,
+  OIDC_REFERENCE_RP,
+  OIDC_RP_DEFINITIONS,
   parseOidcRedirectUris,
   validateDatabasePoolLimits,
-  validateGmisRedirectUriRequiredInProduction,
-  validateReferenceRedirectUriRequiredInProduction,
+  validateOidcRpInProduction,
+  validateOidcRpSecretsInProduction,
   REQUIRED_DB_POOL_PARAMS,
   VALID_NODE_ENVS,
 } from './env-validation';
@@ -78,7 +81,7 @@ describe('parseOidcRedirectUris（cmn-0249）', () => {
   });
 });
 
-describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () => {
+describe('validateOidcRpInProduction（reference・cmn-0249）', () => {
   let envBackup: NodeJS.ProcessEnv;
 
   beforeEach(() => {
@@ -96,27 +99,27 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
   it('NODE_ENV 未設定なら redirect URI 不備でも起動を止めないこと', () => {
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 's3cret';
     process.env.OIDC_REFERENCE_REDIRECT_URIS = '';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
   });
 
   it('NODE_ENV=development なら redirect URI 不備でも起動を止めないこと', () => {
     process.env.NODE_ENV = 'development';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 's3cret';
     process.env.OIDC_REFERENCE_REDIRECT_URIS = '';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
   });
 
   it('本番＋CLIENT_SECRET 未設定なら redirect URI 検査は走らないこと（cmn-0230）', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'invalid';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
   });
 
   it('本番＋CLIENT_SECRET 設定＋有効 URI なら起動 OK', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'https://ref.example.com/cb';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
   });
 
   // cmn-0249: localhost 宛を本番で禁止する。
@@ -124,7 +127,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'http://localhost:3001/api/v1/auth/oidc/callback';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /localhost 宛のため本番では使用できません/,
     );
   });
@@ -133,7 +136,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'http://127.0.0.1:3001/cb';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /localhost 宛のため本番では使用できません/,
     );
   });
@@ -142,7 +145,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'https://[::1]:3001/cb';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /localhost 宛のため本番では使用できません/,
     );
   });
@@ -151,7 +154,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'http://0.0.0.0:3001/cb';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /localhost 宛のため本番では使用できません/,
     );
   });
@@ -160,7 +163,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'ftp://ref.example.com/cb';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /scheme は http\/https のみ/,
     );
   });
@@ -169,7 +172,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
     process.env.NODE_ENV = 'production';
     process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_REFERENCE_REDIRECT_URIS = 'not-a-url';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP).join('\n')).toMatch(
       /有効な URL 形式ではありません/,
     );
   });
@@ -177,7 +180,7 @@ describe('validateReferenceRedirectUriRequiredInProduction（cmn-0249）', () =>
 
 // d1167: 2 つ目の RP（報告管理 gmis）を追加した。本番の起動検査は Reference と同型・同粒度に揃える
 // （secret 設定済みで redirect URI の有効値がゼロなら起動エラー、dev/staging では warn に留める）。
-describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
+describe('validateOidcRpInProduction（gmis・d1167）', () => {
   let envBackup: NodeJS.ProcessEnv;
 
   beforeEach(() => {
@@ -195,23 +198,23 @@ describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
   it('NODE_ENV 未設定 / development なら redirect URI 不備でも起動を止めないこと', () => {
     process.env.OIDC_GMIS_CLIENT_SECRET = 's3cret';
     process.env.OIDC_GMIS_REDIRECT_URIS = '';
-    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).toEqual([]);
 
     process.env.NODE_ENV = 'development';
-    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).toEqual([]);
   });
 
   it('本番＋CLIENT_SECRET 未設定なら redirect URI 検査は走らないこと（連携を使わない本番は起動できる）', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_GMIS_REDIRECT_URIS = 'invalid';
-    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).toEqual([]);
   });
 
   it('本番＋CLIENT_SECRET 設定＋有効 URI なら起動 OK', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
-    expect(validateGmisRedirectUriRequiredInProduction()).toBeNull();
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).toEqual([]);
   });
 
   it.each([
@@ -226,8 +229,8 @@ describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
       if (redirectUris === undefined) delete process.env.OIDC_GMIS_REDIRECT_URIS;
       else process.env.OIDC_GMIS_REDIRECT_URIS = redirectUris;
 
-      const reason = validateGmisRedirectUriRequiredInProduction();
-      expect(reason).not.toBeNull();
+      const reason = validateOidcRpInProduction(OIDC_GMIS_RP).join('\n');
+      expect(reason).not.toBe('');
       expect(reason).toMatch(/OIDC_GMIS_REDIRECT_URIS/);
       expect(reason).toMatch(/d1167/);
     },
@@ -237,7 +240,7 @@ describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
-    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP).join('\n')).toMatch(
       /localhost 宛のため本番では使用できません/,
     );
   });
@@ -246,25 +249,31 @@ describe('validateGmisRedirectUriRequiredInProduction（d1167）', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(32);
     process.env.OIDC_GMIS_REDIRECT_URIS = 'not-a-url';
-    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(/有効な URL 形式ではありません/);
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP).join('\n')).toMatch(
+      /有効な URL 形式ではありません/,
+    );
 
     process.env.OIDC_GMIS_REDIRECT_URIS = 'ftp://gmis.example.com/cb';
-    expect(validateGmisRedirectUriRequiredInProduction()).toMatch(/scheme は http\/https のみ/);
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP).join('\n')).toMatch(
+      /scheme は http\/https のみ/,
+    );
   });
 
   it('gmis の検査は Reference の env を見ないこと（RP ごとに独立）', () => {
     process.env.NODE_ENV = 'production';
     process.env.OIDC_GMIS_CLIENT_SECRET = 's3cret';
     process.env.OIDC_GMIS_REDIRECT_URIS = '';
-    expect(validateReferenceRedirectUriRequiredInProduction()).toBeNull();
-    expect(validateGmisRedirectUriRequiredInProduction()).not.toBeNull();
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).not.toEqual([]);
   });
 
-  it('main.ts が起動経路で両方の redirect URI 検査を呼ぶこと（配線の回帰ガード）', () => {
+  it('main.ts が起動経路で RP 定義表を読む（写経へ戻す fail-open の回帰ガード・d1213）', () => {
     // 純関数の spec だけでは main.ts の呼び出しが消えても緑のままになる（DB プール検査と同じ手法）。
+    // RP ごとのキー定数・検査ブロックを main.ts へ戻すと、表に足した 3 つ目の RP が素通りする。
     const mainSource = readFileSync(join(__dirname, '../../main.ts'), 'utf8');
-    expect(mainSource).toContain('validateReferenceRedirectUriRequiredInProduction()');
-    expect(mainSource).toContain('validateGmisRedirectUriRequiredInProduction()');
+    expect(mainSource).toContain('validateOidcRpSecretsInProduction()');
+    expect(mainSource).not.toContain("'OIDC_REFERENCE_CLIENT_SECRET'");
+    expect(mainSource).not.toContain("'OIDC_GMIS_CLIENT_SECRET'");
   });
 });
 
@@ -352,5 +361,52 @@ describe('validateDatabasePoolLimits（cmn-0251）', () => {
     const seedSource = readFileSync(join(__dirname, '../../../prisma/seed.ts'), 'utf8');
     expect(seedSource).toContain('validateDatabasePoolLimits(process.env.DATABASE_URL)');
     expect(seedSource).toContain('console.warn(`[seed]');
+  });
+});
+
+// d1213: RP の本番検査は OIDC_RP_DEFINITIONS を回す 1 本。表へ RP を足せば検査も自動で追随する
+// （以前は main.ts が RP ごとに検査を写経しており、3 つ目の RP が素通りした＝fail-open）。
+describe('validateOidcRpSecretsInProduction（表が SSOT・d1213）', () => {
+  let envBackup: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    envBackup = { ...process.env };
+    for (const key of OIDC_ENV_KEYS) delete process.env[key];
+  });
+
+  afterEach(() => {
+    for (const key of OIDC_ENV_KEYS) {
+      if (envBackup[key] === undefined) delete process.env[key];
+      else process.env[key] = envBackup[key];
+    }
+    delete process.env.OIDC_THIRD_CLIENT_SECRET;
+    delete process.env.OIDC_THIRD_REDIRECT_URIS;
+  });
+
+  it('OIDC_RP_DEFINITIONS の全 RP が本番検査の対象になる（表へ足せば自動で追随する）', () => {
+    process.env.NODE_ENV = 'production';
+    for (const rp of OIDC_RP_DEFINITIONS) process.env[rp.clientSecretEnvKey] = 'change-me';
+    const problems = validateOidcRpSecretsInProduction().join('\n');
+    for (const rp of OIDC_RP_DEFINITIONS) {
+      expect(problems).toContain(`${rp.clientSecretEnvKey} looks like a placeholder`);
+      // 長さの検査も同じ経路で全 RP に掛かる（'change-me' は 9 文字なので両方が返る）。
+      expect(problems).toContain(`${rp.clientSecretEnvKey} must be at least 32 characters`);
+    }
+  });
+
+  it('表に無い 3 つ目の RP も同じ関数で検査できる（RP 別の写経に戻さない）', () => {
+    process.env.NODE_ENV = 'production';
+    const third = {
+      label: 'third',
+      clientIdEnvKey: 'OIDC_THIRD_CLIENT_ID',
+      clientSecretEnvKey: 'OIDC_THIRD_CLIENT_SECRET',
+      redirectUrisEnvKey: 'OIDC_THIRD_REDIRECT_URIS',
+      defaultClientId: 'third',
+      ticketRef: 'test',
+    };
+    process.env.OIDC_THIRD_CLIENT_SECRET = 'change-me';
+    const problems = validateOidcRpInProduction(third).join('\n');
+    expect(problems).toMatch(/OIDC_THIRD_CLIENT_SECRET looks like a placeholder/);
+    expect(problems).toMatch(/OIDC_THIRD_REDIRECT_URIS に有効な値が1件も設定されていません/);
   });
 });

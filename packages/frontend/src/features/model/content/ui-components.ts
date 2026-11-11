@@ -868,8 +868,8 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           ],
           [
             'タブラベル',
-            '英語・単数形（cmn-0114。画面内タイトルは日本語のまま）',
-            'Home / Desk / File / System / Mock / Setting / Model（nav-config.ts）',
+            '英語・単数形（cmn-0114。画面内タイトルは日本語のまま）。開発統括の2026-11-11の回答により、在庫管理へのタブは「在庫管理」で固定する（d1240）。外部システム導線（報告管理 等）は hub menu の available な system item から動的に追加され、そのラベルは item の表示名を使う（d1171 / d1214）',
+            'Home / Desk / File / 在庫管理 / Mock / Setting / Model（nav-config.ts）',
           ],
           [
             'タブ間隔',

@@ -1018,6 +1018,9 @@ model Reaction {
   @@unique([taskId, authorId, emoji])
   // dsk-0323: 冗長 index 削除。@@unique([X, authorId, emoji]) の左端 prefix により
   // X 単独検索は unique index で賄えるため、@@index([X]) は write overhead のみ増やしていた。
+  // authorId は上の unique の先頭ではないため、Account の削除時（onDelete: Restrict）に
+  // reactions を全件走査する。FK 列の先頭索引を併設する（§13.4・d1262）。
+  @@index([authorId])
   @@map("reactions")
 }
 
@@ -1689,6 +1692,8 @@ model CalendarEventTagAssignment {
 }
 
 // Shared calendar master. Calendar dates have no timezone or time of day.
+// 祝日の日付は時刻・時差を持たないため @db.Date のままにする（ほかの時刻列の Timestamptz へは揃えない・
+// 揃えると時刻と時差が付いて日付の意味が変わる・d1243）。日付の比較・表示は YYYY-MM-DD で扱う。
 model CalendarHoliday {
   date DateTime @id @db.Date
   name String   @db.VarChar(100)

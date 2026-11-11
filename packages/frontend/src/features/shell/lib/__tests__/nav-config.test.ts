@@ -13,7 +13,7 @@ const referenceItem: HubMenuItem = {
 };
 
 describe('resolveTabs', () => {
-  it('places the official medical reporting link beside inventory (d1171)', () => {
+  it('places the official medical reporting link beside the system tab (d1171)', () => {
     const gmis: HubMenuItem = {
       ...referenceItem,
       key: 'gmis',
@@ -22,6 +22,7 @@ describe('resolveTabs', () => {
     };
     const tabs = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home', true);
     const index = tabs.findIndex((tab) => tab.key === 'system');
+    // d1214: system タブのラベルは SHELL_TABS（SSOT）の 在庫管理 のまま。接続状態で書き換えない。
     expect(tabs[index]).toMatchObject({ label: '在庫管理', disabled: false, external: true });
     expect(tabs[index + 1]).toMatchObject({
       key: 'gmis',
@@ -45,7 +46,7 @@ describe('resolveTabs', () => {
     };
     const tabs = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home');
     expect(tabs.some((tab) => tab.key === 'gmis')).toBe(false);
-    expect(tabs.find((tab) => tab.key === 'system')).toMatchObject({ label: 'System' });
+    expect(tabs.find((tab) => tab.key === 'system')).toMatchObject({ label: '在庫管理' });
   });
 
   it('orders the demo after the official reporting link', () => {
@@ -76,7 +77,7 @@ describe('resolveTabs', () => {
       external: true,
     });
     const defaultTabs = resolveTabs(SHELL_TABS, [referenceItem], 'home');
-    expect(defaultTabs.find((tab) => tab.key === 'system')).toMatchObject({ label: 'System' });
+    expect(defaultTabs.find((tab) => tab.key === 'system')).toMatchObject({ label: '在庫管理' });
     expect(defaultTabs.some((tab) => tab.key === 'gmis-demo')).toBe(false);
   });
   it('internal タブ（Home）は href をそのまま使い、active を反映する', () => {
@@ -204,6 +205,59 @@ describe('resolveTabs', () => {
       { key: 'desk', label: 'デスク', kind: 'disabled' },
     ];
     expect(resolveTabs(custom, [], 'home').map((t) => t.key)).toEqual(['home', 'desk']);
+  });
+
+  // d1214: 外部システム導線は frontend の固定 key 配列ではなく hub menu（category='system'）を正本にする。
+  it('外部システム導線は hub menu の system item から導出する（新しい system を足せば自動で並ぶ）', () => {
+    const added = {
+      ...referenceItem,
+      key: 'warehouse',
+      label: '倉庫管理',
+      href: 'http://127.0.0.1:4999',
+    };
+    const keys = resolveTabs(SHELL_TABS, [referenceItem, added], 'home').map((tab) => tab.key);
+    expect(keys.slice(keys.indexOf('system'), keys.indexOf('system') + 2)).toEqual([
+      'system',
+      'warehouse',
+    ]);
+  });
+
+  it('category=rete の item は外部システム導線として並べない', () => {
+    const reteItem = { ...referenceItem, key: 'tasks', label: 'タスク', category: 'rete' as const };
+    const keys = resolveTabs(SHELL_TABS, [referenceItem, reteItem], 'home').map((tab) => tab.key);
+    expect(keys).not.toContain('tasks');
+  });
+
+  it('system カテゴリでも type=internal の item は外部タブにしない（window.location へ飛ばさない）', () => {
+    const internalSystem = {
+      ...referenceItem,
+      key: 'internal-system',
+      label: '社内画面',
+      type: 'internal' as const,
+    };
+    const keys = resolveTabs(SHELL_TABS, [referenceItem, internalSystem], 'home').map(
+      (tab) => tab.key,
+    );
+    expect(keys).not.toContain('internal-system');
+  });
+
+  it('system タブが SHELL_TABS から消えても外部システム導線を黙って落とさない（末尾へ出す）', () => {
+    const withoutSystem: ShellTab[] = SHELL_TABS.filter((tab) => tab.key !== 'system');
+    const gmis = { ...referenceItem, key: 'gmis', label: '報告管理' };
+    const keys = resolveTabs(withoutSystem, [referenceItem, gmis], 'home').map((tab) => tab.key);
+    expect(keys).toContain('gmis');
+  });
+
+  it('system タブのラベルは接続状態で反転しない（companions の有無によらず SSOT の 在庫管理）', () => {
+    const gmis = { ...referenceItem, key: 'gmis', label: '報告管理' };
+    const withCompanion = resolveTabs(SHELL_TABS, [referenceItem, gmis], 'home').find(
+      (tab) => tab.key === 'system',
+    );
+    const withoutCompanion = resolveTabs(SHELL_TABS, [referenceItem], 'home').find(
+      (tab) => tab.key === 'system',
+    );
+    expect(withCompanion?.label).toBe('在庫管理');
+    expect(withoutCompanion?.label).toBe('在庫管理');
   });
 });
 

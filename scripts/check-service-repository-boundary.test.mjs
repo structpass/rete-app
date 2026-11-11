@@ -4,7 +4,7 @@
 // 使い捨ての写しを作り、規約どおりの Service・違反・例外の扱いを実際に走らせて確かめる。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,14 @@ function fixture(files) {
     mkdirSync(join(dir, 'scripts'), { recursive: true });
     mkdirSync(join(dir, 'packages/backend/src/modules'), { recursive: true });
     cpSync(SCRIPT, join(dir, 'scripts/check-service-repository-boundary.mjs'));
+    // d1216: 検査は「例外の理由が実在する ADR に書かれているか」まで見る。社内リポジトリの
+    // 文脈（scripts/publish が存在する）と、例外の ADR を写しにも置かないと全試験が赤くなる。
+    mkdirSync(join(dir, 'scripts/publish'), { recursive: true });
+    mkdirSync(join(dir, 'docs/decisions'), { recursive: true });
+    writeFileSync(
+      join(dir, 'docs/decisions/0073-oidc-sso-decisions-consolidated.md'),
+      '# ADR 0073\n\n| [OidcPurgeService](../../packages/backend/src/modules/auth/oidc/oidc-purge.service.ts) | 例外の理由 |\n',
+    );
 
     // 検査は「例外の許可先が実体とずれていないか」も見る。許可一覧に入っている実在の
     // 例外（oidc-purge）を写しにも置いておかないと、すべての試験がその欠落で赤くなる。
@@ -123,6 +131,62 @@ test('Service が 1 本も無い置き場では、静かに通さず止まる (d
     const { status, out } = run(dir);
     assert.equal(status, 1);
     assert.match(out, /1 本も見つかりません/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// d1216: 「例外は ADR に理由を書いたものだけ」を宣言で終わらせず、ADR の実在と実体への言及まで見る。
+test('例外の ADR が見つからないと赤くなる（d1216）', () => {
+  const dir = fixture({ 'tags/tags.service.ts': 'export class TagsService {}' });
+  try {
+    rmSync(join(dir, 'docs/decisions/0073-oidc-sso-decisions-consolidated.md'), { force: true });
+    const { status, out } = run(dir);
+    assert.equal(status, 1);
+    assert.match(out, /ADR 0073 が見つからない/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('例外の実体が ADR に書かれていないと赤くなる（d1216）', () => {
+  const dir = fixture({ 'tags/tags.service.ts': 'export class TagsService {}' });
+  try {
+    writeFileSync(
+      join(dir, 'docs/decisions/0073-oidc-sso-decisions-consolidated.md'),
+      '# ADR 0073\n\n例外の理由はここに書くが、対象の実体には触れない。\n',
+    );
+    const { status, out } = run(dir);
+    assert.equal(status, 1);
+    assert.match(out, /ADR 0073 に実体の記載が無い/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('例外の理由に ADR 番号が無いと赤くなる（d1216）', () => {
+  const dir = fixture({ 'tags/tags.service.ts': 'export class TagsService {}' });
+  try {
+    const scriptPath = join(dir, 'scripts/check-service-repository-boundary.mjs');
+    const source = readFileSync(scriptPath, 'utf8');
+    assert.ok(source.includes("'ADR 0073 §4'"), 'fixture の前提（許可の理由）が変わっている');
+    writeFileSync(scriptPath, source.replace("'ADR 0073 §4'", "'ADR に記録済み'"));
+    const { status, out } = run(dir);
+    assert.equal(status, 1);
+    assert.match(out, /理由に ADR 番号が無い/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('公開スナップショット（scripts/publish が無い）では ADR 照合をしない（d1216）', () => {
+  const dir = fixture({ 'tags/tags.service.ts': 'export class TagsService {}' });
+  try {
+    rmSync(join(dir, 'scripts/publish'), { recursive: true, force: true });
+    rmSync(join(dir, 'docs/decisions'), { recursive: true, force: true });
+    const { status, out } = run(dir);
+    assert.equal(status, 0, out);
+    assert.match(out, /ADR 照合は公開スナップショットのため対象外/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

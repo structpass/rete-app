@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { HubMenuDto, HubMenuItemDto } from './dto/hub-menu.dto';
 
+/** 開発環境でだけ出す医療報告デモの導線 URL（d1171・固定値は誤接続防止の運用上の決め）。 */
+const GMIS_DEMO_URL = 'http://127.0.0.1:4177';
+
 /**
  * 外部システム導線の URL が遷移先として安全か。
  * href はフロントで window.location.href（遷移）と probe fetch の両方に渡るため、env 設定ミス（ops）で
@@ -79,8 +82,10 @@ export class HubService {
       },
     ];
 
+    // 医療報告デモの導線は開発環境でだけ出す（本番・staging では出さない）。値の完全一致は、
+    // 旧デモや別 URL への誤接続を防ぐための運用上の固定で、.env.example に理由つきで載せている（d1233）。
     const demoUrl = process.env.GMIS_DEMO_URL;
-    if (process.env.NODE_ENV === 'development' && demoUrl === 'http://127.0.0.1:4177') {
+    if (process.env.NODE_ENV === 'development' && demoUrl === GMIS_DEMO_URL) {
       items.push({
         key: 'gmis-demo',
         label: '医療報告デモ',
