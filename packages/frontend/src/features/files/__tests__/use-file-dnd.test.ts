@@ -40,7 +40,7 @@ describe('useFileDnd — kind 別ディスパッチ', () => {
     expect(onMoveRow).toHaveBeenCalledWith(0, 2);
   });
 
-  // 一覧の行 → ツリーのフォルダ（S-FILE-04-開発エージェント）。一覧の行を落としても、行どうしの移動（並べ替え・同一階層）とは分けて扱う。
+  // 一覧の行 → ツリーのフォルダ（S-FILE-04-C2）。一覧の行を落としても、行どうしの移動（並べ替え・同一階層）とは分けて扱う。
   it('row(folder) → tree は onMoveRowToFolder("folder", fid, targetFid, parentFolderId)', () => {
     const { result, onMoveRowToFolder, onMoveRow } = setup();
     result.current.onDragEnd(

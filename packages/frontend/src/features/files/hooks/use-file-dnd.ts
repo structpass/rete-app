@@ -88,7 +88,7 @@ export function useFileDnd({
       } else if (a.kind === 'row' && o.kind === 'row' && a.index != null && o.index != null) {
         onMoveRow(a.index, o.index);
       } else if (a.kind === 'row' && o.kind === 'tree' && a.rowKind && a.rowId && o.fid) {
-        // 一覧の行をツリーのフォルダへ落とす → 移し先のフォルダへ移動（S-FILE-04-開発エージェント）。
+        // 一覧の行をツリーのフォルダへ落とす → 移し先のフォルダへ移動（S-FILE-04-C2）。
         onMoveRowToFolder(a.rowKind, a.rowId, o.fid, a.rowParentFolderId ?? null);
       } else if (a.kind === 'search' && o.kind === 'tree' && a.searchKind && a.searchId && o.fid) {
         // 検索結果フォルダ内の項目をツリーのフォルダへドロップ → 実フォルダへ移動（rete-files-0004）。

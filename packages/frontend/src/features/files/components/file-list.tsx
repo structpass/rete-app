@@ -312,7 +312,7 @@ function FileRow({
       kind: 'row',
       index: srcIndex,
       label: item.name,
-      // ツリーのフォルダへ落とした時の移動に使う（一覧の行 → ツリーのフォルダ・S-FILE-04-開発エージェント）。
+      // ツリーのフォルダへ落とした時の移動に使う（一覧の行 → ツリーのフォルダ・S-FILE-04-C2）。
       // folder は移動 API がフォルダ id、file はファイル id を受ける。
       rowKind: item.kind,
       rowId: isFolder ? item.fid : item.id,
