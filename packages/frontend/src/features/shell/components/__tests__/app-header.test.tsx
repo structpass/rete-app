@@ -154,7 +154,12 @@ describe('AppHeader ピルの駆動', () => {
 
     const deskActiveTabs: ResolvedTab[] = tabs.map((t) => ({ ...t, active: t.key === 'desk' }));
     rerender(
-      <AppHeader tabs={deskActiveTabs} userName="開発統括" onSelectTab={vi.fn()} onLogout={vi.fn()} />,
+      <AppHeader
+        tabs={deskActiveTabs}
+        userName="開発統括"
+        onSelectTab={vi.fn()}
+        onLogout={vi.fn()}
+      />,
     );
 
     expect(pill.style.transform).toBe('translate3d(84px, 2px, 0)');

@@ -41,7 +41,12 @@ const makeTree = (): DeskTaskTree => ({
         node({ id: 5, title: '親B' }),
       ],
     },
-    { id: 2, name: '開発エージェント', sortOrder: 1, tasks: [node({ id: 6, title: '親C', categoryId: 2 })] },
+    {
+      id: 2,
+      name: '開発エージェント',
+      sortOrder: 1,
+      tasks: [node({ id: 6, title: '親C', categoryId: 2 })],
+    },
   ],
 });
 

@@ -1,997 +1,1297 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Struct Pass — Rete 構想</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;600;700;900&display=swap');
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Struct Pass — Rete 構想</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;600;700;900&display=swap');
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%; height: 100%; overflow: hidden;
-    background: #f8fafc;
-    font-family: 'Noto Sans JP', sans-serif;
-    color: #0f172a;
-    -webkit-font-smoothing: antialiased;
-  }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #f8fafc;
+        font-family: 'Noto Sans JP', sans-serif;
+        color: #0f172a;
+        -webkit-font-smoothing: antialiased;
+      }
 
-  /* ============ Stage / scaling ============ */
-  .stage {
-    position: relative; width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    background:
-      radial-gradient(circle at 18% 12%, rgba(30, 58, 138, 0.06) 0%, transparent 42%),
-      radial-gradient(circle at 92% 88%, rgba(2, 132, 199, 0.05) 0%, transparent 48%),
-      #f8fafc;
-  }
-  .slides { position: relative; width: 1280px; height: 760px; }
-  @media (max-width: 1320px), (max-height: 800px) {
-    .slides { transform: scale(var(--scale, 1)); transform-origin: center center; }
-  }
+      /* ============ Stage / scaling ============ */
+      .stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at 18% 12%, rgba(30, 58, 138, 0.06) 0%, transparent 42%),
+          radial-gradient(circle at 92% 88%, rgba(2, 132, 199, 0.05) 0%, transparent 48%), #f8fafc;
+      }
+      .slides {
+        position: relative;
+        width: 1280px;
+        height: 760px;
+      }
+      @media (max-width: 1320px), (max-height: 800px) {
+        .slides {
+          transform: scale(var(--scale, 1));
+          transform-origin: center center;
+        }
+      }
 
-  .slide {
-    position: absolute; inset: 0;
-    background: #ffffff;
-    background-image:
-      radial-gradient(circle at center, #cbd5e1 0.6px, transparent 0.7px);
-    background-size: 18px 18px;
-    border: 1px solid #e4e8ee;
-    padding: 38px 60px 42px;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.5s ease;
-    display: flex; flex-direction: column;
-    box-shadow: 0 1px 0 rgba(30, 58, 138, 0.04);
-  }
-  .slide.active { opacity: 1; pointer-events: auto; }
+      .slide {
+        position: absolute;
+        inset: 0;
+        background: #ffffff;
+        background-image: radial-gradient(circle at center, #cbd5e1 0.6px, transparent 0.7px);
+        background-size: 18px 18px;
+        border: 1px solid #e4e8ee;
+        padding: 38px 60px 42px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.5s ease;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 1px 0 rgba(30, 58, 138, 0.04);
+      }
+      .slide.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
 
-  /* ============ Header ============ */
-  .head {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    padding-bottom: 14px;
-    border-bottom: 1px solid #e4e8ee;
-    margin-bottom: 24px;
-  }
-  .head-left .brand {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 22px; font-weight: 900;
-    color: #0f172a; line-height: 1; letter-spacing: -0.005em;
-  }
-  .head-left .brand .pass { color: #1e3a8a; }
-  .head-left .tagline {
-    margin-top: 8px; font-size: 11.5px; color: #475569;
-    letter-spacing: 0.04em; line-height: 1.55;
-  }
-  .head-right {
-    text-align: right; font-family: 'JetBrains Mono', monospace;
-    font-size: 9.5px; color: #64748b; letter-spacing: 0.18em;
-    line-height: 1.7;
-  }
-  .head-right .tag-jp {
-    font-family: 'Noto Serif JP', serif;
-    color: #0f172a; font-size: 11px; font-weight: 700;
-    letter-spacing: 0.16em; margin-bottom: 4px;
-  }
+      /* ============ Header ============ */
+      .head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding-bottom: 14px;
+        border-bottom: 1px solid #e4e8ee;
+        margin-bottom: 24px;
+      }
+      .head-left .brand {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 22px;
+        font-weight: 900;
+        color: #0f172a;
+        line-height: 1;
+        letter-spacing: -0.005em;
+      }
+      .head-left .brand .pass {
+        color: #1e3a8a;
+      }
+      .head-left .tagline {
+        margin-top: 8px;
+        font-size: 11.5px;
+        color: #475569;
+        letter-spacing: 0.04em;
+        line-height: 1.55;
+      }
+      .head-right {
+        text-align: right;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        color: #64748b;
+        letter-spacing: 0.18em;
+        line-height: 1.7;
+      }
+      .head-right .tag-jp {
+        font-family: 'Noto Serif JP', serif;
+        color: #0f172a;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        margin-bottom: 4px;
+      }
 
-  /* ============ Footer ============ */
-  .foot {
-    margin-top: auto;
-    display: flex; justify-content: space-between; align-items: center;
-    padding-top: 14px;
-    border-top: 1px solid #e4e8ee;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9.5px; color: #64748b; letter-spacing: 0.22em;
-  }
+      /* ============ Footer ============ */
+      .foot {
+        margin-top: auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 14px;
+        border-top: 1px solid #e4e8ee;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px;
+        color: #64748b;
+        letter-spacing: 0.22em;
+      }
 
-  /* ============ Common type ============ */
-  .mono-tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; color: #1e3a8a;
-    letter-spacing: 0.22em; text-transform: uppercase;
-  }
-  .mono-tag.dark { color: #0284c7; }
+      /* ============ Common type ============ */
+      .mono-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        color: #1e3a8a;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+      .mono-tag.dark {
+        color: #0284c7;
+      }
 
-  .eyebrow {
-    display: flex; align-items: center; gap: 12px;
-    margin-bottom: 14px;
-  }
-  .eyebrow .dash { width: 28px; height: 1px; background: #1e3a8a; }
-  .eyebrow.dark .dash { background: #0284c7; }
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .eyebrow .dash {
+        width: 28px;
+        height: 1px;
+        background: #1e3a8a;
+      }
+      .eyebrow.dark .dash {
+        background: #0284c7;
+      }
 
-  .ac { color: #1e3a8a; }
-  .am { color: #0284c7; }
-  .qmark {
-    font-family: 'JetBrains Mono', monospace;
-    color: #0284c7; font-weight: 400;
-    margin-left: 4px;
-  }
+      .ac {
+        color: #1e3a8a;
+      }
+      .am {
+        color: #0284c7;
+      }
+      .qmark {
+        font-family: 'JetBrains Mono', monospace;
+        color: #0284c7;
+        font-weight: 400;
+        margin-left: 4px;
+      }
 
-  /* ============ Slide top (headline + aside) ============ */
-  .s-top {
-    display: grid; grid-template-columns: 1fr auto;
-    gap: 32px; align-items: end;
-    margin-bottom: 22px;
-  }
-  .s-headline {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 29px; font-weight: 700; line-height: 1.5;
-    color: #0f172a; letter-spacing: 0.01em;
-  }
-  .s-aside {
-    font-size: 11.5px; color: #475569; line-height: 1.95;
-    max-width: 300px; text-align: right;
-  }
-  .s-aside strong { color: #1e3a8a; font-weight: 700; }
-  .s-aside .am { color: #0284c7; font-weight: 700; }
+      /* ============ Slide top (headline + aside) ============ */
+      .s-top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 32px;
+        align-items: end;
+        margin-bottom: 22px;
+      }
+      .s-headline {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 29px;
+        font-weight: 700;
+        line-height: 1.5;
+        color: #0f172a;
+        letter-spacing: 0.01em;
+      }
+      .s-aside {
+        font-size: 11.5px;
+        color: #475569;
+        line-height: 1.95;
+        max-width: 300px;
+        text-align: right;
+      }
+      .s-aside strong {
+        color: #1e3a8a;
+        font-weight: 700;
+      }
+      .s-aside .am {
+        color: #0284c7;
+        font-weight: 700;
+      }
 
-  /* ============ Card row ============ */
-  .card-row {
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-  }
-  .cards-2 {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-  .card3 {
-    border: 1px solid #cbd5e1;
-    background: #ffffff;
-    padding: 19px 21px;
-    position: relative;
-    display: flex; flex-direction: column;
-  }
-  .card3::before {
-    content: ''; position: absolute; left: -1px; top: 0; bottom: 0;
-    width: 2px; background: #1e3a8a;
-  }
-  .card3.dark::before { background: #0284c7; }
-  .card3 .c-tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; letter-spacing: 0.24em;
-    color: #1e3a8a; margin-bottom: 8px;
-  }
-  .card3.dark .c-tag { color: #0284c7; }
-  .card3 h4 {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 16px; font-weight: 700; line-height: 1.45;
-    color: #0f172a; margin-bottom: 8px;
-    letter-spacing: 0.02em;
-  }
-  .card3 p {
-    font-size: 11.5px; color: #475569; line-height: 1.85;
-  }
-  .card3 p strong { color: #1e3a8a; font-weight: 700; }
+      /* ============ Card row ============ */
+      .card-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .cards-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .card3 {
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        padding: 19px 21px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+      .card3::before {
+        content: '';
+        position: absolute;
+        left: -1px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #1e3a8a;
+      }
+      .card3.dark::before {
+        background: #0284c7;
+      }
+      .card3 .c-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        letter-spacing: 0.24em;
+        color: #1e3a8a;
+        margin-bottom: 8px;
+      }
+      .card3.dark .c-tag {
+        color: #0284c7;
+      }
+      .card3 h4 {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.45;
+        color: #0f172a;
+        margin-bottom: 8px;
+        letter-spacing: 0.02em;
+      }
+      .card3 p {
+        font-size: 11.5px;
+        color: #475569;
+        line-height: 1.85;
+      }
+      .card3 p strong {
+        color: #1e3a8a;
+        font-weight: 700;
+      }
 
-  /* Slide 5: SP pole emphasis */
-  .card3.sp {
-    border-color: #1e3a8a;
-    background: linear-gradient(180deg, rgba(30, 58, 138, 0.07) 0%, rgba(30, 58, 138, 0.015) 100%);
-  }
-  .card3.sp::before { width: 3px; }
-  .card3.sp h4 { color: #1e3a8a; }
-  .card3.sp .c-tag { color: #1e3a8a; }
+      /* Slide 5: SP pole emphasis */
+      .card3.sp {
+        border-color: #1e3a8a;
+        background: linear-gradient(
+          180deg,
+          rgba(30, 58, 138, 0.07) 0%,
+          rgba(30, 58, 138, 0.015) 100%
+        );
+      }
+      .card3.sp::before {
+        width: 3px;
+      }
+      .card3.sp h4 {
+        color: #1e3a8a;
+      }
+      .card3.sp .c-tag {
+        color: #1e3a8a;
+      }
 
-  /* ============ Solve band (dark reveal) ============ */
-  .solve {
-    margin-top: auto;
-    background: #1e3a8a;
-    border: 1px solid #1e3a8a;
-    padding: 22px 30px;
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 40px;
-  }
-  .solve .sv-main { flex: 1; }
-  .solve .sv-eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; color: #7dd3fc;
-    letter-spacing: 0.24em; margin-bottom: 8px;
-  }
-  .solve h3 {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 19px; font-weight: 700; line-height: 1.5;
-    color: #ffffff; margin-bottom: 9px;
-    letter-spacing: 0.02em;
-  }
-  .solve p {
-    font-size: 11.5px; color: #cbd5e1; line-height: 1.85;
-    max-width: 580px;
-  }
-  .solve .sv-points {
-    display: flex; flex-direction: column; gap: 9px;
-    flex-shrink: 0;
-  }
-  .solve .sv-points .pt {
-    font-size: 12px; color: #e2e8f0; font-weight: 500;
-    padding-left: 17px; position: relative;
-    letter-spacing: 0.02em;
-  }
-  .solve .sv-points .pt::before {
-    content: '\203A'; position: absolute; left: 0; top: -1px;
-    color: #7dd3fc; font-family: 'JetBrains Mono', monospace;
-    font-size: 13px;
-  }
+      /* ============ Solve band (dark reveal) ============ */
+      .solve {
+        margin-top: auto;
+        background: #1e3a8a;
+        border: 1px solid #1e3a8a;
+        padding: 22px 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 40px;
+      }
+      .solve .sv-main {
+        flex: 1;
+      }
+      .solve .sv-eyebrow {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        color: #7dd3fc;
+        letter-spacing: 0.24em;
+        margin-bottom: 8px;
+      }
+      .solve h3 {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 19px;
+        font-weight: 700;
+        line-height: 1.5;
+        color: #ffffff;
+        margin-bottom: 9px;
+        letter-spacing: 0.02em;
+      }
+      .solve p {
+        font-size: 11.5px;
+        color: #cbd5e1;
+        line-height: 1.85;
+        max-width: 580px;
+      }
+      .solve .sv-points {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        flex-shrink: 0;
+      }
+      .solve .sv-points .pt {
+        font-size: 12px;
+        color: #e2e8f0;
+        font-weight: 500;
+        padding-left: 17px;
+        position: relative;
+        letter-spacing: 0.02em;
+      }
+      .solve .sv-points .pt::before {
+        content: '\203A';
+        position: absolute;
+        left: 0;
+        top: -1px;
+        color: #7dd3fc;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+      }
 
-  /* ============ Slide 1: thesis (headline + net) ============ */
-  .s1-grid {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 1.05fr 1fr;
-    gap: 44px;
-    align-items: center;
-  }
-  .s1-pretitle {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px; color: #1e3a8a;
-    letter-spacing: 0.24em;
-    margin-bottom: 24px; line-height: 1.7;
-  }
-  .s1-headline {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 44px; font-weight: 900; line-height: 1.36;
-    color: #0f172a; letter-spacing: 0.005em;
-    margin-bottom: 26px;
-  }
-  .s1-headline .ac { color: #1e3a8a; }
-  .s1-lede {
-    font-size: 13.5px; color: #475569; line-height: 1.95;
-    max-width: 540px;
-    border-left: 2px solid #1e3a8a;
-    padding: 4px 0 4px 18px;
-  }
-  .s1-lede strong { color: #1e3a8a; font-weight: 700; }
-  .s1-lede .am { color: #0284c7; font-weight: 700; }
-  .s1-stamps {
-    margin-top: 28px;
-    display: flex; gap: 22px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; color: #64748b;
-    letter-spacing: 0.18em;
-  }
-  .s1-stamps .item .num {
-    color: #1e3a8a; font-size: 17px; font-weight: 600;
-    letter-spacing: 0.05em; display: block; margin-bottom: 2px;
-  }
-  .s1-stamps .item.dark .num { color: #0284c7; }
+      /* ============ Slide 1: thesis (headline + net) ============ */
+      .s1-grid {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1.05fr 1fr;
+        gap: 44px;
+        align-items: center;
+      }
+      .s1-pretitle {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10.5px;
+        color: #1e3a8a;
+        letter-spacing: 0.24em;
+        margin-bottom: 24px;
+        line-height: 1.7;
+      }
+      .s1-headline {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 44px;
+        font-weight: 900;
+        line-height: 1.36;
+        color: #0f172a;
+        letter-spacing: 0.005em;
+        margin-bottom: 26px;
+      }
+      .s1-headline .ac {
+        color: #1e3a8a;
+      }
+      .s1-lede {
+        font-size: 13.5px;
+        color: #475569;
+        line-height: 1.95;
+        max-width: 540px;
+        border-left: 2px solid #1e3a8a;
+        padding: 4px 0 4px 18px;
+      }
+      .s1-lede strong {
+        color: #1e3a8a;
+        font-weight: 700;
+      }
+      .s1-lede .am {
+        color: #0284c7;
+        font-weight: 700;
+      }
+      .s1-stamps {
+        margin-top: 28px;
+        display: flex;
+        gap: 22px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        color: #64748b;
+        letter-spacing: 0.18em;
+      }
+      .s1-stamps .item .num {
+        color: #1e3a8a;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        display: block;
+        margin-bottom: 2px;
+      }
+      .s1-stamps .item.dark .num {
+        color: #0284c7;
+      }
 
-  /* Net diagram */
-  .net { position: relative; width: 430px; height: 410px; margin: 0 auto; }
-  .net svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .net-node {
-    position: absolute; width: 156px; text-align: center;
-  }
-  .net-node .badge {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; letter-spacing: 0.2em;
-    margin-bottom: 4px; color: #64748b;
-  }
-  .net-node .jp {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 16px; font-weight: 700; color: #0f172a;
-    letter-spacing: 0.03em; line-height: 1.4;
-  }
-  .net-node.top { left: 137px; top: 6px; }
-  .net-node.bl  { left: 0; bottom: 30px; }
-  .net-node.br  { right: 0; bottom: 30px; }
-  .net-node.core {
-    left: 130px; top: 170px;
-    width: 170px;
-    background: #1e3a8a;
-    border: 1px solid #1e3a8a;
-    padding: 12px 10px 14px;
-  }
-  .net-node.core .badge { color: #7dd3fc; margin-bottom: 3px; }
-  .net-node.core .jp {
-    font-size: 21px; color: #ffffff; font-weight: 900;
-  }
+      /* Net diagram */
+      .net {
+        position: relative;
+        width: 430px;
+        height: 410px;
+        margin: 0 auto;
+      }
+      .net svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .net-node {
+        position: absolute;
+        width: 156px;
+        text-align: center;
+      }
+      .net-node .badge {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        letter-spacing: 0.2em;
+        margin-bottom: 4px;
+        color: #64748b;
+      }
+      .net-node .jp {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 16px;
+        font-weight: 700;
+        color: #0f172a;
+        letter-spacing: 0.03em;
+        line-height: 1.4;
+      }
+      .net-node.top {
+        left: 137px;
+        top: 6px;
+      }
+      .net-node.bl {
+        left: 0;
+        bottom: 30px;
+      }
+      .net-node.br {
+        right: 0;
+        bottom: 30px;
+      }
+      .net-node.core {
+        left: 130px;
+        top: 170px;
+        width: 170px;
+        background: #1e3a8a;
+        border: 1px solid #1e3a8a;
+        padding: 12px 10px 14px;
+      }
+      .net-node.core .badge {
+        color: #7dd3fc;
+        margin-bottom: 3px;
+      }
+      .net-node.core .jp {
+        font-size: 21px;
+        color: #ffffff;
+        font-weight: 900;
+      }
 
-  /* ============ Slide 3: Rete architecture ============ */
-  .rete-arch {
-    flex: 1; min-height: 0;
-    display: flex; flex-direction: column;
-    justify-content: center;
-    margin-bottom: 16px;
-  }
-  .menu-bar {
-    display: grid; grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-  }
-  .menu-tab {
-    border: 1px solid #cbd5e1;
-    border-bottom: none;
-    background: #ffffff;
-    padding: 18px 12px 20px;
-    text-align: center;
-  }
-  .menu-tab .mt-jp {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 15px; font-weight: 700; color: #0f172a;
-    letter-spacing: 0.03em;
-  }
-  .menu-tab .mt-en {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 8.5px; color: #64748b;
-    letter-spacing: 0.16em; margin-top: 5px;
-  }
-  .menu-tab.mock {
-    border-color: #0284c7;
-    background: linear-gradient(180deg, rgba(2, 132, 199, 0.12) 0%, rgba(2, 132, 199, 0.02) 100%);
-  }
-  .menu-tab.mock .mt-jp { color: #0284c7; }
-  .menu-tab.mock .mt-en { color: #0284c7; }
-  .menu-tab .mt-flag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 7.5px; color: #0284c7;
-    letter-spacing: 0.2em; margin-bottom: 6px;
-  }
-  .foundation-bar {
-    background: #1e3a8a;
-    border: 1px solid #1e3a8a;
-    padding: 20px 30px;
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 30px;
-  }
-  .foundation-bar .fb-main .fb-eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; color: #7dd3fc;
-    letter-spacing: 0.24em; margin-bottom: 7px;
-  }
-  .foundation-bar .fb-main .fb-jp {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 19px; font-weight: 700; color: #ffffff;
-    letter-spacing: 0.03em;
-  }
-  .foundation-bar .fb-note {
-    font-size: 11.5px; color: #cbd5e1; line-height: 1.8;
-    max-width: 340px; text-align: right;
-  }
+      /* ============ Slide 3: Rete architecture ============ */
+      .rete-arch {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin-bottom: 16px;
+      }
+      .menu-bar {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+      }
+      .menu-tab {
+        border: 1px solid #cbd5e1;
+        border-bottom: none;
+        background: #ffffff;
+        padding: 18px 12px 20px;
+        text-align: center;
+      }
+      .menu-tab .mt-jp {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: #0f172a;
+        letter-spacing: 0.03em;
+      }
+      .menu-tab .mt-en {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 8.5px;
+        color: #64748b;
+        letter-spacing: 0.16em;
+        margin-top: 5px;
+      }
+      .menu-tab.mock {
+        border-color: #0284c7;
+        background: linear-gradient(
+          180deg,
+          rgba(2, 132, 199, 0.12) 0%,
+          rgba(2, 132, 199, 0.02) 100%
+        );
+      }
+      .menu-tab.mock .mt-jp {
+        color: #0284c7;
+      }
+      .menu-tab.mock .mt-en {
+        color: #0284c7;
+      }
+      .menu-tab .mt-flag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 7.5px;
+        color: #0284c7;
+        letter-spacing: 0.2em;
+        margin-bottom: 6px;
+      }
+      .foundation-bar {
+        background: #1e3a8a;
+        border: 1px solid #1e3a8a;
+        padding: 20px 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 30px;
+      }
+      .foundation-bar .fb-main .fb-eyebrow {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        color: #7dd3fc;
+        letter-spacing: 0.24em;
+        margin-bottom: 7px;
+      }
+      .foundation-bar .fb-main .fb-jp {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 19px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 0.03em;
+      }
+      .foundation-bar .fb-note {
+        font-size: 11.5px;
+        color: #cbd5e1;
+        line-height: 1.8;
+        max-width: 340px;
+        text-align: right;
+      }
 
-  /* ============ Slide 6: conclusion flow ============ */
-  .c-flow {
-    display: grid; grid-template-columns: 1fr 34px 1fr 34px 1fr;
-    gap: 6px; align-items: stretch;
-    flex: 1; min-height: 0;
-    margin-bottom: 4px;
-  }
-  .flow-card {
-    background: #ffffff;
-    border: 1px solid #cbd5e1;
-    padding: 20px 22px 22px;
-    display: flex; flex-direction: column;
-    justify-content: center;
-  }
-  .flow-card.a { border-left: 2px solid #1e3a8a; }
-  .flow-card.b { border-left: 2px solid #0284c7; background: rgba(2, 132, 199, 0.04); }
-  .flow-card.c { border-left: 2px solid #1e3a8a; }
-  .flow-card .fl-tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px; letter-spacing: 0.2em;
-    margin-bottom: 10px;
-  }
-  .flow-card.a .fl-tag, .flow-card.c .fl-tag { color: #1e3a8a; }
-  .flow-card.b .fl-tag { color: #0284c7; }
-  .flow-card h4 {
-    font-family: 'Noto Serif JP', serif;
-    font-size: 17px; font-weight: 700; color: #0f172a;
-    line-height: 1.45; margin-bottom: 10px;
-    letter-spacing: 0.02em;
-  }
-  .flow-card p {
-    font-size: 11.5px; color: #475569; line-height: 1.85;
-  }
-  .flow-arrow {
-    align-self: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 22px; line-height: 1;
-    color: #1e3a8a; font-weight: 400;
-  }
+      /* ============ Slide 6: conclusion flow ============ */
+      .c-flow {
+        display: grid;
+        grid-template-columns: 1fr 34px 1fr 34px 1fr;
+        gap: 6px;
+        align-items: stretch;
+        flex: 1;
+        min-height: 0;
+        margin-bottom: 4px;
+      }
+      .flow-card {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        padding: 20px 22px 22px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .flow-card.a {
+        border-left: 2px solid #1e3a8a;
+      }
+      .flow-card.b {
+        border-left: 2px solid #0284c7;
+        background: rgba(2, 132, 199, 0.04);
+      }
+      .flow-card.c {
+        border-left: 2px solid #1e3a8a;
+      }
+      .flow-card .fl-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        letter-spacing: 0.2em;
+        margin-bottom: 10px;
+      }
+      .flow-card.a .fl-tag,
+      .flow-card.c .fl-tag {
+        color: #1e3a8a;
+      }
+      .flow-card.b .fl-tag {
+        color: #0284c7;
+      }
+      .flow-card h4 {
+        font-family: 'Noto Serif JP', serif;
+        font-size: 17px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.45;
+        margin-bottom: 10px;
+        letter-spacing: 0.02em;
+      }
+      .flow-card p {
+        font-size: 11.5px;
+        color: #475569;
+        line-height: 1.85;
+      }
+      .flow-arrow {
+        align-self: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        line-height: 1;
+        color: #1e3a8a;
+        font-weight: 400;
+      }
 
-  /* ============ Navigation ============ */
-  .nav {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: #0f172a; color: #ffffff;
-    border: 1px solid rgba(30, 58, 138, 0.35);
-    border-radius: 999px; padding: 8px 14px;
-    display: flex; align-items: center; gap: 14px;
-    z-index: 100;
-    box-shadow: 0 6px 24px rgba(30, 58, 138, 0.18);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; letter-spacing: 0.1em;
-  }
-  .nav button {
-    background: none; border: none; color: #ffffff; cursor: pointer;
-    width: 26px; height: 26px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; transition: background 0.2s;
-  }
-  .nav button:hover { background: rgba(255,255,255,0.1); }
-  .nav button:disabled { opacity: 0.3; cursor: default; }
-  .nav .reset {
-    border-left: 1px solid rgba(255,255,255,0.18);
-    padding-left: 12px; margin-left: 4px;
-    font-size: 10px; letter-spacing: 0.18em;
-    color: rgba(255,255,255,0.7);
-    display: flex; align-items: center; gap: 6px;
-    cursor: pointer;
-  }
-  .nav .reset .key {
-    background: rgba(255,255,255,0.12);
-    padding: 2px 6px; border-radius: 4px;
-    color: #ffffff;
-  }
-</style>
-</head>
-<body>
+      /* ============ Navigation ============ */
+      .nav {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0f172a;
+        color: #ffffff;
+        border: 1px solid rgba(30, 58, 138, 0.35);
+        border-radius: 999px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        z-index: 100;
+        box-shadow: 0 6px 24px rgba(30, 58, 138, 0.18);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+      }
+      .nav button {
+        background: none;
+        border: none;
+        color: #ffffff;
+        cursor: pointer;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: background 0.2s;
+      }
+      .nav button:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .nav button:disabled {
+        opacity: 0.3;
+        cursor: default;
+      }
+      .nav .reset {
+        border-left: 1px solid rgba(255, 255, 255, 0.18);
+        padding-left: 12px;
+        margin-left: 4px;
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        color: rgba(255, 255, 255, 0.7);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      .nav .reset .key {
+        background: rgba(255, 255, 255, 0.12);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="slides" id="slides">
+        <!-- ============ SLIDE 1: THESIS ============ -->
+        <div class="slide active" data-screen-label="01 Thesis">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">Rete 構想 — 連結軸：顧客と繋がりながら、システムを作る</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 主題</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 01 / 07</div>
+            </div>
+          </div>
 
-<div class="stage">
-  <div class="slides" id="slides">
+          <div class="s1-grid">
+            <div>
+              <div class="s1-pretitle">
+                STRUCT RETE — CONNECT FIRST, BUILD TOGETHER<br />rete：ラテン語・イタリア語で「網」
+              </div>
+              <h2 class="s1-headline">
+                Rete を<span class="ac">先に</span>入れ、<br />
+                顧客と繋がりながら作る
+              </h2>
+              <p class="s1-lede">
+                従来の開発は、出来上がってから見せる。Rete は順序を変える——
+                <strong>システムより先に、顧客との回線を通す</strong>。
+                関係者が同じ場所に集まり、<span class="am">本物の UI を見せながら</span>、
+                一緒に作っていく。それが Rete の根本コンセプト。
+              </p>
+              <div class="s1-stamps">
+                <div class="item"><span class="num">02</span>従来の課題</div>
+                <div class="item"><span class="num">03</span>繋ぐ手段</div>
+                <div class="item"><span class="num">04</span>本番環境</div>
+                <div class="item dark"><span class="num">05</span>モック</div>
+                <div class="item"><span class="num">06</span>第4の道</div>
+              </div>
+            </div>
 
-    <!-- ============ SLIDE 1: THESIS ============ -->
-    <div class="slide active" data-screen-label="01 Thesis">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">Rete 構想 — 連結軸：顧客と繋がりながら、システムを作る</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 主題</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 01 / 07</div>
-        </div>
-      </div>
+            <div class="net">
+              <svg viewBox="0 0 430 410" fill="none">
+                <!-- outer dashed ring -->
+                <circle
+                  cx="215"
+                  cy="205"
+                  r="150"
+                  stroke="#cbd5e1"
+                  stroke-width="0.8"
+                  stroke-dasharray="2 4"
+                  opacity="0.5"
+                />
+                <!-- mesh between outer nodes -->
+                <g stroke="#cbd5e1" stroke-width="0.8" stroke-dasharray="3 4" opacity="0.7">
+                  <line x1="215" y1="68" x2="78" y2="330" />
+                  <line x1="78" y1="330" x2="352" y2="330" />
+                  <line x1="352" y1="330" x2="215" y2="68" />
+                </g>
+                <!-- core hub to nodes (solid) -->
+                <g stroke="#1e3a8a" stroke-width="1.4" opacity="0.9">
+                  <line x1="215" y1="170" x2="215" y2="68" />
+                  <line x1="185" y1="238" x2="78" y2="330" />
+                  <line x1="245" y1="238" x2="352" y2="330" />
+                </g>
+                <!-- outer nodes -->
+                <g fill="#ffffff" stroke="#1e3a8a" stroke-width="1.6">
+                  <circle cx="215" cy="68" r="6.5" />
+                  <circle cx="78" cy="330" r="6.5" />
+                  <circle cx="352" cy="330" r="6.5" />
+                </g>
+              </svg>
 
-      <div class="s1-grid">
-        <div>
-          <div class="s1-pretitle">STRUCT RETE — CONNECT FIRST, BUILD TOGETHER<br>rete：ラテン語・イタリア語で「網」</div>
-          <h2 class="s1-headline">
-            Rete を<span class="ac">先に</span>入れ、<br>
-            顧客と繋がりながら作る
-          </h2>
-          <p class="s1-lede">
-            従来の開発は、出来上がってから見せる。Rete は順序を変える——
-            <strong>システムより先に、顧客との回線を通す</strong>。
-            関係者が同じ場所に集まり、<span class="am">本物の UI を見せながら</span>、
-            一緒に作っていく。それが Rete の根本コンセプト。
-          </p>
-          <div class="s1-stamps">
-            <div class="item"><span class="num">02</span>従来の課題</div>
-            <div class="item"><span class="num">03</span>繋ぐ手段</div>
-            <div class="item"><span class="num">04</span>本番環境</div>
-            <div class="item dark"><span class="num">05</span>モック</div>
-            <div class="item"><span class="num">06</span>第4の道</div>
+              <div class="net-node top">
+                <div class="badge">END USER</div>
+                <div class="jp">エンドユーザー</div>
+              </div>
+              <div class="net-node bl">
+                <div class="badge">VENDOR</div>
+                <div class="jp">ベンダー</div>
+              </div>
+              <div class="net-node br">
+                <div class="badge">CLIENT</div>
+                <div class="jp">顧客</div>
+              </div>
+              <div class="net-node core">
+                <div class="badge">THE CONNECTING NET</div>
+                <div class="jp">Rete</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / THESIS</span>
+            <span>01 / 07</span>
           </div>
         </div>
 
-        <div class="net">
-          <svg viewBox="0 0 430 410" fill="none">
-            <!-- outer dashed ring -->
-            <circle cx="215" cy="205" r="150" stroke="#cbd5e1" stroke-width="0.8" stroke-dasharray="2 4" opacity="0.5"/>
-            <!-- mesh between outer nodes -->
-            <g stroke="#cbd5e1" stroke-width="0.8" stroke-dasharray="3 4" opacity="0.7">
-              <line x1="215" y1="68" x2="78" y2="330"/>
-              <line x1="78" y1="330" x2="352" y2="330"/>
-              <line x1="352" y1="330" x2="215" y2="68"/>
-            </g>
-            <!-- core hub to nodes (solid) -->
-            <g stroke="#1e3a8a" stroke-width="1.4" opacity="0.9">
-              <line x1="215" y1="170" x2="215" y2="68"/>
-              <line x1="185" y1="238" x2="78" y2="330"/>
-              <line x1="245" y1="238" x2="352" y2="330"/>
-            </g>
-            <!-- outer nodes -->
-            <g fill="#ffffff" stroke="#1e3a8a" stroke-width="1.6">
-              <circle cx="215" cy="68" r="6.5"/>
-              <circle cx="78" cy="330" r="6.5"/>
-              <circle cx="352" cy="330" r="6.5"/>
-            </g>
-          </svg>
+        <!-- ============ SLIDE 2: THE PROBLEM ============ -->
+        <div class="slide" data-screen-label="02 Problem">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">従来開発の風景 — 出来上がるまで、見えない</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 課題</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 02 / 07</div>
+            </div>
+          </div>
 
-          <div class="net-node top">
-            <div class="badge">END USER</div>
-            <div class="jp">エンドユーザー</div>
+          <div class="s-top">
+            <div>
+              <div class="eyebrow">
+                <span class="dash"></span>
+                <span class="mono-tag">THE OLD LANDSCAPE · BUILD THEN SHOW</span>
+              </div>
+              <h2 class="s-headline">
+                従来の開発は、<br />
+                出来上がるまで<span class="ac">見えない</span><span class="qmark">?</span>
+              </h2>
+            </div>
+            <div class="s-aside">
+              設計書で想像し、関係者は<br />
+              バラバラのツールに分かれる。<strong>判断は、いつも後回し</strong>。
+            </div>
           </div>
-          <div class="net-node bl">
-            <div class="badge">VENDOR</div>
-            <div class="jp">ベンダー</div>
+
+          <div class="card-row">
+            <div class="card3">
+              <div class="c-tag">PROBLEM 01</div>
+              <h4>設計書が<br />主役になる</h4>
+              <p>
+                テキストと図で書かれた仕様。顧客は<strong>完成形を想像</strong>するしかなく、認識のズレに気づけない。
+              </p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">PROBLEM 02</div>
+              <h4>システムは<br />最後に登場する</h4>
+              <p>
+                触れるのは開発の終盤。出来上がって初めて違和感が見え、<strong>手戻りが大きく</strong>なる。
+              </p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">PROBLEM 03</div>
+              <h4>関係者が<br />分断される</h4>
+              <p>
+                ベンダー・顧客・エンドユーザーが Slack／Teams／メール／Excel
+                に分かれ、<strong>声が繋がらない</strong>。
+              </p>
+            </div>
           </div>
-          <div class="net-node br">
-            <div class="badge">CLIENT</div>
-            <div class="jp">顧客</div>
+
+          <div class="solve">
+            <div class="sv-main">
+              <div class="sv-eyebrow">THE RETE ANSWER</div>
+              <h3>だから——システムより先に、Rete を入れる。</h3>
+              <p>
+                関係者を同じ場所に集める回線を最初に通し、本物の UI
+                を見せながら作る。「想像してもらう」開発から、「触って決めてもらう」開発へ。
+              </p>
+            </div>
+            <div class="sv-points">
+              <div class="pt">先に繋ぐ</div>
+              <div class="pt">先に見せる</div>
+            </div>
           </div>
-          <div class="net-node core">
-            <div class="badge">THE CONNECTING NET</div>
-            <div class="jp">Rete</div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / THE PROBLEM</span>
+            <span>02 / 07</span>
           </div>
         </div>
-      </div>
 
-      <div class="foot">
-        <span>STRUCTPASS / RETE / THESIS</span>
-        <span>01 / 07</span>
+        <!-- ============ SLIDE 3: COMMUNICATION ============ -->
+        <div class="slide" data-screen-label="03 Communication">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">コミュニケーション統合 — 繋ぐ手段が、最初から1本に</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 連結</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 03 / 07</div>
+            </div>
+          </div>
+
+          <div class="s-top">
+            <div>
+              <div class="eyebrow">
+                <span class="dash"></span>
+                <span class="mono-tag">COMMUNICATION FIRST · ALL IN ONE BAR</span>
+              </div>
+              <h2 class="s-headline">
+                開発で最も重要なのは、<br />
+                コミュニケーション<span class="ac">手段</span>の確立
+              </h2>
+            </div>
+            <div class="s-aside">
+              チャットで<strong>動的に発信</strong>し、<br />
+              タスクで<strong>静的に管理</strong>し、<br />
+              ファイルで<strong>媒体を連携</strong>する。
+            </div>
+          </div>
+
+          <div class="rete-arch">
+            <div class="menu-bar">
+              <div class="menu-tab">
+                <div class="mt-jp">システム</div>
+                <div class="mt-en">REFERENCE</div>
+              </div>
+              <div class="menu-tab">
+                <div class="mt-jp">チャット</div>
+                <div class="mt-en">COMM</div>
+              </div>
+              <div class="menu-tab">
+                <div class="mt-jp">タスク</div>
+                <div class="mt-en">TASK</div>
+              </div>
+              <div class="menu-tab">
+                <div class="mt-jp">ファイル</div>
+                <div class="mt-en">FILE</div>
+              </div>
+              <div class="menu-tab mock">
+                <div class="mt-flag">＋ NEW</div>
+                <div class="mt-jp">モック</div>
+                <div class="mt-en">MOCK</div>
+              </div>
+            </div>
+            <div class="foundation-bar">
+              <div class="fb-main">
+                <div class="fb-eyebrow">INTEGRATED FROM THE START</div>
+                <div class="fb-jp">繋ぐ手段は、最初から 1 本に</div>
+              </div>
+              <div class="fb-note">
+                個別にツールを入れれば、組織ネットワークの壁も、導入の案内も、調整も、すべて 3
+                つ分。Rete は最初から統合されている。
+              </div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / COMMUNICATION</span>
+            <span>03 / 07</span>
+          </div>
+        </div>
+
+        <!-- ============ SLIDE 4: THE PRODUCTION GROUND ============ -->
+        <div class="slide" data-screen-label="04 Production Ground">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">本番環境という立地 — 繋がる場所に、最初に入る</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 立地</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 04 / 07</div>
+            </div>
+          </div>
+
+          <div class="s-top">
+            <div>
+              <div class="eyebrow">
+                <span class="dash"></span>
+                <span class="mono-tag">THE PRODUCTION GROUND · LOGIN BECOMES A HABIT</span>
+              </div>
+              <h2 class="s-headline">
+                Rete が動くのは、<br />
+                <span class="ac">本番環境</span>という立地
+              </h2>
+            </div>
+            <div class="s-aside">
+              「SaaS は不可」の組織も、<br />
+              本番環境への接続を<br />
+              <strong>止めることはない</strong>。
+            </div>
+          </div>
+
+          <div class="card-row">
+            <div class="card3">
+              <div class="c-tag">GROUND 01</div>
+              <h4>本番環境は、<br />必ず繋がる</h4>
+              <p>
+                各社・各組織が疎通を調整する場所。SaaS
+                に慎重な組織も、<strong>本番環境の接続は止めない</strong>。
+              </p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">GROUND 02</div>
+              <h4>その立地に、<br />最初に入る</h4>
+              <p>
+                繋がる場所だから先に置ける。<strong>本番環境にログインする習慣</strong>が、開発の早期から根づく。
+              </p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">GROUND 03</div>
+              <h4>システムは、<br />1つの追加に</h4>
+              <p>
+                本番投入の頃には、ログインもモックも手に馴染む。新システムは<strong>「コンテンツが1つ増える」</strong>だけ。
+              </p>
+            </div>
+          </div>
+
+          <div class="solve">
+            <div class="sv-main">
+              <div class="sv-eyebrow">THE PSYCHOLOGICAL DROP</div>
+              <h3>最後にログインするのではなく、習慣ができた後で動かす。</h3>
+              <p>
+                Rete
+                なら、ログインもモックも済んでいる——本番投入は、身構える瞬間ではなく、馴染んだ場所への小さな追加になる。
+              </p>
+            </div>
+            <div class="sv-points">
+              <div class="pt">受け入れハードル減</div>
+              <div class="pt">習慣が先、システムは後</div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / THE PRODUCTION GROUND</span>
+            <span>04 / 07</span>
+          </div>
+        </div>
+
+        <!-- ============ SLIDE 4: MOCK — UI-DRIVEN ============ -->
+        <div class="slide" data-screen-label="05 Mock">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">モック — 設計書より先に、本物の UI を見せる</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ モック</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 05 / 07</div>
+            </div>
+          </div>
+
+          <div class="s-top">
+            <div>
+              <div class="eyebrow dark">
+                <span class="dash"></span>
+                <span class="mono-tag dark">MOCK-FIRST · UI-DRIVEN DEVELOPMENT</span>
+              </div>
+              <h2 class="s-headline">
+                設計書より先に、<br />
+                <span class="am">本物の UI</span> を見せる
+              </h2>
+            </div>
+            <div class="s-aside">
+              ヘッダー右端の新タブ「モック」。<br />
+              要件定義・仕様調整・基本設計を<br />
+              <span class="am">「想像」から「実物確認」へ</span>反転させる。
+            </div>
+          </div>
+
+          <div class="card-row">
+            <div class="card3 dark">
+              <div class="c-tag">MOCK 01</div>
+              <h4>本物の UI を、<br />その場で</h4>
+              <p>
+                システム導入の前にモックを見せる。その場で<strong>変更し、挙動まで調整</strong>できる。
+              </p>
+            </div>
+            <div class="card3 dark">
+              <div class="c-tag">MOCK 02</div>
+              <h4>設計書が<br />なくても分かる</h4>
+              <p>Excel 出力まで実際に動く。<strong>仕様書を読まずに</strong>挙動を確認できる。</p>
+            </div>
+            <div class="card3 dark">
+              <div class="c-tag">MOCK 03</div>
+              <h4>要望は、その場で<br />チケットに</h4>
+              <p>顧客調整で出た声をメモ・<strong>チケット化</strong>。流れを止めず次へ繋ぐ。</p>
+            </div>
+          </div>
+
+          <div class="solve">
+            <div class="sv-main">
+              <div class="sv-eyebrow">R2 — RETE × REFERENCE</div>
+              <h3>Rete が場を繋ぎ、Reference が本物の UI を供給する。</h3>
+              <p>
+                その掛け算が、モック先行の
+                UIドリブン開発。動くものを前にした合意形成が、要件定義から基本設計までの流れを根本から変える。
+              </p>
+            </div>
+            <div class="sv-points">
+              <div class="pt">想像から実物確認へ</div>
+              <div class="pt">R2 ＝ UIドリブン</div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / MOCK × UI-DRIVEN</span>
+            <span>05 / 07</span>
+          </div>
+        </div>
+
+        <!-- ============ SLIDE 5: THE FOURTH WAY ============ -->
+        <div class="slide" data-screen-label="06 Fourth Way">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">第4の道 — 「仕様です」でも「追加見積もり」でもなく</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 立ち位置</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 06 / 07</div>
+            </div>
+          </div>
+
+          <div class="s-top">
+            <div>
+              <div class="eyebrow">
+                <span class="dash"></span>
+                <span class="mono-tag">THE FOURTH WAY · CUSTOMER IN CONTROL</span>
+              </div>
+              <h2 class="s-headline">
+                不満が出たとき、<br />
+                <span class="ac">自分たちで直せる</span>か
+              </h2>
+            </div>
+            <div class="s-aside">
+              SaaS／OSS／SI に並ぶ第4の道。<br />
+              違いは<strong>所有権とコントロール権</strong>に出る。
+            </div>
+          </div>
+
+          <div class="cards-2">
+            <div class="card3">
+              <div class="c-tag">MODEL — SAAS</div>
+              <h4>「仕様です」</h4>
+              <p>業界解像度は高くても、所有権はベンダー。不満は、仕様の壁になる。</p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">MODEL — OSS</div>
+              <h4>「設定で対応を」</h4>
+              <p>コードは公開でも実質はコミュニティ所有。運用責任が顧客に乗る。</p>
+            </div>
+            <div class="card3">
+              <div class="c-tag">MODEL — SI</div>
+              <h4>「追加見積もりです」</h4>
+              <p>顧客所有のカスタム実装。だが変更のたびにコストと時間がかかる。</p>
+            </div>
+            <div class="card3 sp">
+              <div class="c-tag">MODEL — SP（STRUCTPASS）</div>
+              <h4>「自分たちで直せます」</h4>
+              <p>業界知識を型に焼き込み、顧客が自分で直せる構造を保証する第4の道。</p>
+            </div>
+          </div>
+
+          <div class="solve">
+            <div class="sv-main">
+              <div class="sv-eyebrow">CUSTOMER IN CONTROL</div>
+              <h3>核心は「顧客が自分で直せる」——コントロール権。</h3>
+              <p>
+                標準化か、カスタムか。所有か、提供か。その対立軸を別の次元で統合したのが SP
+                モデル。顧客を主体として扱う構造が、Rete の全体を貫いている。
+              </p>
+            </div>
+            <div class="sv-points">
+              <div class="pt">コントロール権</div>
+              <div class="pt">ロックインなし</div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / THE FOURTH WAY</span>
+            <span>06 / 07</span>
+          </div>
+        </div>
+
+        <!-- ============ SLIDE 6: CONCLUSION ============ -->
+        <div class="slide" data-screen-label="07 Conclusion">
+          <div class="head">
+            <div class="head-left">
+              <div class="brand">Struct<span class="pass">Pass</span></div>
+              <div class="tagline">結語 — Rete が変える、開発の姿</div>
+            </div>
+            <div class="head-right">
+              <div class="tag-jp">Rete 構想 ／ 結語</div>
+              <div>Struct Pass · 2026</div>
+              <div>CONCEPT · 07 / 07</div>
+            </div>
+          </div>
+
+          <div class="s-top">
+            <div>
+              <div class="eyebrow dark">
+                <span class="dash"></span>
+                <span class="mono-tag dark">CONCLUSION · DEVELOPMENT, REDRAWN</span>
+              </div>
+              <h2 class="s-headline">Rete が変える、<span class="am">開発の姿</span></h2>
+            </div>
+            <div class="s-aside">
+              納品して終わる関係から、<br />
+              <strong>一緒に育てる関係</strong>へ。
+            </div>
+          </div>
+
+          <div class="c-flow">
+            <div class="flow-card a">
+              <div class="fl-tag">STEP · 先に繋ぐ</div>
+              <h4>システムより先に、<br />Rete を入れる</h4>
+              <p>関係者を同じ場所に集める回線を、開発の最初に通しておく。</p>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-card b">
+              <div class="fl-tag">STEP · 本物を見せる</div>
+              <h4>モックで、UI を<br />最初から見せる</h4>
+              <p>設計書で想像させない。動くものを前にして、触って決めてもらう。</p>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-card c">
+              <div class="fl-tag">STEP · 一緒に作る</div>
+              <h4>顧客が要望を出し、<br />自分で直せる</h4>
+              <p>開発は渡して終わりでなく、関係者の共同作業になっていく。</p>
+            </div>
+          </div>
+
+          <div class="solve">
+            <div class="sv-main">
+              <div class="sv-eyebrow">STRUCT RETE</div>
+              <h3>従来は出来上がってから見せる。Reteは、繋いだ後で一緒に作る。</h3>
+              <p>
+                設計書で想像させる開発から、実物を前にした合意形成へ。納品して終わる関係から、関係者が繋がりながら育てる関係へ。——その順序の逆転が、Reteが変えるものの全体。
+              </p>
+            </div>
+            <div class="sv-points">
+              <div class="pt">想像 → 実物確認</div>
+              <div class="pt">納品 → 共同育成</div>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span>STRUCTPASS / RETE / CONCLUSION</span>
+            <span>07 / 07</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ============ SLIDE 2: THE PROBLEM ============ -->
-    <div class="slide" data-screen-label="02 Problem">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">従来開発の風景 — 出来上がるまで、見えない</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 課題</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 02 / 07</div>
-        </div>
-      </div>
-
-      <div class="s-top">
-        <div>
-          <div class="eyebrow">
-            <span class="dash"></span>
-            <span class="mono-tag">THE OLD LANDSCAPE · BUILD THEN SHOW</span>
-          </div>
-          <h2 class="s-headline">
-            従来の開発は、<br>
-            出来上がるまで<span class="ac">見えない</span><span class="qmark">?</span>
-          </h2>
-        </div>
-        <div class="s-aside">
-          設計書で想像し、関係者は<br>
-          バラバラのツールに分かれる。<strong>判断は、いつも後回し</strong>。
-        </div>
-      </div>
-
-      <div class="card-row">
-        <div class="card3">
-          <div class="c-tag">PROBLEM 01</div>
-          <h4>設計書が<br>主役になる</h4>
-          <p>テキストと図で書かれた仕様。顧客は<strong>完成形を想像</strong>するしかなく、認識のズレに気づけない。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">PROBLEM 02</div>
-          <h4>システムは<br>最後に登場する</h4>
-          <p>触れるのは開発の終盤。出来上がって初めて違和感が見え、<strong>手戻りが大きく</strong>なる。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">PROBLEM 03</div>
-          <h4>関係者が<br>分断される</h4>
-          <p>ベンダー・顧客・エンドユーザーが Slack／Teams／メール／Excel に分かれ、<strong>声が繋がらない</strong>。</p>
-        </div>
-      </div>
-
-      <div class="solve">
-        <div class="sv-main">
-          <div class="sv-eyebrow">THE RETE ANSWER</div>
-          <h3>だから——システムより先に、Rete を入れる。</h3>
-          <p>関係者を同じ場所に集める回線を最初に通し、本物の UI を見せながら作る。「想像してもらう」開発から、「触って決めてもらう」開発へ。</p>
-        </div>
-        <div class="sv-points">
-          <div class="pt">先に繋ぐ</div>
-          <div class="pt">先に見せる</div>
-        </div>
-      </div>
-
-      <div class="foot">
-        <span>STRUCTPASS / RETE / THE PROBLEM</span>
-        <span>02 / 07</span>
-      </div>
+    <!-- Navigation -->
+    <div class="nav">
+      <button id="prev-btn" disabled>&#8249;</button>
+      <span><span id="current-page">1</span> / <span id="total-page">7</span></span>
+      <button id="next-btn">&#8250;</button>
+      <span class="reset" id="reset-btn">Reset <span class="key">R</span></span>
     </div>
 
-    <!-- ============ SLIDE 3: COMMUNICATION ============ -->
-    <div class="slide" data-screen-label="03 Communication">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">コミュニケーション統合 — 繋ぐ手段が、最初から1本に</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 連結</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 03 / 07</div>
-        </div>
-      </div>
+    <script>
+      const slides = document.querySelectorAll('.slide');
+      const prevBtn = document.getElementById('prev-btn');
+      const nextBtn = document.getElementById('next-btn');
+      const pageInfo = document.getElementById('current-page');
+      const resetBtn = document.getElementById('reset-btn');
+      let current = 0;
+      document.getElementById('total-page').textContent = slides.length;
 
-      <div class="s-top">
-        <div>
-          <div class="eyebrow">
-            <span class="dash"></span>
-            <span class="mono-tag">COMMUNICATION FIRST · ALL IN ONE BAR</span>
-          </div>
-          <h2 class="s-headline">
-            開発で最も重要なのは、<br>
-            コミュニケーション<span class="ac">手段</span>の確立
-          </h2>
-        </div>
-        <div class="s-aside">
-          チャットで<strong>動的に発信</strong>し、<br>
-          タスクで<strong>静的に管理</strong>し、<br>
-          ファイルで<strong>媒体を連携</strong>する。
-        </div>
-      </div>
+      function goTo(n) {
+        if (n < 0 || n >= slides.length) return;
+        slides[current].classList.remove('active');
+        current = n;
+        slides[current].classList.add('active');
+        pageInfo.textContent = current + 1;
+        prevBtn.disabled = current === 0;
+        nextBtn.disabled = current === slides.length - 1;
+        if (history.replaceState) history.replaceState(null, '', '#' + (current + 1));
+        notify();
+      }
 
-      <div class="rete-arch">
-        <div class="menu-bar">
-          <div class="menu-tab">
-            <div class="mt-jp">システム</div>
-            <div class="mt-en">REFERENCE</div>
-          </div>
-          <div class="menu-tab">
-            <div class="mt-jp">チャット</div>
-            <div class="mt-en">COMM</div>
-          </div>
-          <div class="menu-tab">
-            <div class="mt-jp">タスク</div>
-            <div class="mt-en">TASK</div>
-          </div>
-          <div class="menu-tab">
-            <div class="mt-jp">ファイル</div>
-            <div class="mt-en">FILE</div>
-          </div>
-          <div class="menu-tab mock">
-            <div class="mt-flag">＋ NEW</div>
-            <div class="mt-jp">モック</div>
-            <div class="mt-en">MOCK</div>
-          </div>
-        </div>
-        <div class="foundation-bar">
-          <div class="fb-main">
-            <div class="fb-eyebrow">INTEGRATED FROM THE START</div>
-            <div class="fb-jp">繋ぐ手段は、最初から 1 本に</div>
-          </div>
-          <div class="fb-note">
-            個別にツールを入れれば、組織ネットワークの壁も、導入の案内も、調整も、すべて 3 つ分。Rete は最初から統合されている。
-          </div>
-        </div>
-      </div>
+      prevBtn.addEventListener('click', () => goTo(current - 1));
+      nextBtn.addEventListener('click', () => goTo(current + 1));
+      resetBtn.addEventListener('click', () => goTo(0));
 
-      <div class="foot">
-        <span>STRUCTPASS / RETE / COMMUNICATION</span>
-        <span>03 / 07</span>
-      </div>
-    </div>
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+          e.preventDefault();
+          goTo(current + 1);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          goTo(current - 1);
+        } else if (e.key === 'r' || e.key === 'R') {
+          goTo(0);
+        }
+      });
 
-    <!-- ============ SLIDE 4: THE PRODUCTION GROUND ============ -->
-    <div class="slide" data-screen-label="04 Production Ground">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">本番環境という立地 — 繋がる場所に、最初に入る</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 立地</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 04 / 07</div>
-        </div>
-      </div>
+      function scaleSlides() {
+        const slidesEl = document.getElementById('slides');
+        const wScale = window.innerWidth / 1320;
+        const hScale = (window.innerHeight - 90) / 820;
+        const scale = Math.max(0.3, Math.min(wScale, hScale, 1));
+        slidesEl.style.setProperty('--scale', scale);
+      }
+      window.addEventListener('resize', scaleSlides);
+      scaleSlides();
 
-      <div class="s-top">
-        <div>
-          <div class="eyebrow">
-            <span class="dash"></span>
-            <span class="mono-tag">THE PRODUCTION GROUND · LOGIN BECOMES A HABIT</span>
-          </div>
-          <h2 class="s-headline">
-            Rete が動くのは、<br>
-            <span class="ac">本番環境</span>という立地
-          </h2>
-        </div>
-        <div class="s-aside">
-          「SaaS は不可」の組織も、<br>
-          本番環境への接続を<br>
-          <strong>止めることはない</strong>。
-        </div>
-      </div>
+      function applyHash() {
+        const m = (window.location.hash || '').match(/^#(\d+)$/);
+        if (m) {
+          const n = parseInt(m[1], 10) - 1;
+          if (n >= 0 && n < slides.length) goTo(n);
+        }
+      }
+      window.addEventListener('hashchange', applyHash);
+      applyHash();
 
-      <div class="card-row">
-        <div class="card3">
-          <div class="c-tag">GROUND 01</div>
-          <h4>本番環境は、<br>必ず繋がる</h4>
-          <p>各社・各組織が疎通を調整する場所。SaaS に慎重な組織も、<strong>本番環境の接続は止めない</strong>。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">GROUND 02</div>
-          <h4>その立地に、<br>最初に入る</h4>
-          <p>繋がる場所だから先に置ける。<strong>本番環境にログインする習慣</strong>が、開発の早期から根づく。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">GROUND 03</div>
-          <h4>システムは、<br>1つの追加に</h4>
-          <p>本番投入の頃には、ログインもモックも手に馴染む。新システムは<strong>「コンテンツが1つ増える」</strong>だけ。</p>
-        </div>
-      </div>
-
-      <div class="solve">
-        <div class="sv-main">
-          <div class="sv-eyebrow">THE PSYCHOLOGICAL DROP</div>
-          <h3>最後にログインするのではなく、習慣ができた後で動かす。</h3>
-          <p>Rete なら、ログインもモックも済んでいる——本番投入は、身構える瞬間ではなく、馴染んだ場所への小さな追加になる。</p>
-        </div>
-        <div class="sv-points">
-          <div class="pt">受け入れハードル減</div>
-          <div class="pt">習慣が先、システムは後</div>
-        </div>
-      </div>
-
-      <div class="foot">
-        <span>STRUCTPASS / RETE / THE PRODUCTION GROUND</span>
-        <span>04 / 07</span>
-      </div>
-    </div>
-
-    <!-- ============ SLIDE 4: MOCK — UI-DRIVEN ============ -->
-    <div class="slide" data-screen-label="05 Mock">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">モック — 設計書より先に、本物の UI を見せる</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ モック</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 05 / 07</div>
-        </div>
-      </div>
-
-      <div class="s-top">
-        <div>
-          <div class="eyebrow dark">
-            <span class="dash"></span>
-            <span class="mono-tag dark">MOCK-FIRST · UI-DRIVEN DEVELOPMENT</span>
-          </div>
-          <h2 class="s-headline">
-            設計書より先に、<br>
-            <span class="am">本物の UI</span> を見せる
-          </h2>
-        </div>
-        <div class="s-aside">
-          ヘッダー右端の新タブ「モック」。<br>
-          要件定義・仕様調整・基本設計を<br>
-          <span class="am">「想像」から「実物確認」へ</span>反転させる。
-        </div>
-      </div>
-
-      <div class="card-row">
-        <div class="card3 dark">
-          <div class="c-tag">MOCK 01</div>
-          <h4>本物の UI を、<br>その場で</h4>
-          <p>システム導入の前にモックを見せる。その場で<strong>変更し、挙動まで調整</strong>できる。</p>
-        </div>
-        <div class="card3 dark">
-          <div class="c-tag">MOCK 02</div>
-          <h4>設計書が<br>なくても分かる</h4>
-          <p>Excel 出力まで実際に動く。<strong>仕様書を読まずに</strong>挙動を確認できる。</p>
-        </div>
-        <div class="card3 dark">
-          <div class="c-tag">MOCK 03</div>
-          <h4>要望は、その場で<br>チケットに</h4>
-          <p>顧客調整で出た声をメモ・<strong>チケット化</strong>。流れを止めず次へ繋ぐ。</p>
-        </div>
-      </div>
-
-      <div class="solve">
-        <div class="sv-main">
-          <div class="sv-eyebrow">R2 — RETE × REFERENCE</div>
-          <h3>Rete が場を繋ぎ、Reference が本物の UI を供給する。</h3>
-          <p>その掛け算が、モック先行の UIドリブン開発。動くものを前にした合意形成が、要件定義から基本設計までの流れを根本から変える。</p>
-        </div>
-        <div class="sv-points">
-          <div class="pt">想像から実物確認へ</div>
-          <div class="pt">R2 ＝ UIドリブン</div>
-        </div>
-      </div>
-
-      <div class="foot">
-        <span>STRUCTPASS / RETE / MOCK × UI-DRIVEN</span>
-        <span>05 / 07</span>
-      </div>
-    </div>
-
-    <!-- ============ SLIDE 5: THE FOURTH WAY ============ -->
-    <div class="slide" data-screen-label="06 Fourth Way">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">第4の道 — 「仕様です」でも「追加見積もり」でもなく</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 立ち位置</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 06 / 07</div>
-        </div>
-      </div>
-
-      <div class="s-top">
-        <div>
-          <div class="eyebrow">
-            <span class="dash"></span>
-            <span class="mono-tag">THE FOURTH WAY · CUSTOMER IN CONTROL</span>
-          </div>
-          <h2 class="s-headline">
-            不満が出たとき、<br>
-            <span class="ac">自分たちで直せる</span>か
-          </h2>
-        </div>
-        <div class="s-aside">
-          SaaS／OSS／SI に並ぶ第4の道。<br>
-          違いは<strong>所有権とコントロール権</strong>に出る。
-        </div>
-      </div>
-
-      <div class="cards-2">
-        <div class="card3">
-          <div class="c-tag">MODEL — SAAS</div>
-          <h4>「仕様です」</h4>
-          <p>業界解像度は高くても、所有権はベンダー。不満は、仕様の壁になる。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">MODEL — OSS</div>
-          <h4>「設定で対応を」</h4>
-          <p>コードは公開でも実質はコミュニティ所有。運用責任が顧客に乗る。</p>
-        </div>
-        <div class="card3">
-          <div class="c-tag">MODEL — SI</div>
-          <h4>「追加見積もりです」</h4>
-          <p>顧客所有のカスタム実装。だが変更のたびにコストと時間がかかる。</p>
-        </div>
-        <div class="card3 sp">
-          <div class="c-tag">MODEL — SP（STRUCTPASS）</div>
-          <h4>「自分たちで直せます」</h4>
-          <p>業界知識を型に焼き込み、顧客が自分で直せる構造を保証する第4の道。</p>
-        </div>
-      </div>
-
-      <div class="solve">
-        <div class="sv-main">
-          <div class="sv-eyebrow">CUSTOMER IN CONTROL</div>
-          <h3>核心は「顧客が自分で直せる」——コントロール権。</h3>
-          <p>標準化か、カスタムか。所有か、提供か。その対立軸を別の次元で統合したのが SP モデル。顧客を主体として扱う構造が、Rete の全体を貫いている。</p>
-        </div>
-        <div class="sv-points">
-          <div class="pt">コントロール権</div>
-          <div class="pt">ロックインなし</div>
-        </div>
-      </div>
-
-      <div class="foot">
-        <span>STRUCTPASS / RETE / THE FOURTH WAY</span>
-        <span>06 / 07</span>
-      </div>
-    </div>
-
-    <!-- ============ SLIDE 6: CONCLUSION ============ -->
-    <div class="slide" data-screen-label="07 Conclusion">
-      <div class="head">
-        <div class="head-left">
-          <div class="brand">Struct<span class="pass">Pass</span></div>
-          <div class="tagline">結語 — Rete が変える、開発の姿</div>
-        </div>
-        <div class="head-right">
-          <div class="tag-jp">Rete 構想 ／ 結語</div>
-          <div>Struct Pass · 2026</div>
-          <div>CONCEPT · 07 / 07</div>
-        </div>
-      </div>
-
-      <div class="s-top">
-        <div>
-          <div class="eyebrow dark">
-            <span class="dash"></span>
-            <span class="mono-tag dark">CONCLUSION · DEVELOPMENT, REDRAWN</span>
-          </div>
-          <h2 class="s-headline">
-            Rete が変える、<span class="am">開発の姿</span>
-          </h2>
-        </div>
-        <div class="s-aside">
-          納品して終わる関係から、<br>
-          <strong>一緒に育てる関係</strong>へ。
-        </div>
-      </div>
-
-      <div class="c-flow">
-        <div class="flow-card a">
-          <div class="fl-tag">STEP · 先に繋ぐ</div>
-          <h4>システムより先に、<br>Rete を入れる</h4>
-          <p>関係者を同じ場所に集める回線を、開発の最初に通しておく。</p>
-        </div>
-        <div class="flow-arrow">&rarr;</div>
-        <div class="flow-card b">
-          <div class="fl-tag">STEP · 本物を見せる</div>
-          <h4>モックで、UI を<br>最初から見せる</h4>
-          <p>設計書で想像させない。動くものを前にして、触って決めてもらう。</p>
-        </div>
-        <div class="flow-arrow">&rarr;</div>
-        <div class="flow-card c">
-          <div class="fl-tag">STEP · 一緒に作る</div>
-          <h4>顧客が要望を出し、<br>自分で直せる</h4>
-          <p>開発は渡して終わりでなく、関係者の共同作業になっていく。</p>
-        </div>
-      </div>
-
-      <div class="solve">
-        <div class="sv-main">
-          <div class="sv-eyebrow">STRUCT RETE</div>
-          <h3>従来は出来上がってから見せる。Reteは、繋いだ後で一緒に作る。</h3>
-          <p>設計書で想像させる開発から、実物を前にした合意形成へ。納品して終わる関係から、関係者が繋がりながら育てる関係へ。——その順序の逆転が、Reteが変えるものの全体。</p>
-        </div>
-        <div class="sv-points">
-          <div class="pt">想像 → 実物確認</div>
-          <div class="pt">納品 → 共同育成</div>
-        </div>
-      </div>
-
-      <div class="foot">
-        <span>STRUCTPASS / RETE / CONCLUSION</span>
-        <span>07 / 07</span>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- Navigation -->
-<div class="nav">
-  <button id="prev-btn" disabled>&#8249;</button>
-  <span><span id="current-page">1</span> / <span id="total-page">7</span></span>
-  <button id="next-btn">&#8250;</button>
-  <span class="reset" id="reset-btn">Reset <span class="key">R</span></span>
-</div>
-
-<script>
-  const slides = document.querySelectorAll('.slide');
-  const prevBtn = document.getElementById('prev-btn');
-  const nextBtn = document.getElementById('next-btn');
-  const pageInfo = document.getElementById('current-page');
-  const resetBtn = document.getElementById('reset-btn');
-  let current = 0;
-  document.getElementById('total-page').textContent = slides.length;
-
-  function goTo(n) {
-    if (n < 0 || n >= slides.length) return;
-    slides[current].classList.remove('active');
-    current = n;
-    slides[current].classList.add('active');
-    pageInfo.textContent = current + 1;
-    prevBtn.disabled = current === 0;
-    nextBtn.disabled = current === slides.length - 1;
-    if (history.replaceState) history.replaceState(null, '', '#' + (current + 1));
-    notify();
-  }
-
-  prevBtn.addEventListener('click', () => goTo(current - 1));
-  nextBtn.addEventListener('click', () => goTo(current + 1));
-  resetBtn.addEventListener('click', () => goTo(0));
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
-    else if (e.key === 'r' || e.key === 'R') { goTo(0); }
-  });
-
-  function scaleSlides() {
-    const slidesEl = document.getElementById('slides');
-    const wScale = window.innerWidth / 1320;
-    const hScale = (window.innerHeight - 90) / 820;
-    const scale = Math.max(0.3, Math.min(wScale, hScale, 1));
-    slidesEl.style.setProperty('--scale', scale);
-  }
-  window.addEventListener('resize', scaleSlides);
-  scaleSlides();
-
-  function applyHash() {
-    const m = (window.location.hash || '').match(/^#(\d+)$/);
-    if (m) {
-      const n = parseInt(m[1], 10) - 1;
-      if (n >= 0 && n < slides.length) goTo(n);
-    }
-  }
-  window.addEventListener('hashchange', applyHash);
-  applyHash();
-
-  function notify() {
-    try { window.parent.postMessage({ slideIndexChanged: current }, '*'); } catch(e) {}
-  }
-  notify();
-</script>
-</body>
+      function notify() {
+        try {
+          window.parent.postMessage({ slideIndexChanged: current }, '*');
+        } catch (e) {}
+      }
+      notify();
+    </script>
+  </body>
 </html>
