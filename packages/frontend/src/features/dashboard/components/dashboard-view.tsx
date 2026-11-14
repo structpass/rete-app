@@ -11,6 +11,7 @@ import { cn, formatDate, formatDateTime } from '@/lib/utils';
 import { highlightMatches } from '@/lib/highlight';
 import { Pagination } from '@/components/shared/pagination';
 import { PageTitle } from '@/components/shared/page-title';
+import { ActionButton, ListActionRow } from '@/components/shared/list-actions';
 import { RichTextView } from '@/features/desk/components/rich-text-view';
 import { AttachmentChip } from '@/features/desk/components/attachment-chip';
 import { Avatar } from '@/features/desk/components/desk-avatar';
@@ -18,7 +19,6 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useDeleteConfirm } from '@/hooks/use-delete-confirm';
 import { useRowHoverBand } from '@/hooks/use-row-hover-band';
 import { Spinner } from '@/components/ui/spinner';
-import { Button } from '@/components/ui/button';
 import { downloadFile } from '@/features/files/lib/api';
 import { TagIcon } from '@/components/tags/tag-icon';
 import { Badge } from '@/components/ui/badge';
@@ -563,79 +563,72 @@ export function DashboardView({ kind = 'board' }: { kind?: AnnouncementTagKind }
     <main className="dashboard-shell sp-page flex flex-col overflow-hidden">
       <PageTitle title={kindLabel} className="shrink-0" />
 
-      {/* ツールバー: 検索（中央）+ タグフィルタ（検索右）+ 管理ボタン（右端・ADMIN のみ）。
-          rete-home-0014: 検索入力を Desk 明細の .desk-filter-keyword 様式へ統一し、行の中央に配置
-          （新規登録は absolute 右寄せにして中央寄せのオフセットを生まない）。
-          rete-home-0015: 新規登録は塗りつぶしを撤去し、背景なし副次ボタン（ink）へ。
-          rete-home-0043: TagFilterDropdown を検索の右に追加。タグ管理ボタンを新規登録と並べて配置。
-          hom-0134: 新規登録を検索行の外側段（右寄せ・gap=1.5）へ出して「検索」と「登録」を別系統として
-          視線分離。absolute 配置を撤廃し自然な flex-col で段を1段ずらす（layout shift 防止）。 */}
-      {/* cmn-0145: 検索＋新規登録の縦段から表ヘッダ罫線までの間隔を 4px（mb-1）へ統一。
-          hom-0134 の段構造・gap-1.5 は不変。 */}
-      <div className="mb-1 flex shrink-0 flex-col gap-1.5">
-        <div className="flex items-center justify-center gap-1.5">
-          <div className="desk-filter-keyword" style={{ width: '14rem' }}>
-            <Search className="h-3.5 w-3.5" aria-hidden="true" />
-            <input
-              type="search"
-              placeholder="タイトル・内容で検索..."
-              aria-label="通知を検索"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              // 検索ボックスの ESC は値クリア（Desk 明細と同挙動 / rete-desk-0023 系）。
-              // フォーム側 window Esc ハンドラへの伝搬を止め、二重発火を防ぐ（code-review HIGH）。
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
-                  setQuery('');
-                  e.stopPropagation();
-                }
-              }}
-            />
-          </div>
-          {/* タグ絞り込みドロップダウン（rete-home-0043）。タグ 0 件時は自動非表示。 */}
-          <TagFilterDropdown
-            tags={tagMaster.tags}
-            active={tagFilter}
-            loading={tagMaster.loading}
-            onToggle={toggleTagFilter}
-            onClear={clearTagFilter}
+      {/* フィルタエリア: 検索（中央）+ タグフィルタ（検索右）+ クリア。
+          rete-home-0014: 検索入力を Desk 明細の .desk-filter-keyword 様式へ統一し、行の中央に配置。
+          hom-0134: 検索行とアクション行を別系統に分ける（視線分離）。
+          d1273: 配置は Desk を正本にする＝「検索フィルタ行 → 表直上のアクション行 → 表」の順で、
+          ボタンは絞り込み帯の中に混ぜず独立行へ出す。行は共通部品 ListActionRow（表ヘッダ罫線まで
+          4px・cmn-0145）を使い、権限でボタンが出ない閲覧のみの人でも行の高さを確保して表の位置を
+          動かさない（開発統括指示 2026-11-12）。 */}
+      <div className="flex shrink-0 items-center justify-center gap-1.5">
+        <div className="desk-filter-keyword" style={{ width: '14rem' }}>
+          <Search className="h-3.5 w-3.5" aria-hidden="true" />
+          <input
+            type="search"
+            placeholder="タイトル・内容で検索..."
+            aria-label="通知を検索"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            // 検索ボックスの ESC は値クリア（Desk 明細と同挙動 / rete-desk-0023 系）。
+            // フォーム側 window Esc ハンドラへの伝搬を止め、二重発火を防ぐ（code-review HIGH）。
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
+                setQuery('');
+                e.stopPropagation();
+              }
+            }}
           />
-          {/* hom-0081: 検索キーワード＋タグ絞り込みを一括解除。Desk 明細フィルタバーの
-              「クリア」ボタン（.desk-filter-clear・RotateCcw+ラベル）と同じ意匠。 */}
-          <button
-            type="button"
-            className="desk-filter-clear home-filter-clear"
-            title="フィルタをクリア"
-            aria-label="検索・タグ絞り込みをクリア"
+        </div>
+        {/* タグ絞り込みドロップダウン（rete-home-0043）。タグ 0 件時は自動非表示。 */}
+        <TagFilterDropdown
+          tags={tagMaster.tags}
+          active={tagFilter}
+          loading={tagMaster.loading}
+          onToggle={toggleTagFilter}
+          onClear={clearTagFilter}
+        />
+        {/* hom-0081: 検索キーワード＋タグ絞り込みを一括解除。Desk 明細フィルタバーの
+            「クリア」ボタン（.desk-filter-clear・RotateCcw+ラベル）と同じ意匠。 */}
+        <button
+          type="button"
+          className="desk-filter-clear home-filter-clear"
+          title="フィルタをクリア"
+          aria-label="検索・タグ絞り込みをクリア"
+          onClick={() => {
+            setQuery('');
+            clearTagFilter();
+          }}
+        >
+          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="desk-filter-icon-label">クリア</span>
+        </button>
+      </div>
+      {/* 表直上のアクション行。行とボタンは共通部品（Desk・設定一覧と同じ寸法・同じ 4px）。
+          閲覧のみの人はボタンが無いが、行は残して高さを確保する＝表の開始位置が動かない。 */}
+      <ListActionRow>
+        {isAdmin && (
+          <ActionButton
+            icon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+            ariaLabel="新規登録"
             onClick={() => {
-              setQuery('');
-              clearTagFilter();
+              setEditor({ mode: 'create' });
             }}
           >
-            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="desk-filter-icon-label">クリア</span>
-          </button>
-        </div>
-        {/* hom-0052: 生<button>を Button primitive（variant=sp-action）へ統一。hom-0134 はここから
-            独立行（justify-end）へ。search 行は中央寄せのまま・段を分けた別系統の操作として視線分離。 */}
-        {isAdmin && (
-          <div className="flex items-center justify-end gap-1">
-            {/* hom-0059: タグ管理ボタンはサイドバー foot（AppSidebar）へ移設。ツールバーには登録のみ残す。 */}
-            <Button
-              type="button"
-              variant="sp-action"
-              size="sp-compact"
-              onClick={() => {
-                setEditor({ mode: 'create' });
-              }}
-            >
-              {/* hom-0071: 掲示板の登録ボタンのみラベルを「新規登録」へ変更（Deskは指示範囲外のため据え置き）。 */}
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              新規登録
-            </Button>
-          </div>
+            {/* hom-0071: 掲示板の登録ボタンのみラベルを「新規登録」へ変更（Deskは指示範囲外のため据え置き）。 */}
+            新規登録
+          </ActionButton>
         )}
-      </div>
+      </ListActionRow>
 
       <div
         className="grid flex-1 gap-4"

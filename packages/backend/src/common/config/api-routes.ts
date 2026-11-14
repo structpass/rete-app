@@ -7,7 +7,7 @@
  * 残る」のどちらかが無言で起きるため、両者が同じ定数を参照する形にし、実パスとの一致は
  * accounts.controller.spec.ts の回帰テストがコントローラのメタデータ経由で固定する。
  *
- * 許可されるルート集合・オリジン集合は ref-0037 時点から不変（表現のみの変更）。
+ * 許可するオリジンの集合は CORS_ORIGIN の 1 つ（d1264/d1265 でクロスサービス許可を撤去）。
  *
  * auth/guards の `/api/v1` 直書き（ip-allowlist / mfa-enforcement / password-change-enforcement）と
  * audit-log.interceptor・oidc-config.factory の同義リテラルは cmn-0182 で本ファイルへ寄せ済み。
@@ -36,9 +36,10 @@ export const buildApiPath = (...segments: string[]): string =>
   `/${[API_GLOBAL_PREFIX, ...segments].join('/')}`;
 
 /**
- * クロスサービス CORS（CROSS_SERVICE_CORS_ORIGIN のオリジンにも開くルート）の対象。
- * ここに載っているルートだけが reference frontend から直接 fetch 可能になる。
+ * クロスサービス CORS（別サービス frontend のオリジンにも開くルート）の対象。
+ * ここに載っているルートだけが他サービスのブラウザから直接 fetch 可能になる。
+ *
+ * 現在は対象ルートが無い（d1264/d1265 で Reference の写しを廃止したため空配列）。
+ * 追加許可オリジン自体を配線していないので、ここへルートを足すだけでは何も開かない。
  */
-export const CROSS_SERVICE_ROUTES: readonly string[] = [
-  buildApiPath(ACCOUNTS_CONTROLLER_PATH, ACCOUNTS_DISPLAY_PREFERENCE_PATH),
-];
+export const CROSS_SERVICE_ROUTES: readonly string[] = [];

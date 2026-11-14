@@ -65,6 +65,8 @@ const REQUIRED_TESTS = [
   'check-ci-workflow.test.mjs',
   'check-constraint-drift.test.mjs',
   'check-duplication.test.mjs',
+  'check-docker-noninteractive.test.mjs',
+  'check-docker-patches.test.mjs',
   'check-css-tokens.test.mjs',
   'check-e2e-step-arg-resolution.test.mjs',
   'check-e2e-type-check-scope.test.mjs',
@@ -72,6 +74,7 @@ const REQUIRED_TESTS = [
   'check-inventory-demo.test.mjs',
   'check-prisma-client-engine.test.mjs',
   'check-publish-export.test.mjs',
+  'check-release-candidate.test.mjs',
   // d1139: 新しい検査 2 本（d1101 の raw SQL 置き場所・d1085 の Service/Repository 境界）が
   // 名簿から漏れていた。実行は自動探索で走るため「実行漏れ」にはならないが、改名・削除で
   // 検査が静かに消えることを検出できない＝新設したら名簿へ追記する（この節の冒頭の約束）。
@@ -106,6 +109,7 @@ const PUBLISH_DIR = join(SCRIPTS_DIR, 'publish');
 const SNAPSHOT_EXCLUDED_TESTS = new Map([
   ['check-adr-index.test.mjs', 'docs/decisions/（社内の決定記録）を公開物に含めない'],
   ['check-publish-export.test.mjs', 'scripts/publish/（公開生成ツール）ごと除外'],
+  ['check-release-candidate.test.mjs', 'scripts/publish/（公開候補の生成と昇格）ごと除外'],
   ['production-storage.test.mjs', 'deploy/scripts/（本番配備スクリプト）を公開物に含めない'],
 ]);
 export const snapshotExcludes = (name) =>
@@ -221,8 +225,8 @@ export function expectRunnerExit(outcomes) {
       if (exit !== 0) problems.push(`${name}（失敗: 出口 ${exit}）`);
       continue;
     }
-    if (summary.fail > 0) {
-      problems.push(`${name}（失敗 ${summary.fail} 件）`);
+    if (exit !== 0 || summary.fail > 0) {
+      problems.push(`${name}（失敗 ${summary.fail} 件・出口 ${exit}）`);
       continue;
     }
     const written = countTestsIn(file);
@@ -237,7 +241,9 @@ export function expectRunnerExit(outcomes) {
       );
       continue;
     }
-    const ran = summary.pass + summary.fail;
+    // Explicit skips are registered outcomes, not successful assertions. Include
+    // them only when checking whether every declared test produced an outcome.
+    const ran = summary.pass + summary.fail + summary.skipped;
     if (ran < written) {
       problems.push(
         `${name}（書いた ${written} 件のうち ${ran} 件しか走っていない。` +
@@ -295,7 +301,7 @@ export function readTapSummary(tap) {
   };
   const pass = num('pass');
   const fail = num('fail');
-  return pass == null || fail == null ? null : { pass, fail };
+  return pass == null || fail == null ? null : { pass, fail, skipped: num('skipped') ?? 0 };
 }
 
 /**

@@ -35,4 +35,21 @@ describe('DeskTaskToolbar', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['分類設定', '新規登録']);
   });
+
+  // d1273: 行とボタンは一覧共通部品。Desk だけ別寸法（1.75rem / 0.75rem / 600）だったのを
+  // File・Home と同じ透明系の共通寸法（.sp-action-btn）へ揃えた。
+  it('表直上のアクション行として共通クラスで組む（d1273・Desk と他の一覧で寸法を揃える）', () => {
+    const { container } = renderToolbar();
+    const row = container.querySelector('.sp-list-action-row');
+    expect(row).not.toBeNull();
+    // 右寄せグループの中にボタンが 2 つ入る＝行の外へはみ出さない。
+    const group = row!.querySelector('.sp-list-action-row-actions');
+    expect(group).not.toBeNull();
+    expect(group!.querySelectorAll('button')).toHaveLength(2);
+    for (const btn of screen.getAllByRole('button')) {
+      expect(btn).toHaveClass('sp-action-btn');
+      // 旧 .desk-task-new-btn の独自寸法（1.75rem / weight 600）を復活させない。
+      expect(btn.className).not.toContain('desk-task-new-btn');
+    }
+  });
 });

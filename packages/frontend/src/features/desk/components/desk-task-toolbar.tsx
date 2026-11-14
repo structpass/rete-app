@@ -1,6 +1,7 @@
 'use client';
 
 import { Plus, Settings } from 'lucide-react';
+import { ActionButton, ListActionRow } from '@/components/shared/list-actions';
 
 interface DeskTaskToolbarProps {
   /** 新規登録ボタン押下時のハンドラ（タスク新規登録モードを開く / C-新規）。 */
@@ -10,34 +11,31 @@ interface DeskTaskToolbarProps {
 }
 
 /**
- * タスク明細の新規登録ツールバー（モック desk/index.html .desk-task-tree-toolbar 移植）。
- * 検索/フィルタトールバー直下・右寄せに「分類設定」「新規登録」ボタンを置く。新規登録は onCreate
- * （タスク新規登録モード / data-left-view="detail" is-creating の TaskCreateOverlay）、
- * 分類設定は onOpenCategorySettings（CategorySettingsDialog・新規登録の左隣 / rete-desk-0140）。
+ * タスク明細の右上アクション行（分類設定・新規登録）。
+ *
+ * d1273: 行とボタンは一覧共通部品（components/shared/list-actions.tsx）へ寄せた。
+ * フィルタエリアの直下・表の直上に右寄せで置き、表ヘッダ罫線まで 4px（cmn-0145）。
+ * 独立定義だった `.desk-task-tree-toolbar` / `.desk-task-new-btn`（高さ 1.75rem・文字 0.75rem・
+ * weight 600）は廃止し、Desk・File・Home の表右上ボタンを同じ寸法（2rem / 0.8125rem / 500）に
+ * 揃えた。ボタンの有無で行の高さが変わらないのは共通クラス（min-height）が担保する。
  */
 export function DeskTaskToolbar({ onCreate, onOpenCategorySettings }: DeskTaskToolbarProps) {
   return (
-    <div className="desk-task-tree-toolbar">
-      <button
-        type="button"
-        className="desk-task-new-btn"
-        title="分類設定"
-        aria-label="分類設定"
+    <ListActionRow>
+      <ActionButton
+        icon={<Settings className="h-3.5 w-3.5" aria-hidden="true" />}
+        ariaLabel="分類設定"
         onClick={onOpenCategorySettings}
       >
-        <Settings className="desk-task-new-btn-icon h-3.5 w-3.5" aria-hidden="true" />
-        <span>分類設定</span>
-      </button>
-      <button
-        type="button"
-        className="desk-task-new-btn"
-        title="新規登録"
-        aria-label="新規登録"
+        分類設定
+      </ActionButton>
+      <ActionButton
+        icon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+        ariaLabel="新規登録"
         onClick={onCreate}
       >
-        <Plus className="desk-task-new-btn-icon h-3.5 w-3.5" aria-hidden="true" />
-        <span>新規登録</span>
-      </button>
-    </div>
+        新規登録
+      </ActionButton>
+    </ListActionRow>
   );
 }

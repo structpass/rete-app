@@ -364,6 +364,67 @@ describe('validateDatabasePoolLimits（cmn-0251）', () => {
   });
 });
 
+// d1269: RP 起点ログアウトの戻り先（post_logout_redirect_uris の本番検査）。
+// 誤設定（URL でない・localhost 宛）だと、ログアウト後に戻れないまま完了画面で止まる。
+describe('post_logout_redirect_uris の本番検査（d1269）', () => {
+  let envBackup: NodeJS.ProcessEnv;
+  const KEYS = [
+    'NODE_ENV',
+    'OIDC_GMIS_CLIENT_SECRET',
+    'OIDC_GMIS_REDIRECT_URIS',
+    'OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS',
+  ];
+
+  beforeEach(() => {
+    envBackup = { ...process.env };
+    for (const key of KEYS) delete process.env[key];
+  });
+
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (envBackup[key] === undefined) delete process.env[key];
+      else process.env[key] = envBackup[key];
+    }
+  });
+
+  function prepare(postLogout: string): string[] {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(40);
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
+    process.env.OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS = postLogout;
+    return validateOidcRpInProduction(OIDC_GMIS_RP);
+  }
+
+  it('正しい https の戻り先は通す', () => {
+    expect(prepare('https://gmis.example.com/login?logout=1')).toEqual([]);
+  });
+
+  it('URL 形式でない値は起動エラーの理由になる', () => {
+    expect(prepare('not a url').join('\n')).toMatch(/有効な URL 形式ではありません/);
+  });
+
+  it('localhost 宛は本番で使えない（戻れない設定ミスを起動時に止める）', () => {
+    expect(prepare('http://127.0.0.1:4188/login?logout=1').join('\n')).toMatch(
+      /localhost 宛のため本番では使用できません/,
+    );
+  });
+
+  it('未設定は通す（provider は戻り先を受け取らず完了画面で止まるだけ）', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'a'.repeat(40);
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'https://gmis.example.com/api/auth/callback';
+    expect(validateOidcRpInProduction(OIDC_GMIS_RP)).toEqual([]);
+  });
+
+  it('戻り先 env を持たない Reference は対象外（設定しても検査しない）', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OIDC_REFERENCE_CLIENT_SECRET = 'a'.repeat(40);
+    process.env.OIDC_REFERENCE_REDIRECT_URIS = 'https://ref.example.com/cb';
+    process.env.OIDC_REFERENCE_POST_LOGOUT_REDIRECT_URIS = 'http://127.0.0.1:3000/login';
+    expect(validateOidcRpInProduction(OIDC_REFERENCE_RP)).toEqual([]);
+  });
+});
+
 // d1213: RP の本番検査は OIDC_RP_DEFINITIONS を回す 1 本。表へ RP を足せば検査も自動で追随する
 // （以前は main.ts が RP ごとに検査を写経しており、3 つ目の RP が素通りした＝fail-open）。
 describe('validateOidcRpSecretsInProduction（表が SSOT・d1213）', () => {

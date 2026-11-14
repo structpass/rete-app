@@ -9,6 +9,7 @@ WORKDIR /app
 
 # Copy workspace configuration
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY patches ./patches
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
@@ -63,6 +64,7 @@ WORKDIR /app
 
 # Copy workspace config
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY patches ./patches
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
@@ -75,10 +77,12 @@ COPY --from=build /app/packages/backend/tsconfig.json ./packages/backend/tsconfi
 # アプリ本体と同じく dist から走る。
 COPY --from=build /app/packages/backend/dist-seed ./packages/backend/dist-seed
 
-# Install all dependencies, generate Prisma client, then prune to prod only
-RUN pnpm install --frozen-lockfile \
-    && pnpm --filter @rete/backend prisma:generate \
-    && pnpm install --frozen-lockfile --prod
+# Install all dependencies, generate Prisma client, then prune to prod only.
+# CI=true は pnpm 10 の「TTY が無いまま node_modules を作り直す」確認を止めるため（実測: これが
+# 無いと --prod の pruning が ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY で落ち、配布が止まる）。
+RUN CI=true pnpm install --frozen-lockfile \
+    && CI=true pnpm --filter @rete/backend prisma:generate \
+    && CI=true pnpm install --frozen-lockfile --prod
 
 # Copy built shared package
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist

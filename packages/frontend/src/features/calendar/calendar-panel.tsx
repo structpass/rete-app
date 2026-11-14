@@ -2,6 +2,7 @@
 import { ChevronLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { CalendarEventSummary } from '@rete/shared';
 import { Button } from '@/components/ui/button';
+import { ActionButton } from '@/components/shared/list-actions';
 import type { UseTagMasterResult } from '@/hooks/use-tag-master';
 import type { CalendarEditor } from './use-calendar-editor';
 import { localInput } from './calendar-dates';
@@ -96,19 +97,27 @@ function CalendarList({
 }: Props) {
   return (
     <div hidden={e.panel !== 'list'} className="calendar-list-panel">
-      <div className="calendar-list-actions">
+      {/* d1273: 表（予定一覧）の右上アクション行。行・ボタンは一覧共通部品
+          （components/shared/list-actions.tsx）を使い、Desk・掲示板・FAQ と同じ寸法・同じ
+          表ヘッダ罫線まで 4px に揃える。見出し「スケジュール」は一覧名として行の左に残す。
+          権限が無くボタンが出ない時も行の高さは残す＝予定一覧の開始位置が動かない。 */}
+      <div className="calendar-list-actions sp-list-action-row">
         <h2 className="calendar-list-heading">スケジュール</h2>
-        {dayFilter && (
-          <Button variant="ghost" onClick={onClearDay}>
-            {dayFilter.replaceAll('-', '/')} ×
-          </Button>
-        )}
-        {canEdit && (
-          <Button variant="ghost" onClick={() => e.create()} disabled={e.busy}>
-            <Plus size={16} />
-            新規登録
-          </Button>
-        )}
+        <div className="sp-list-action-row-actions">
+          {dayFilter && (
+            <ActionButton onClick={onClearDay}>{dayFilter.replaceAll('-', '/')} ×</ActionButton>
+          )}
+          {canEdit && (
+            <ActionButton
+              icon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+              ariaLabel="新規登録"
+              onClick={() => e.create()}
+              disabled={e.busy}
+            >
+              新規登録
+            </ActionButton>
+          )}
+        </div>
       </div>
       <div className="calendar-list-scroll">
         <table className="sp-table calendar-list">

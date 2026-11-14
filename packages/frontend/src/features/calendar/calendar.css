@@ -1,19 +1,29 @@
 .calendar-page {
-  font-family: Verdana, Meiryo, sans-serif;
   font-variant-numeric: lining-nums tabular-nums;
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  gap: 12px;
+  /* 段間は共通トークン（正本=モデルタブ 画面構成「一覧画面」）。タイトル→フィルタ→本体を同じ値で積む。 */
+  gap: var(--sp-section-gap);
   overflow: hidden;
 }
+/* d1273: Verdana は暦の数字（日付・時刻）の字幅を揃えるための指定で、画面全体に効かせると
+   右の予定一覧と右上アクション行のボタンまで Verdana になり、Desk・File・Home の同じ位置の
+   ボタン（本文フォント Geist / Noto Sans JP）と字面が揃わなくなる。暦の本体（左の月・週グリッド）
+   に限定し、右の予定一覧と操作行は本文フォントを継承させる。 */
 .calendar-filter {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
   flex-shrink: 0;
+}
+/* PageTitle は自前で下余白 mb-3（12px）を持つため、ページの gap と重なると 24px になる。
+   カレンダーの段間は --sp-section-gap の 1 値に一本化するので、先頭（タイトル）の下余白は
+   gap 側へ任せて打ち消す（正本=モデルタブ 画面構成「一覧画面」の段構成・d1272）。 */
+.calendar-page > :first-child {
+  margin-bottom: 0;
 }
 .calendar-filter > input {
   width: 280px;
@@ -33,6 +43,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* 暦の数字を等幅で揃える（d1273 でページ全体から左の暦グリッドへ限定）。 */
+  font-family: Verdana, Meiryo, sans-serif;
 }
 .calendar-toolbar {
   display: flex;
@@ -257,14 +269,13 @@
 .calendar-list-panel[hidden] {
   display: none;
 }
+/* d1273: 予定一覧の右上アクション行。行の高さ（min-height 2rem）・右寄せ・表ヘッダ罫線まで
+   の間隔（margin-bottom 4px）は一覧共通クラス .sp-list-action-row / -actions（globals.css）が
+   持ち、ここは「見出しを左に残す」レイアウトだけを持つ（Desk・掲示板・FAQ と同じ寸法に揃える）。 */
 .calendar-list-actions {
-  display: flex;
-  flex-wrap: wrap;
+  justify-content: space-between;
   gap: 4px;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 42px;
-  padding: 4px 10px;
+  padding: 0;
 }
 .calendar-list-heading {
   margin: 0 auto 0 0;

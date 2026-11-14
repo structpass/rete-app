@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import session from 'express-session';
 import passport from 'passport';
 import { AppModule } from './app.module';
-import { createCorsMiddleware } from './common/security/cors.middleware';
+import { createCorsMiddleware, oidcIssuerOrigin } from './common/security/cors.middleware';
 import { createSessionStore } from './common/session/session-store.config';
 import {
   assertValidNodeEnv,
@@ -14,7 +14,7 @@ import {
   validateDatabasePoolLimits,
   validateOidcRpSecretsInProduction,
 } from './common/config/env-validation';
-import { API_GLOBAL_PREFIX, CROSS_SERVICE_ROUTES } from './common/config/api-routes';
+import { API_GLOBAL_PREFIX } from './common/config/api-routes';
 import { parseMfaTotpEncKey } from './common/security/secret-crypto';
 import { throttleBypassEnabled } from './common/security/throttle-skip';
 
@@ -125,30 +125,30 @@ async function bootstrap() {
 
   // セキュリティヘッダー
   // crossOriginResourcePolicy: helmet 既定値 same-origin だと、CORS で明示許可した origin
-  // からの正当な fetch すら CORP でブロックされる（ref-0037・実機検証で発見）。同一 site（port 違いのみ、
+  // からの正当な fetch すら CORP でブロックされる（実機検証で発見）。同一 site（port 違いのみ、
   // または本番で同一 registrable domain のサブドメイン）からの読み込みは通し、真に無関係なオリジンからの
   // 埋め込みは引き続き CORP でブロックする same-site を採用（security-reviewer 指摘: cross-origin まで
   // 緩めると任意オリジンに対して Spectre 系サイドチャネル対策が失われる。同一 site でない別ドメイン構成の
-  // 場合は SameSite=Lax cookie 自体が届かず本機能はフォールバックするだけなので cross-origin まで緩める理由はない）。
+  // 場合は SameSite=Lax cookie 自体が届かないため cross-origin まで緩める理由はない）。
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
 
   // CORS設定（カンマ区切りで複数オリジン対応）
   const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000';
   const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
 
-  // ref-0037: reference frontend が表示設定 API を直接 fetch するためのクロスサービス許可。
-  // 対象ルートだけに限定する（security-reviewer 指摘: enableCors のグローバル allowlist に
-  // 混ぜると reference 侵害時の blast radius が accounts/tasks/chat 等の全API・全操作に及ぶ）。
-  const crossServiceOrigins = (process.env.CROSS_SERVICE_CORS_ORIGIN || '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-  // 対象ルートは共有定数（common/config/api-routes.ts）から組み立てる。コントローラ側の
-  // デコレータも同じ定数を参照し、実パスとの一致は accounts.controller.spec.ts が固定する（cmn-0132）。
-  const crossServiceRoutes = CROSS_SERVICE_ROUTES;
-
   // 判定と expose ヘッダの本体は common/security/cors.middleware.ts（spec で固定するため切り出し）。
-  app.use(createCorsMiddleware({ allowedOrigins, crossServiceOrigins, crossServiceRoutes }));
+  // d1264/d1265: Reference の表示設定の写しを廃止したため、クロスサービス限定の追加許可
+  // （CROSS_SERVICE_CORS_ORIGIN と対象ルート CROSS_SERVICE_ROUTES）は配線ごと撤去した。
+  // d1269: 同一オリジン判定の根拠に「自分の公開オリジン（OIDC_ISSUER のオリジン）」を渡す。
+  // リバプロが Host を書き換えても end_session の確認フォーム（同一オリジン POST）が通る。
+  app.use(
+    createCorsMiddleware({
+      allowedOrigins,
+      sameOrigins: [oidcIssuerOrigin(process.env.OIDC_ISSUER, process.env.PORT)].filter(
+        (origin): origin is string => typeof origin === 'string',
+      ),
+    }),
+  );
 
   // express-session + passport（Rete 自身のログイン session）。
   // OIDC provider は自前 cookie + adapter で session を持つため、これは Hub 等アプリ側の認証用。

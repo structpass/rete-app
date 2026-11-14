@@ -7,6 +7,7 @@ import { SessionSerializer } from './session.serializer';
 import { AccountRepository } from './repositories/account.repository';
 import { InteractionController } from './oidc/interaction.controller';
 import { OidcPurgeService } from './oidc/oidc-purge.service';
+import { OidcSessionLogoutService } from './oidc/oidc-session-logout.service';
 import { LOGIN_LOCKOUT_CONFIG, resolveLoginLockoutConfig } from './login-lockout.config';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { MfaModule } from '../mfa';
@@ -30,6 +31,8 @@ import { LoginSettingsModule } from '../login-settings';
     LocalStrategy,
     SessionSerializer,
     OidcPurgeService,
+    // d1269: logout で oidc-provider の SSO セッションも終わらせる（署名検証つき）。
+    OidcSessionLogoutService,
     // H6: ログイン試行ロックアウトの閾値（env 上書き可・既定 5 回 / 15 分）。
     { provide: LOGIN_LOCKOUT_CONFIG, useFactory: () => resolveLoginLockoutConfig() },
   ],

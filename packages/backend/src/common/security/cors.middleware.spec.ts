@@ -4,20 +4,22 @@ import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { AllExceptionsFilter } from '../filters/http-exception.filter';
-import { createCorsMiddleware, EXPOSED_RESPONSE_HEADERS } from './cors.middleware';
+import {
+  createCorsMiddleware,
+  EXPOSED_RESPONSE_HEADERS,
+  oidcIssuerOrigin,
+} from './cors.middleware';
 
 /**
  * CORS ミドルウェアの単体テストと、503（混雑）経路との結合テスト。
  *
  * ここで検証すること:
- * - 許可オリジンにだけ CORS ヘッダを付けること（クロスサービスは対象ルート限定）。
+ * - 許可オリジンにだけ CORS ヘッダを付けること（許可は全ルート共通の 1 集合）。
  * - Retry-After が Access-Control-Expose-Headers に載ること（載らないとブラウザ JS から読めない）。
  * - 実応答と preflight の両方で expose が返ること。
  * - 結合: 503 を返す実際の例外経路（AllExceptionsFilter）が Retry-After を立て、同じ応答に
  *   expose ヘッダが載っている＝クライアントが再送目安を読める状態になっていること。
  */
-
-const ROUTES = ['/api/settings/display'] as const;
 
 function makeRes() {
   const headers: Record<string, string> = {};
@@ -54,8 +56,6 @@ function run(req: Request, res: ReturnType<typeof makeRes>['res']): jest.Mock {
   const next = jest.fn() as unknown as NextFunction;
   const middleware = createCorsMiddleware({
     allowedOrigins: ['http://localhost:3010'],
-    crossServiceOrigins: ['http://localhost:3000'],
-    crossServiceRoutes: ROUTES,
   });
   middleware(req, res as unknown as Response, next);
   return next as unknown as jest.Mock;
@@ -125,16 +125,72 @@ describe('createCorsMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it('クロスサービスのオリジンは対象ルートでだけ許可される', () => {
-    const crossOrigin = { origin: 'http://localhost:3000' };
+  it('ルート単位の追加許可は無い（旧クロスサービス対象ルートでも別オリジンは許可されない）', () => {
+    // d1264/d1265: reference の表示設定の写しを廃止し、クロスサービス許可を撤去した。
+    // 旧対象ルートだけが例外的に開く状態へ戻っていないことを、当時のパスで固定する。
+    const { res, headers } = makeRes();
 
-    const onTarget = makeRes();
-    run(makeReq({ path: ROUTES[0], headers: crossOrigin } as Partial<Request>), onTarget.res);
-    expect(onTarget.headers['Access-Control-Allow-Origin']).toBe('http://localhost:3000');
+    run(
+      makeReq({
+        path: '/api/v1/accounts/me/display-preference',
+        headers: { origin: 'http://localhost:3000' },
+      } as Partial<Request>),
+      res,
+    );
 
-    const offTarget = makeRes();
-    run(makeReq({ path: '/api/tasks', headers: crossOrigin } as Partial<Request>), offTarget.res);
-    expect(offTarget.headers['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
+
+  // d1269: oidc-provider の end_session 確認フォームは backend 自身が返す HTML で、送信先も backend
+  // 自身（同一オリジン）。form POST には Origin が付くため、許可オリジン（frontend）だけを見ていると
+  // 403 で止まり、RP 起点のログアウトが完了しない。
+  it('同一オリジン（Origin のホスト:ポートが Host と一致）の状態変更要求は通す（d1269）', () => {
+    const { res, headers } = makeRes();
+
+    const next = run(
+      makeReq({
+        method: 'POST',
+        path: '/api/v1/oidc/session/end/confirm',
+        headers: { origin: 'http://localhost:3011', host: 'localhost:3011' },
+      } as Partial<Request>),
+      res,
+    );
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
+
+  it('別オリジン（同じホストでもポートが違う）は同一オリジン扱いにしない', () => {
+    const { res } = makeRes();
+
+    const next = run(
+      makeReq({
+        method: 'POST',
+        headers: { origin: 'http://localhost:4010', host: 'localhost:3011' },
+      } as Partial<Request>),
+      res,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  // d1269: Referrer-Policy が no-referrer の文書からの form POST は `Origin: null` になる（実測）。
+  // null は「同一オリジン」ではないので、状態変更要求を通してはいけない（任意の no-referrer
+  // ページから状態変更できる穴になる）。画面側は same-origin を明示して実 Origin を送らせる。
+  it('Origin: null（不透明オリジン）の状態変更要求は 403 で拒否する', () => {
+    const { res } = makeRes();
+
+    const next = run(
+      makeReq({
+        method: 'POST',
+        headers: { origin: 'null', host: 'localhost:3011' },
+      } as Partial<Request>),
+      res,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('preflight（OPTIONS）でも expose ヘッダを返し 204 で終える', () => {
@@ -202,6 +258,95 @@ describe('createCorsMiddleware', () => {
     }
   });
 
+  // d1269: 同一オリジン判定の根拠は「設定として知っている自分の公開オリジン」を第一にする。
+  // リバプロが Host を上流名へ書き換えても end_session の確認フォーム（同一オリジン POST）が通る。
+  it('sameOrigins に載っている自分の公開オリジンは Host が違っても通す（プロキシの Host 書換に耐える）', () => {
+    const { res, headers } = makeRes();
+    const next = jest.fn() as unknown as NextFunction;
+    createCorsMiddleware({
+      allowedOrigins: ['http://localhost:3010'],
+      sameOrigins: ['http://localhost:3011'],
+    })(
+      makeReq({
+        method: 'POST',
+        headers: { origin: 'http://localhost:3011', host: 'rete-prod-backend:3011' },
+      } as Partial<Request>),
+      res as unknown as Response,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledTimes(1);
+    // 同一オリジンは CORS の外なので CORS ヘッダは付けない（許可オリジン扱いにしない）。
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
+
+  it('sameOrigins を設定しても、載っていない別オリジンの状態変更は拒否する', () => {
+    const { res } = makeRes();
+    const next = jest.fn() as unknown as NextFunction;
+    createCorsMiddleware({
+      allowedOrigins: ['http://localhost:3010'],
+      sameOrigins: ['http://localhost:3011'],
+    })(
+      makeReq({
+        method: 'POST',
+        headers: { origin: 'http://localhost:9999', host: 'localhost:3011' },
+      } as Partial<Request>),
+      res as unknown as Response,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('oidcIssuerOrigin は OIDC_ISSUER のオリジンを返し、未設定なら provider 既定を使う', () => {
+    expect(oidcIssuerOrigin('https://rete.example.com/api/v1/oidc', '3011')).toBe(
+      'https://rete.example.com',
+    );
+    expect(oidcIssuerOrigin(undefined, '3011')).toBe('http://localhost:3011');
+    expect(oidcIssuerOrigin('not a url', '3011')).toBeUndefined();
+  });
+
+  // d1269: Origin: null の専用分岐に判別力を持たせる。CORS_ORIGIN の誤設定などで 'null' が
+  // 許可一覧へ紛れ込んでも、不透明オリジンからの状態変更は通さない（分岐を消すとここが落ちる）。
+  it('allowedOrigins に null が混ざっていても、Origin: null の状態変更は拒否する', () => {
+    const { res } = makeRes();
+    const next = jest.fn() as unknown as NextFunction;
+    createCorsMiddleware({ allowedOrigins: ['null'] })(
+      makeReq({
+        method: 'POST',
+        headers: { origin: 'null', host: 'localhost:3011' },
+      } as Partial<Request>),
+      res as unknown as Response,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  // d1269: 同一オリジン判定は scheme も見る。https のホストを http で開いたページ（ダウングレード・
+  // ホスト乗っ取り）が同一オリジン扱いにならないこと。
+  it('scheme が違う同一ホストは同一オリジン扱いにしない', () => {
+    const { res } = makeRes();
+    const next = jest.fn() as unknown as NextFunction;
+    createCorsMiddleware({
+      allowedOrigins: ['http://localhost:3010'],
+      sameOrigins: ['https://rete.example.com'],
+    })(
+      makeReq({
+        method: 'POST',
+        secure: true,
+        headers: { origin: 'http://rete.example.com', host: 'rete.example.com' },
+      } as unknown as Partial<Request>),
+      res as unknown as Response,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
   // 上のテスト群は「ミドルウェアの中身」しか見ない＝main.ts から app.use を消しても全部緑になる。
   // 配線が生きていることは bootstrap のソースを文字列で pin して守る（bootstrap は起動副作用が
   // 大きく import できないため、この形が最も安い）。
@@ -220,7 +365,9 @@ describe('createCorsMiddleware', () => {
     const mainSource = readFileSync(join(__dirname, '../../main.ts'), 'utf8');
 
     const helmetIdx = mainSource.indexOf('app.use(helmet(');
-    const corsIdx = mainSource.indexOf('app.use(createCorsMiddleware(');
+    // d1269: 配線が複数行になった（sameOrigins を渡す）ため、改行を許す正規表現で位置を取る。
+    const corsMatch = /app\.use\(\s*createCorsMiddleware\(/.exec(mainSource);
+    const corsIdx = corsMatch ? corsMatch.index : -1;
     const sessionIdx = mainSource.search(/app\.use\(\s*session\(/);
     expect(helmetIdx).toBeGreaterThanOrEqual(0);
     expect(corsIdx).toBeGreaterThanOrEqual(0);

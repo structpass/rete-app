@@ -978,7 +978,12 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           [
             '帯',
             '透明地・枠なしの flex 横一列（箱で囲わない）',
-            '.desk-filter-bar.is-static.sp-filter-bar（gap 0.375rem・margin-bottom 0.25rem＝cmn-0145 で 4px 基準に統一）',
+            '.desk-filter-bar.is-static.sp-filter-bar（gap 0.375rem・margin-bottom 0.25rem＝次の要素が表ヘッダに接するアクション行の時の値・cmn-0145）',
+          ],
+          [
+            '表との距離',
+            '帯と表の間に操作ボタンを挟まない。表に接するのは帯ではなくアクション行（本テーマは帯の中身だけを持ち、段の位置は画面構成「一覧画面」が持つ）',
+            '帯 → アクション行 → 表 の順（d1273・Desk 基準）。帯からアクション行までは画面側の段間（Desk・掲示板・FAQ は 0〜4px、設定の一覧系は 4px・祝日設定は 6px、ページ全体を gap で積むカレンダーは 12px）・行から表まで 4px（cmn-0145）。帯の中に新規登録などを戻すと、Desk・設定一覧・掲示板・FAQ・カレンダーで並びが揃わなくなる',
           ],
           [
             '検索窓',
@@ -998,7 +1003,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           [
             'アクション',
             '帯には置かない。一覧に対するアクションは帯の外・表の直上の独立行（下記）',
-            'ListActionRow（primitives/filter-bar.tsx・レイアウト値はすべて CSS 側＝行の外殻 .sp-list-action-row / 内側の右寄せ・間隔 .sp-list-action-row-actions（globals.css）が持ち、部品コードにレイアウト値の直書きは無い・set-0150/set-0155）',
+            'ListActionRow（components/shared/list-actions.tsx・レイアウト値はすべて CSS 側＝行の外殻 .sp-list-action-row / 内側の右寄せ・間隔 .sp-list-action-row-actions（globals.css）が持ち、部品コードにレイアウト値の直書きは無い・set-0150/set-0155・d1273 で設定タブ primitives から移設）',
           ],
         ],
       },
@@ -1016,7 +1021,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
           'チップの popover は選択で閉じる・Escape / 外側クリック / マウス枠外で閉じる（Desk と同挙動＝useFilterPopover 共有）。ただしフォーカス復帰由来の body/documentElement クリックは外側扱いしない（dsk-0310）。',
           '既定値（すべて）では chip は非アクティブ表示。既定値以外を選ぶと teal 文字（--sp-accent-teal）＋右上の赤丸ドット（--sp-accent-ink）で絞り込み中を示す。この2点はラッパー context に依らず全画面共通で、背景帯・枠は付けない（teal 文字＋ドットの一形のみ。mdl-0033 決定・mdl-0037 で is-static 文脈の非 hover 時に mute 文字へ骨抜きになる CSS 競合を是正し、選択後の soft 背景帯も撤去）。',
           'チップのラベルは選択後も固定表示とする。「ラベル: 選択値」形式は複数選択可能な項目に対応できないため不採用（mdl-0033 開発統括決定）。選択件数バッジも使わない＝選択中インジケータは赤丸ドットに一本化（タグ絞り込み .tag-filter-dd-btn.is-on も同一宣言を共有）。',
-          '一覧に対するアクションは、新規登録（新規作成・組織を追加・PJ を追加・メンバーを追加）も補助アクション（CSV 出力・インポート・サンプル・招待）も区別なく、絞り込み帯の中ではなく帯の下・表の直上の独立した右寄せ行へ置く。行は共通部品 ListActionRow（primitives/filter-bar.tsx）1 箇所で定義し、画面ごとに手書きしない。根拠は reference のマスタ系一覧（ListPageActions）と配置を揃えること（開発統括判断 2026-08-05・案A）で、設定タブの全画面（組織管理・権限・プロジェクト管理・メンバーシップ管理・メンバー・招待・操作ログ）が移行済み＝帯の中にアクションを置く画面は無い（set-0149 / set-0151 / set-0152）。帯に残るのは検索窓・絞り込みチップ・クリアと、絞り込み条件そのもの（日付レンジ等）だけ。なお表の各行に置くボタン（行内アクション＝改名・アーカイブ・解除など）は本規約の対象外で、従来どおり操作列に置く。',
+          '一覧に対するアクションは、新規登録（新規作成・組織を追加・PJ を追加・メンバーを追加）も補助アクション（CSV 出力・インポート・サンプル・招待）も区別なく、絞り込み帯の中ではなく帯の下・表の直上の独立した右寄せ行へ置く。行は共通部品 ListActionRow（components/shared/list-actions.tsx・d1273 で設定タブ primitives から移設）1 箇所で定義し、画面ごとに手書きしない。根拠は reference のマスタ系一覧（ListPageActions）と配置を揃えること（開発統括判断 2026-08-05・案A）で、設定タブの全画面（組織管理・権限・プロジェクト管理・メンバーシップ管理・メンバー・招待・操作ログ）が移行済み＝帯の中にアクションを置く画面は無い（set-0149 / set-0151 / set-0152）。帯に残るのは検索窓・絞り込みチップ・クリアと、絞り込み条件そのもの（日付レンジ等）だけ。なお表の各行に置くボタン（行内アクション＝改名・アーカイブ・解除など）は本規約の対象外で、従来どおり操作列に置く。',
           '検索窓（FilterSearchInput）の「値あり」表現は type=search（値あり＋フォーカス中にブラウザ標準の×）+ Escape でクリア（IME 変換確定の Esc は誤クリアしない）。値ありの Esc は stopPropagation し、親オーバーレイの「Esc で閉じる」と両立する。標準×は Tailwind Preflight が抑止するため globals.css の ::-webkit-search-cancel-button 再有効化が前提（独自×ボタンの追加は禁止＝標準×と二重になる）。',
         ],
       },
@@ -1043,34 +1048,43 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
     category: 'ui-component',
     status: 'active',
     summary:
-      '一覧上部ツールバーの共通形。flex 横一列・透明地の薄いボタン（hover で ink 文字）・主要アクションは右端。検索・絞り込みは含めない（comp-filter-bar が正本・mdl-0026）。canonical component は未整備（蒸留パターン）。',
+      '表右上のアクション行の共通形。行は ListActionRow、ボタンは ActionButton（どちらも components/shared/list-actions.tsx）。透明地・右寄せ・表ヘッダまで 4px・高さ 2rem（文字 0.8125rem / weight 500）。検索・絞り込みは含めない（comp-filter-bar が正本・mdl-0026）。',
     sources: [
-      'features/files/components/file-toolbar.tsx',
-      'features/desk/components/desk-filter-toolbar.tsx',
-      'features/desk/components/desk-task-toolbar.tsx',
-      'app/globals.css（.file-toolbar / .desk-filter-bar / .desk-task-tree-toolbar — 反復実装群からの蒸留）',
+      'components/shared/list-actions.tsx（ListActionRow / ActionButton＝canonical 部品・d1273）',
+      'features/desk/components/desk-task-toolbar.tsx（フィルタエリア直下・右寄せ＝並びの基準）',
+      'features/dashboard/components/dashboard-view.tsx（掲示板・FAQ）',
+      'features/calendar/calendar-panel.tsx（予定一覧の右上アクション行）',
+      'features/files/components/file-toolbar.tsx（Files のツールバー帯＝対象外の左寄せ型）',
+      'app/globals.css（.sp-list-action-row / .sp-list-action-row-actions / .sp-action-btn / .file-toolbar）',
     ],
     purpose:
-      'ツールバーの要素配置（検索・フィルタ・主要アクションの位置）とボタンの見た目を画面間で揃え、行ごとの高さ・色・段組みの揺れを防ぐ。',
+      '表の右上に置く操作（新規登録・分類設定・CSV 出力など）の位置と見た目を画面間で揃え、行ごとの高さ・文字サイズ・太さ・段組みの揺れを防ぐ。あわせて、権限でボタンが出ない人でも表の開始位置が動かないようにする。',
     spec: [
       {
         type: 'p',
-        text: 'canonical な共通コンポーネントは無く、features 側の反復実装から蒸留した共通形。新規のツールバーは以下の形に合わせる（既存の揺れに合わせて増やさない）。',
+        text: '表の右上アクションは共通部品で組む。行は ListActionRow（.sp-list-action-row）・ボタンは ActionButton（.sp-action-btn）を使い、画面ごとに手組みしない。配置は「フィルタエリアの直下 → 表の直上」の右寄せ独立行で、表ヘッダ罫線まで 4px（cmn-0145）。',
       },
       {
         type: 'table',
         head: ['項目', '共通形'],
         rows: [
-          ['段組み', 'flex items-center 横一列・gap 0.375〜0.5rem（1行に収める）'],
+          ['段組み', 'flex items-center 横一列・右寄せ（margin-left: auto）・gap 0.25rem'],
           [
             'ボタン',
-            '透明地 + text 0.75rem + radius 0.375rem・アイコン⇄ラベル gap 0.25rem（mdl-0024）。hover で文字 var(--sp-accent-ink)（塗りボタンを並べない）',
+            'ActionButton（.sp-action-btn）＝透明地・色 hsl(var(--foreground) / 0.8)・hover で var(--sp-accent-soft) + var(--sp-accent-ink)。アイコン⇄ラベル gap 0.25rem（mdl-0024）。Files ツールバー帯の .file-tb-btn だけは平常色 var(--sp-text-warm-mute)（無効時の薄表示と同じ語彙）＝寸法は共通、色は帯の性格差として残す',
+          ],
+          [
+            '寸法',
+            '高さ 2rem・文字 0.8125rem・weight 500・角丸 0.375rem（v2-224 の透明系セカンダリ共通グループと同値。Desk 1.75rem/600・File 1.875rem/0.75rem の揺れは d1273 で解消）',
+          ],
+          [
+            '行の高さ',
+            '常に 2rem を確保（.sp-list-action-row の min-height）。権限でボタンが 0 個になっても行を消さない＝見る人が違っても表の開始位置が動かない',
           ],
           [
             '検索・絞り込み',
-            'ツールバーには置かない。検索窓＋フィルタチップ＋クリアの帯は comp-filter-bar（共通 FilterBar）へ分離する（mdl-0026）',
+            'この行には置かない。検索窓＋フィルタチップ＋クリアの帯は comp-filter-bar（共通 FilterBar）へ分離する（mdl-0026）',
           ],
-          ['主要アクション', '右端に分離（justify-content: flex-end または margin-left: auto）'],
           ['破壊操作', '文字色 var(--sp-accent-red)（塗らない・右端の主要アクション側に置く）'],
         ],
       },
@@ -1081,7 +1095,7 @@ export const UI_COMPONENT_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: 'canonical component 化は将来課題。既知の揺れ: ボタン高さ 1.75rem（desk-task）/ 1.875rem（file）。hover 背景は mdl-0050 で var(--sp-accent-soft) + ink 文字へ統一済（旧 var(--sp-row-hover) は全廃）。新規実装ではいずれかに寄せ、揺れを増やさない。なお desk-rte-toolbar（RTE 文字書式のアイコン列）は構造が異なる別系統で本パターンの対象外。「検索窓＋絞り込み＋クリア」の検索フィルタ帯は comp-filter-bar（共通 FilterBar）が正本（mdl-0026）。',
+        text: 'canonical 部品は components/shared/list-actions.tsx（d1273 で設定タブの primitives から移設。設定タブの barrel は再輸出するので既存 import は不変）。適用範囲は「表の直上に置く操作行」で、左寄せで border-top の帯になる Files ツールバー（.file-toolbar）は別系統＝ボタン寸法だけ共通グループに揃える。desk-rte-toolbar（RTE 文字書式のアイコン列）も構造が異なる別系統で対象外。「検索窓＋絞り込み＋クリア」の検索フィルタ帯は comp-filter-bar（共通 FilterBar）が正本（mdl-0026）。',
       },
     ],
     compliesWith: [{ label: 'colorトークン直書き禁止（本タブ UI共通）' }],

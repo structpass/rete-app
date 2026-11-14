@@ -99,6 +99,13 @@
     --sp-form-gap-compact: 0.625rem;
     --sp-form-label-gap: 0.375rem;
     --sp-form-label-gap-compact: 0.25rem;
+    /* 画面の段間（正本=モデルタブ 画面構成「一覧画面」）: 一覧画面の上部は
+       「タイトル → フィルタエリア → 表」の3段で、フィルタエリアの下端から表の上端までを
+       この値で開ける。検索・絞り込みの帯を表パネルへ密着させると、絞り込みが表の見出しの
+       一部に見えて「どこまでが絞り込みで、どこからが一覧か」が読み取れなくなる（d1272）。
+       表ヘッダに直接接する独立のアクション行（CSV 出力等）は対象外＝UI共通
+       「表右上アクションと表の間隔」の 4px に従う。 */
+    --sp-section-gap: 0.75rem;
     /* dsk-0315: 添付チップ／ファイル添付ボタン間隔と、チップ行 band の縦 padding を単一トークンへ。
        canonical = チャット明細コンポーザ体裁（attachment-chip.tsx 冒頭コメント / rete-desk-0087・0088）。
        呼び出し文脈（コンポーザ / 編集フォーム / タスク新規・昇格フォーム / お知らせ欄 is-flush）で
@@ -2653,17 +2660,22 @@ input[type='search']::-webkit-search-cancel-button {
   flex-wrap: wrap;
   margin-bottom: 0.25rem;
 }
-/* set-0150: 一覧アクションの独立行（primitives/filter-bar.tsx の ListActionRow・set-0151 で新設）。
-   直上の .sp-filter-bar と対になる層で、margin-bottom 0.25rem（4px）も同じ cmn-0145 の 4px 基準。
+/* set-0150: 一覧アクションの独立行（components/shared/list-actions.tsx の ListActionRow・set-0151 で新設）。
+   直上のフィルタエリアと対になる層で、margin-bottom 0.25rem（4px）は cmn-0145 の 4px 基準。
    set-0151 では部品側が Tailwind ユーティリティ + インライン style でレイアウト値を持っていたが、
    帯だけ CSS・行だけコード内という非対称だったので帯と同じ層へ寄せた（見た目は等価）。
-   クラス名は設定タブ 7 画面のテストの掛かり先でもある＝未使用クラスと見なして消さないこと。 */
+   クラス名は設定タブ 7 画面のテストの掛かり先でもある＝未使用クラスと見なして消さないこと。
+
+   d1273: min-height で行の高さを常に確保する。ボタンは権限で出ないことがある（閲覧のみの
+   メンバー）が、行ごと消すと表の開始位置が上下に動き、見る人によって一覧の位置が変わる。
+   行は常に描画し、ボタンが 0 個でも 2rem（ボタン 1 段分）を保つ＝Desk のツールバー行と同じ考え方。 */
 .sp-list-action-row {
   display: flex;
   align-items: center;
+  min-height: 2rem;
   margin-bottom: 0.25rem;
 }
-/* set-0155: 行内側の右寄せアクション群（primitives/filter-bar.tsx の内部 ActionGroup）。
+/* set-0155: 行内側の右寄せアクション群（components/shared/list-actions.tsx の内部 div）。
    set-0150 時点は「帯の中でも使える汎用コンテナ」としてコード側に残したが、消費者が
    ListActionRow の 1 箇所だけになったため外殻と同じ層へ寄せた（見た目は等価）。
    右寄せ（margin-left:auto）もここが持つ＝呼び出し側に margin-left を書かない。 */
@@ -3806,41 +3818,11 @@ input[type='search']::-webkit-search-cancel-button {
   opacity: 0.5;
 }
 
-/* タスク明細の新規登録ツールバー（モック .desk-task-tree-toolbar 移植 / 検索エリア直下・右寄せ）。
-   新規登録ボタンは見た目のみ（タスク作成フロー = Phase C デファー）。 */
-.desk-task-tree-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 0 1.5rem 0.25rem 0.5rem;
-  margin-top: 0;
-  flex-shrink: 0;
-}
-.desk-task-new-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  height: 1.75rem;
-  padding: 0 0.625rem 0 0.5rem;
-  border: none;
-  border-radius: 0.375rem;
-  background: transparent;
-  color: var(--sp-text-warm-2);
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background-color 0.12s,
-    color 0.12s;
-}
-.desk-task-new-btn:hover {
-  background: var(--sp-accent-soft);
-  color: var(--sp-accent-ink);
-}
-.desk-task-new-btn-icon {
-  flex-shrink: 0;
-}
+/* d1273: タスク明細の右上アクション行（旧 .desk-task-tree-toolbar / .desk-task-new-btn）は
+   一覧共通部品（components/shared/list-actions.tsx + .sp-list-action-row）へ移した。
+   独立定義のままだと Desk だけ高さ 1.75rem・文字 0.75rem・weight 600 になり、File・Home の
+   同じ位置のボタン（2rem / 0.8125rem / 500）と揃わなかったため、クラスごと廃止した。
+   右端の余白は .sp-list-action-row 側の padding ではなく、Desk のページ余白に任せる。 */
 
 /* 行のチェックボックス（モックは input[type=checkbox]）。行が <button> のため本物の input を
    ネストできず（HTML 制約）、未チェック見た目のプレゼンテーション用四角で再現する。完了トグルの
@@ -6743,13 +6725,15 @@ body:has(.desk-pane.is-overlaid-wide) .desk-pane.is-overlaid-left.is-overlaid-wi
   flex: 1 1 auto;
 }
 .file-tb-btn {
-  /* gap 4px = mdl-0024 icon 正本（アイコン⇄ラベル間隔） */
+  /* gap 4px = mdl-0024 icon 正本（アイコン⇄ラベル間隔）
+     d1273: 寸法は透明系セカンダリの共通グループ（v2-224）＝高さ 2rem / 文字 0.8125rem /
+     weight 500 / 角丸 0.375rem へ揃える。旧 1.875rem / 0.75rem は File だけ別寸法になっていた。 */
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  height: 1.875rem;
+  height: 2rem;
   padding: 0 0.625rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   background: transparent;
   color: var(--sp-text-warm-mute);
@@ -8590,7 +8574,7 @@ button.sidebar-link:disabled:hover {
   gap: 0.125rem;
   flex-shrink: 0;
 }
-/* アイコンボタン: 背景なし副次=ピンク hover（.desk-task-new-btn と同パターン）。destructive のみ赤。 */
+/* アイコンボタン: 背景なし副次=ピンク hover（一覧共通の .sp-action-btn と同パターン）。destructive のみ赤。 */
 .desk-catset-icon-btn {
   display: inline-flex;
   align-items: center;

@@ -291,7 +291,7 @@ export const UI_THEMES: ModelTheme[] = [
       },
       {
         type: 'note',
-        text: '許容する特例（mdl-0045・これ以外へ横展開しない）: ①ユーザー Markdown 描画の見出し（.desk-thread-comment-text h1〜h3 の font-weight:700＝コンテンツ側の太字でありアプリ chrome ではない）②リッチテキストツールバーの書式見本グリフ（desk-rte-toolbar の A/B・fontWeight 700/600・fontSize 12px＝「太字にする」機能の見本表示そのもの）③環境バッジ（env-badge の text-[10px] font-bold＝環境誤認防止の警告意匠・reference で稼働。rete は set-0118 で撤去済みのため該当なし）④reference サイドバーのブランド見出し（text-2xl＝ロゴ扱い）⑤reference 伝票番号（document-form の text-lg）と Markdown プレビュー見出し（[&_h2]:text-lg）。',
+        text: '許容する特例（mdl-0045・これ以外へ横展開しない）: ①ユーザー Markdown 描画の見出し（.desk-thread-comment-text h1〜h3 の font-weight:700＝コンテンツ側の太字でありアプリ chrome ではない）②リッチテキストツールバーの書式見本グリフ（desk-rte-toolbar の A/B・fontWeight 700/600・fontSize 12px＝「太字にする」機能の見本表示そのもの）③環境バッジ（env-badge の text-[10px] font-bold＝環境誤認防止の警告意匠・reference で稼働。rete は set-0118 で撤去済みのため該当なし）④reference サイドバーのブランド見出し（text-2xl＝ロゴ扱い）⑤reference 伝票番号（document-form の text-lg）と Markdown プレビュー見出し（[&_h2]:text-lg）⑥カレンダーの暦グリッド（.calendar-left の font-family: Verdana, Meiryo, sans-serif＝日付・時刻の数字幅を揃えて列をずらさないための意図的例外。右上アクション行・予定一覧は本文フォントを継承する・d1273）。',
       },
       {
         type: 'p',
@@ -860,32 +860,39 @@ export const UI_THEMES: ModelTheme[] = [
     category: 'ui',
     status: 'active',
     summary:
-      '表の直上にあるアクションボタン行（フィルタ帯・新規登録行などの「透明地＋枠なし」帯）から表ヘッダ罫線までの間隔は 4px（0.25rem / mb-1）へ統一する。オーバーレイ内のみ 8px（0.5rem / mb-2）許容。Files ツールバー帯（左寄せのセクション型）は対象外。',
+      '表の直上に接するアクションボタン行から表ヘッダ罫線までの間隔は 4px（0.25rem / mb-1）。フィルタエリア（検索・絞り込み）は表に接する層ではなく、その下に必ずアクション行が挟まる（Desk・設定一覧・掲示板・FAQ・カレンダー）。オーバーレイ内のアクション行のみ 8px（0.5rem / mb-2）許容。Files ツールバー帯（左寄せのセクション型）は対象外。',
     sources: [
-      'cmn-0145（共通仕様化）',
-      'app/globals.css:2397（.desk-filter-bar.is-static.sp-filter-bar / settings 6 画面の制御点＝4px）',
-      'app/globals.css:3252-3259（.desk-task-tree-toolbar / Desk 4px 準拠実装）',
-      'app/globals.css:5896-5908（.tag-master-list-actions + .file-overlay-body / オーバーレイ 8px 許容の特例）',
-      'app/globals.css:5605（.file-toolbar / 左寄せツールバー帯＝対象外）',
+      'cmn-0145（4px の共通仕様化）',
+      'd1273（表右上の並びを Desk に統一・行とボタンの共通部品化）',
+      'app/globals.css:2658（.desk-filter-bar.is-static.sp-filter-bar / フィルタ帯の制御点）',
+      'app/globals.css:2672（.sp-list-action-row / 表直上アクション行＝4px・min-height 2rem）',
+      'app/globals.css:7220（.tag-master-list-actions + .file-overlay-body / オーバーレイ 8px 許容の特例）',
+      'app/globals.css:6717（.file-toolbar / 左寄せツールバー帯＝対象外）',
+      'components/shared/list-actions.tsx（ListActionRow / ActionButton＝表右上アクションの共通部品）',
       'reference/packages/frontend/src/components/shared/list-page-actions.tsx:42（mb-1 ＝ 4px ／お手本）',
       'reference/packages/frontend/src/components/shared/data-table-card.tsx:78-81（表側マージンゼロ）',
-      'rete/packages/frontend/src/features/dashboard/components/dashboard-view.tsx:601（掲示板 mb-1／4px）',
+      'features/model/content/screen-composition.ts「一覧画面」（4段の位置関係・d1273）',
     ],
     purpose:
-      '表の右上ボタン行（フィルタ帯・新規登録ボタンなど）から表ヘッダ罫線までの間隔が 4〜12px へ画面ごとに割れており、12px の画面ではボタンが表から浮いて見える（cmn-0145・開発統括指摘 2026-07-22・20260722_182744.png の密着感を基準に正式化）。reference お手本（mb-1=4px）と rete の Desk 既存準拠実装を単一の基準へ昇格する。',
+      '表の直上にあるアクションボタン行から表ヘッダ罫線までの間隔が 4〜12px へ画面ごとに割れており、12px の画面ではボタンが表から浮いて見える（cmn-0145・開発統括指摘 2026-07-22）。一方で絞り込みの帯と操作ボタンを同じ層に混ぜると、画面ごとに並びが変わり「どこまでが絞り込みで、どこからが操作か」が読み取れなくなる（d1273・開発統括指摘 2026-11-12）。表に接するのは常にアクション行で、間隔は 4px の 1 値に固定する。',
     spec: [
       {
         type: 'p',
-        text: '表の直上にあるアクションボタン行（フィルタ帯・新規登録行など「表右上」型。下端は透明領域を含む）から表ヘッダ罫線までの間隔は 4px（0.25rem / mb-1）を基準とする。',
+        text: '表ヘッダ罫線に直接接する行だけが本テーマの対象で、間隔は 4px（0.25rem / mb-1）。フィルタエリアはその上の層で、間にアクション行を挟む（画面構成「一覧画面」の4段）。',
       },
       {
         type: 'table',
         head: ['パターン', '間隔', '備考'],
         rows: [
           [
-            '表直上のボタン行（透過地・枠なし）／既定',
+            '表直上のアクション行（透過地・枠なし・表に接する独立行）／既定',
             '4px（mb-1 / 0.25rem）',
-            'reference ListPageActions mb-1 の値を正式採用。rete は settings 6 画面（.desk-filter-bar.is-static.sp-filter-bar）とホーム掲示板（dashboard-view.tsx:601 の mb-1）が準拠。',
+            'reference ListPageActions mb-1 の値を正式採用。rete は Desk・設定 6 画面・掲示板・FAQ・カレンダー予定一覧の .sp-list-action-row が準拠（掲示板・FAQ の「新規登録」も d1273 でこの行へ移した）。行の高さは 2rem を常に確保し、権限でボタンが 0 個でも縮めない。',
+          ],
+          [
+            'フィルタエリア（検索・絞り込みの帯）',
+            '表には接しない（間にアクション行が入る）',
+            '帯の中に操作ボタンを戻さない（d1273）。タイトルからフィルタエリアまで・フィルタエリアから下の段までの間隔は画面構成「一覧画面」が持つ。',
           ],
           [
             'オーバーレイ内の表の手前アクション行',
@@ -895,13 +902,13 @@ export const UI_THEMES: ModelTheme[] = [
           [
             'Files ツールバー帯（左寄せ・border-top で繋がる）',
             '対象外',
-            '.file-toolbar は「表右上ボタン」型ではなく、左右に伸びるツールバー帯（左寄せ＋border-top）。本テーマの管理範囲外。',
+            '.file-toolbar は「表右上ボタン」型ではなく、左右に伸びるツールバー帯（左寄せ＋border-top）。本テーマの管理範囲外（ボタン寸法だけは共通グループに揃える＝d1273）。',
           ],
         ],
       },
       {
         type: 'note',
-        text: '新規に「表右上ボタン型」を作る際は 4px を既定とする。8px を使う時はオーバーレイ内に閉じるか、対応履歴に意図的理由を残す（5〜12px の数値を闇で増やさない＝ボタンが表から浮いて見える回帰の構造的防止）。',
+        text: '新規に「表右上ボタン型」を作る際は 4px を既定とする。8px を使う時はオーバーレイ内に閉じるか、対応履歴に意図的理由を残す（5〜12px の数値を闇で増やさない＝ボタンが表から浮いて見える回帰の構造的防止）。フィルタエリアと表の位置関係は本テーマではなく画面構成「一覧画面」が持つ（同じ帯に複数の解釈が生まれないよう、対象を「表に接する行か」で切り分ける）。',
       },
     ],
     compliesWith: [
@@ -911,13 +918,13 @@ export const UI_THEMES: ModelTheme[] = [
     examples: {
       good: [
         {
-          text: '表直上のボタン行を mb-1 / 0.25rem で置く（reference ListPageActions 同値）。ボタンは表ヘッダ罫線に 4px で接する',
+          text: '表直上のアクション行を mb-1 / 0.25rem で置く（reference ListPageActions 同値）。ボタンは表ヘッダ罫線に 4px で接し、権限でボタンが無くても行の高さは保たれる',
           demo: 'table-actions-spacing-good',
         },
       ],
       bad: [
         {
-          text: '12px の隙間を空けてボタンと表が浮いて見える / オーバーレイなのに 4px へ詰めて特例潰し / Files ツールバー帯を本テーマへ寄せようとする',
+          text: '表に接するアクション行へ 12px の隙間を空けてボタンと表が浮いて見える / オーバーレイなのに 4px へ詰めて特例潰し / 操作ボタンを絞り込み帯の中へ戻して画面ごとに並びが変わる / Files ツールバー帯を本テーマへ寄せようとする',
           demo: 'table-actions-spacing-bad',
         },
       ],

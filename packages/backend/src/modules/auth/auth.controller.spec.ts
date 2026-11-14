@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { MfaService } from '../mfa/mfa.service';
 import { LoginSettingsService } from '../login-settings/login-settings.service';
 import { AuditRecorderService } from '../audit-logs/audit-recorder.service';
+import { OidcSessionLogoutService } from './oidc/oidc-session-logout.service';
 
 type MockSession = {
   destroy: jest.Mock;
@@ -88,6 +89,8 @@ const mockLoginSettings = {
 };
 /** AuditRecorderService のモック（best-effort: always resolves）。 */
 const mockAuditRecorder = { record: jest.fn() };
+/** d1269: logout の SSO セッション破棄（adapter/provider はサービス側の責務なのでここでは呼び出しだけ見る）。 */
+const mockOidcSessionLogout = { endSession: jest.fn() };
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -105,6 +108,7 @@ describe('AuthController', () => {
     mockMfaService.hasConfirmedMfa.mockResolvedValue(true);
     mockLoginSettings.isMfaEnforced.mockResolvedValue(false);
     mockAuthService.changePassword.mockResolvedValue(undefined);
+    mockOidcSessionLogout.endSession.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
@@ -113,6 +117,7 @@ describe('AuthController', () => {
         { provide: MfaService, useValue: mockMfaService },
         { provide: LoginSettingsService, useValue: mockLoginSettings },
         { provide: AuditRecorderService, useValue: mockAuditRecorder },
+        { provide: OidcSessionLogoutService, useValue: mockOidcSessionLogout },
       ],
     }).compile();
 
@@ -491,18 +496,53 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
+    /** d1269: logout は `_session` / `_session.sig` を Max-Age=0 で落とす（res.clearCookie）。 */
+    const makeRes = () => ({ clearCookie: jest.fn() });
+
     it('req.logout → session.destroy の順で破棄し完了メッセージを返すこと', async () => {
       const req = makeReq();
-      const result = await controller.logout(req as never);
+      const result = await controller.logout(req as never, makeRes() as never);
 
       expect(req.logout).toHaveBeenCalledTimes(1);
       expect(req.session.destroy).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ success: true, data: { message: 'ログアウトしました' } });
     });
 
+    // d1269: SSO セッションを残すと Reference / 報告管理がログイン画面を経ずに開けてしまう。
+    it('OIDC の SSO セッション破棄を呼び、`_session` と `_session.sig` を落とすこと（d1269）', async () => {
+      const req = makeReq();
+      const res = makeRes();
+      await controller.logout(req as never, res as never);
+
+      expect(mockOidcSessionLogout.endSession).toHaveBeenCalledWith(req);
+      const cleared = res.clearCookie.mock.calls.map((call) => call[0]);
+      expect(cleared).toEqual(['_session', '_session.sig']);
+      // httpOnly / path='/' を provider の発行属性に揃える（揃えないと消えないブラウザがある）。
+      for (const [, options] of res.clearCookie.mock.calls) {
+        expect(options).toEqual(
+          expect.objectContaining({ path: '/', httpOnly: true, sameSite: 'lax', maxAge: 0 }),
+        );
+      }
+    });
+
+    it('SSO セッション破棄が例外でも logout は完了し cookie を落とすこと（d1269・DB 障害で詰まらせない）', async () => {
+      mockOidcSessionLogout.endSession.mockRejectedValueOnce(new Error('db down'));
+      const req = makeReq();
+      const res = makeRes();
+
+      const result = await controller.logout(req as never, res as never);
+
+      expect(req.session.destroy).toHaveBeenCalledTimes(1);
+      expect(res.clearCookie.mock.calls.map((call) => call[0])).toEqual([
+        '_session',
+        '_session.sig',
+      ]);
+      expect(result).toEqual({ success: true, data: { message: 'ログアウトしました' } });
+    });
+
     it('actionType=logout で auditRecorder.record を呼ぶこと（H5 明示記録・session 破棄成功後）', async () => {
       const req = makeReq();
-      await controller.logout(req as never);
+      await controller.logout(req as never, makeRes() as never);
       expect(mockAuditRecorder.record).toHaveBeenCalledWith(
         expect.objectContaining({ actionType: 'logout', feature: '認証' }),
       );
@@ -513,7 +553,9 @@ describe('AuthController', () => {
         logout: jest.fn((cb: (err: Error | null) => void) => cb(new Error('logout failed'))),
       });
 
-      await expect(controller.logout(req as never)).rejects.toThrow('logout failed');
+      await expect(controller.logout(req as never, makeRes() as never)).rejects.toThrow(
+        'logout failed',
+      );
       expect(req.session.destroy).not.toHaveBeenCalled();
     });
 
@@ -526,7 +568,9 @@ describe('AuthController', () => {
         },
       });
 
-      await expect(controller.logout(req as never)).rejects.toThrow('destroy failed');
+      await expect(controller.logout(req as never, makeRes() as never)).rejects.toThrow(
+        'destroy failed',
+      );
     });
   });
 });

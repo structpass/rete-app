@@ -114,6 +114,13 @@ export interface OidcRpDefinition {
   defaultClientId: string;
   /** 起動エラー文言に添える根拠（チケット / ADR）。 */
   ticketRef: string;
+  /**
+   * RP 起点ログアウト（end_session）の戻り先 URI を持つ env 名（d1269）。
+   *
+   * 未指定 or 未設定の RP は戻り先を登録しない（provider は post_logout_redirect_uri を
+   * 受け取らず、ログアウト完了画面を出す）。RP が「自分の画面へ戻す」時だけ設定する。
+   */
+  postLogoutRedirectUrisEnvKey?: string;
 }
 
 /** RP: struct-pass-reference（d1167 以前からの first-party RP）。 */
@@ -126,14 +133,21 @@ export const OIDC_REFERENCE_RP: OidcRpDefinition = {
   ticketRef: 'cmn-0230・cmn-0249',
 };
 
-/** RP: 報告管理 gmis（d1167 で追加した 2 つ目の first-party RP）。 */
+/**
+ * RP: 報告管理 gmis（d1167 で追加した 2 つ目の first-party RP）。
+ *
+ * d1269: gmis のログアウトは Rete の end_session へ送る（SSO セッションも終わらせる）。
+ * 戻り先（gmis のログイン画面 `?logout=1`）を登録しないと、provider はログアウト完了画面で
+ * 止まり gmis の画面へ戻れないため、戻り先も env で受ける。
+ */
 export const OIDC_GMIS_RP: OidcRpDefinition = {
   label: 'gmis',
   clientIdEnvKey: 'OIDC_GMIS_CLIENT_ID',
   clientSecretEnvKey: 'OIDC_GMIS_CLIENT_SECRET',
   redirectUrisEnvKey: 'OIDC_GMIS_REDIRECT_URIS',
   defaultClientId: 'gmis',
-  ticketRef: 'd1167・ADR 0096',
+  ticketRef: 'd1167・ADR 0096・d1269',
+  postLogoutRedirectUrisEnvKey: 'OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS',
 };
 
 /** 静的登録する first-party RP の一覧。追加はここへ 1 件。 */
@@ -214,6 +228,42 @@ function validateRedirectUriRequiredInProduction(rp: OidcRpDefinition): string |
 }
 
 /**
+ * RP 起点ログアウトの戻り先（post_logout_redirect_uris）の形式検査（d1269）。
+ *
+ * 何を見るか: 設定されている時だけ、全件が http(s) の URL であること。本番では localhost 宛を
+ * 許さない（ブラウザから到達できない値は、戻れないまま完了画面で止まる設定ミスになる）。
+ * 未設定は OK（provider は戻り先を受け取らず完了画面を出す＝従来挙動）。
+ *
+ * @returns null = OK / string = 起動を止めるべき理由（本番のみ）
+ */
+function validatePostLogoutRedirectUrisInProduction(rp: OidcRpDefinition): string | null {
+  if (process.env.NODE_ENV !== 'production') return null;
+  if (!rp.postLogoutRedirectUrisEnvKey) return null;
+  const parsed = parseOidcRedirectUris(process.env[rp.postLogoutRedirectUrisEnvKey]);
+  for (const uri of parsed) {
+    let url: URL;
+    try {
+      url = new URL(uri);
+    } catch {
+      return `${rp.postLogoutRedirectUrisEnvKey} の値 "${uri}" は有効な URL 形式ではありません（${rp.ticketRef}）。`;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return `${rp.postLogoutRedirectUrisEnvKey} の値 "${uri}" の scheme は http/https のみ許容です（got "${url.protocol}"・${rp.ticketRef}）。`;
+    }
+    const hostname = url.hostname.replace(/^\[|\]$/g, '');
+    if (
+      hostname === 'localhost' ||
+      /^127\./.test(hostname) ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0'
+    ) {
+      return `${rp.postLogoutRedirectUrisEnvKey} の値 "${uri}" は localhost 宛のため本番では使用できません（${rp.ticketRef}）。`;
+    }
+  }
+  return null;
+}
+
+/**
  * 1 つの RP の本番起動検査（secret の placeholder / 長さ + redirect URI）。
  *
  * main.ts はこの関数を OIDC_RP_DEFINITIONS の全件へ回す＝表へ RP を足せば起動検査も自動で追随する。
@@ -236,6 +286,9 @@ export function validateOidcRpInProduction(rp: OidcRpDefinition): string[] {
   }
   const redirectProblem = validateRedirectUriRequiredInProduction(rp);
   if (redirectProblem) problems.push(redirectProblem);
+  // d1269: ログアウトの戻り先も本番では形式を検査する（誤設定だと戻れないまま完了画面で止まる）。
+  const postLogoutProblem = validatePostLogoutRedirectUrisInProduction(rp);
+  if (postLogoutProblem) problems.push(postLogoutProblem);
   return problems;
 }
 

@@ -34,10 +34,32 @@ function tempTestFile(body) {
 }
 
 test('d908: tap の集計を読む（読めない形なら null＝出口の数に従う）', () => {
-  assert.deepEqual(readTapSummary('# tests 3\n# pass 2\n# fail 1\n'), { pass: 2, fail: 1 });
-  assert.deepEqual(readTapSummary('# pass 1\r\n# fail 0\r\n'), { pass: 1, fail: 0 });
+  assert.deepEqual(readTapSummary('# tests 3\n# pass 2\n# fail 1\n'), {
+    pass: 2,
+    fail: 1,
+    skipped: 0,
+  });
+  assert.deepEqual(readTapSummary('# pass 1\r\n# fail 0\r\n'), { pass: 1, fail: 0, skipped: 0 });
   assert.equal(readTapSummary(''), null, '空の記録は形が読めない');
   assert.equal(readTapSummary('いくらかの出力\n'), null, '集計が無い記録は形が読めない');
+});
+
+test('explicit skips complete a declared outcome without masking missing tests or nonzero exits', () => {
+  const { path, cleanup } = tempTestFile(
+    "test('pass', () => {});\ntest('external checkout', { skip: true }, () => {});",
+  );
+  try {
+    const tap = '# tests 2\n# pass 1\n# fail 0\n# skipped 1\n';
+    assert.deepEqual(readTapSummary(tap), { pass: 1, fail: 0, skipped: 1 });
+    assert.equal(expectRunnerExit([{ file: path, status: 0, tap }]), 0);
+    assert.equal(expectRunnerExit([{ file: path, status: 1, tap }]), 1);
+    assert.equal(
+      expectRunnerExit([{ file: path, status: 0, tap: '# pass 1\n# fail 0\n# skipped 0\n' }]),
+      1,
+    );
+  } finally {
+    cleanup();
+  }
 });
 
 test('d908: 書いた検査の本数を宣言の形から数える（コメント・文字列・正規表現に惑わされない）', () => {

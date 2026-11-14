@@ -89,9 +89,8 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-}
-      # reference 画面から rete の表示設定 API を取りに来るクロスサービス通信の追加許可オリジン。
-      # 空既定＝追加許可なし（従来挙動・連携フェーズで実値を設定する・cmn-0417）。
-      CROSS_SERVICE_CORS_ORIGIN: ${CROSS_SERVICE_CORS_ORIGIN:-}
+      # d1264/d1265: reference 画面から rete の表示設定 API を取りに来る経路は廃止したため、
+      # クロスサービス限定の追加許可オリジン（CROSS_SERVICE_CORS_ORIGIN）は配線しない。
     depends_on:
       postgres:
         condition: service_healthy

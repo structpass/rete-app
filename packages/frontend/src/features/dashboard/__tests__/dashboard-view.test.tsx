@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { flush } from '@/test-utils/flush';
 import { Role } from '@rete/shared';
@@ -330,6 +332,58 @@ describe('DashboardView', () => {
       target: { value: '通常' },
     });
     expect(screen.queryByRole('button', { name: /を並び替え/ })).not.toBeInTheDocument();
+  });
+
+  it('並びは「検索フィルタ行 → 表直上のアクション行 → 表」で、Desk・設定一覧と同じ配置（d1273）', () => {
+    const { container } = render(<DashboardView />);
+    const children = Array.from(
+      screen.getByLabelText('通知を検索').closest('.dashboard-shell')!.children,
+    );
+    const filterIndex = children.findIndex((el) => el.querySelector('.desk-filter-keyword'));
+    const actionIndex = children.findIndex((el) => el.classList.contains('sp-list-action-row'));
+    const tableIndex = children.findIndex((el) => el.classList.contains('grid'));
+    // 3 段がこの順で並ぶ（ボタンは絞り込み帯に混ざらず、表の直上の独立行に居る）。
+    expect(filterIndex).toBeGreaterThanOrEqual(0);
+    expect(filterIndex).toBeLessThan(actionIndex);
+    expect(actionIndex).toBeLessThan(tableIndex);
+    // 行と表の間隔は 4px（cmn-0145）。フィルタエリア側に 12px を足して表から離す形にはしない。
+    const actionRow = children[actionIndex] as HTMLElement;
+    expect(actionRow.className).toContain('sp-list-action-row');
+    expect(actionRow.querySelector('.sp-list-action-row-actions')).not.toBeNull();
+    expect(container.querySelector('.desk-filter-bar')).toBeNull(); // 帯は箱で囲まない
+  });
+
+  it('権限でボタンが無くてもアクション行は残し、表の開始位置を動かさない（d1273）', () => {
+    mockUser.mockReturnValue({ id: 'u2', email: 'm@y.z', name: '一般', role: Role.MEMBER });
+    render(<DashboardView />);
+    // 閲覧のみの人は新規登録ボタンが出ない。
+    expect(screen.queryByRole('button', { name: '新規登録' })).not.toBeInTheDocument();
+    // それでも行は描画される（行ごと消すと表の上端がずれる）。高さは CSS の min-height が保証する。
+    const shell = screen.getByLabelText('通知を検索').closest('.dashboard-shell')!;
+    const row = shell.querySelector('.sp-list-action-row');
+    expect(row).not.toBeNull();
+    expect(row!.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('段間トークンは 1 箇所でだけ定義する（src 配下の CSS を全部見て、値の写し・重複を作らない）', () => {
+    // globals.css だけを見ると、別 CSS に複製された時に緑のままになる（独立レビュー指摘）。
+    const srcRoot = join(__dirname, '../../..');
+    const cssFiles = readdirSync(srcRoot, { recursive: true, encoding: 'utf8' })
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => join(srcRoot, f));
+    expect(cssFiles.length).toBeGreaterThan(0);
+    const definitions: string[] = [];
+    for (const file of cssFiles) {
+      const source = readFileSync(file, 'utf8');
+      for (const m of source.matchAll(/--sp-section-gap:\s*([^;]+);/g)) {
+        definitions.push(`${relative(srcRoot, file).replaceAll('\\', '/')}:${m[1].trim()}`);
+      }
+    }
+    // 定義は 1 件だけ・値は 0.75rem（12px）。増えたら写しが生まれている。
+    expect(definitions).toEqual(['app/globals.css:0.75rem']);
+    // 0.75rem が 12px であることも固定する（単位の取り違えを値の一致だけで通さない）。
+    const globals = readFileSync(join(srcRoot, 'app/globals.css'), 'utf8');
+    expect(globals).toContain('--sp-section-gap: 0.75rem;');
   });
 
   it('非 ADMIN（MEMBER）はグリップを出さない（reorder は ADMIN 限定 / H0021）', () => {

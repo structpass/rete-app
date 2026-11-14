@@ -4,6 +4,10 @@ node_modules
 out
 **/dist
 **/coverage
+# Runtime data and private deployment backups are outside build inputs.
+storage
+backups
+tmp
 .git
 .gitignore
 *.md

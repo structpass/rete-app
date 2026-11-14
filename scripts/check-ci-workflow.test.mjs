@@ -462,14 +462,14 @@ test('CD: deploy.yml が CI 成功後の同一 SHA を配布する配線を保�
       '無くなりました（改名したなら本検査も直してください）',
   );
   assert.ok(
-    step.includes('SHA: ${{ github.sha }}'),
-    'Deploy exact SHA via SSM ステップの env から SHA: ${{ github.sha }} が消えています＝' +
-      '配布する SHA が workflow の起点（CI を通った commit）と一致しなくなります',
+    step.includes(
+      'RELEASE_CANDIDATE_SHA: ${{ needs.prepare_public_candidate.outputs.candidate_sha }}',
+    ),
+    'Deploy exact SHA via SSM が検査した公開候補の SHA を受け取っていません',
   );
   assert.ok(
-    step.includes('git checkout --force --detach'),
-    'Deploy exact SHA via SSM ステップが対象 SHA を detach checkout していません＝' +
-      'EC2 上が最新版へ追従し、CI を通った SHA と配布物がずれます',
+    step.includes('node _sources/rete/scripts/publish/release.mjs deploy-command rete'),
+    'Deploy exact SHA via SSM が版を固定する共通の配布コマンドを使用していません',
   );
 
   const job = jobBody(yaml, 'deploy');

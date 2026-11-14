@@ -5,6 +5,7 @@ import type { PrismaService } from '../../../database';
 import { createOidcPrismaAdapter } from './oidc-prisma.adapter';
 import { buildApiPath } from '../../../common/config/api-routes';
 import { OIDC_RP_DEFINITIONS, parseOidcRedirectUris } from '../../../common/config/env-validation';
+import { createRpInitiatedLogout } from './oidc-logout.source';
 import { LoginSettingsRepository } from '../../login-settings/repositories/login-settings.repository';
 import { MfaRepository } from '../../mfa/repositories/mfa.repository';
 
@@ -114,6 +115,58 @@ async function resolveJwks(isProd: boolean): Promise<JWK[]> {
   return [jwk];
 }
 
+/**
+ * 静的 RP client（first-party）の登録内容を組み立てる（d1269 で本体から切り出し）。
+ *
+ * - secret が明示設定された時だけ登録する（既定 secret が本番に流出するのを防ぐ）
+ * - 登録対象の RP（env 名・既定 client_id）は common/config の OIDC_RP_DEFINITIONS を正本とし、
+ *   3 つ目の RP を足す時はあの表へ 1 件追加する（d1167）
+ * - cmn-0230: redirect_uris も「有効値が1件以上ある」ことが登録の必要条件（AND）
+ * - cmn-0249: 起動ガード側と同一の parser を common/config から呼ぶ（検査-実施ドリフト防止）
+ * - d1269: RP 起点ログアウトの戻り先（post_logout_redirect_uris）は env がある RP だけ登録する
+ */
+function buildRpClients(isProd: boolean): {
+  clients: ClientMetadata[];
+  firstPartyClientIds: Set<string>;
+} {
+  const clients: ClientMetadata[] = [];
+  // first-party（セット売り）の client_id 集合。consent 省略の自動付与はこの集合だけに許す。
+  const firstPartyClientIds = new Set<string>();
+  for (const rp of OIDC_RP_DEFINITIONS) {
+    const clientId = process.env[rp.clientIdEnvKey] || rp.defaultClientId;
+    firstPartyClientIds.add(clientId);
+    const secret = process.env[rp.clientSecretEnvKey];
+    const redirectUris = parseOidcRedirectUris(process.env[rp.redirectUrisEnvKey]);
+    // cmn-0249: 非本番で「合言葉あり・戻り先有効値なし」は無言で client 0 件になると SSO 試行まで
+    // 不備に気づけない。本番は validateProductionSecrets 側で起動エラーになる（cmn-0230）、
+    // dev/staging ではここで warn を 1 行出して気付けるようにする。
+    if (secret && redirectUris.length === 0 && !isProd) {
+      OIDC_CONFIG_FACTORY_LOGGER.warn(
+        `${rp.clientSecretEnvKey} is set but ${rp.redirectUrisEnvKey} has no valid entries. ` +
+          `The ${rp.label} RP client will not be registered; SSO attempts for it will fail with invalid_client until the URIs are set (cmn-0249).`,
+      );
+    }
+    if (!secret || redirectUris.length === 0) continue;
+    // d1269: RP 起点ログアウト（end_session）で RP の画面へ戻す時の戻り先。登録が無い RP は
+    // provider が post_logout_redirect_uri を受け取らず、ログアウト完了画面を出す（従来挙動）。
+    const postLogoutRedirectUris = parseOidcRedirectUris(
+      rp.postLogoutRedirectUrisEnvKey ? process.env[rp.postLogoutRedirectUrisEnvKey] : undefined,
+    );
+    clients.push({
+      client_id: clientId,
+      client_secret: secret,
+      redirect_uris: redirectUris,
+      ...(postLogoutRedirectUris.length > 0
+        ? { post_logout_redirect_uris: postLogoutRedirectUris }
+        : {}),
+      grant_types: ['authorization_code'],
+      response_types: ['code'],
+      scope: FIRST_PARTY_CLIENT_SCOPE,
+    });
+  }
+  return { clients, firstPartyClientIds };
+}
+
 export async function buildOidcConfiguration(prisma: PrismaService): Promise<BuiltOidcConfig> {
   const port = process.env.PORT || '3001';
   const issuer = process.env.OIDC_ISSUER || `http://localhost:${port}${buildApiPath('oidc')}`;
@@ -146,39 +199,7 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
     return (await mfaRepo.findConfirmedSetting(accountId)) === null;
   };
 
-  // 静的 RP client は secret が明示設定された時だけ登録する（既定 secret が本番に流出するのを防ぐ）。
-  // 登録対象の RP（env 名・既定 client_id）は common/config の OIDC_RP_DEFINITIONS を正本とし、
-  // 3 つ目の RP を足す時はあの表へ 1 件追加する（d1167）。
-  // cmn-0230: redirect_uris も「有効値が1件以上ある」ことが登録の必要条件（AND）。
-  // cmn-0249: 起動ガード側と同一の parser を common/config から呼ぶ（検査-実施ドリフト防止）。
-  // 未設定 / 空要素のみ / 空文字 env / 重複 URI は parser 段階で除去される。
-  const clients: ClientMetadata[] = [];
-  // first-party（セット売り）の client_id 集合。consent 省略の自動付与はこの集合だけに許す。
-  const firstPartyClientIds = new Set<string>();
-  for (const rp of OIDC_RP_DEFINITIONS) {
-    const clientId = process.env[rp.clientIdEnvKey] || rp.defaultClientId;
-    firstPartyClientIds.add(clientId);
-    const secret = process.env[rp.clientSecretEnvKey];
-    const redirectUris = parseOidcRedirectUris(process.env[rp.redirectUrisEnvKey]);
-    // cmn-0249: 非本番で「合言葉あり・戻り先有効値なし」は無言で client 0 件になると SSO 試行まで
-    // 不備に気づけない。本番は validateProductionSecrets 側で起動エラーになる（cmn-0230）、
-    // dev/staging ではここで warn を 1 行出して気付けるようにする。
-    if (secret && redirectUris.length === 0 && !isProd) {
-      OIDC_CONFIG_FACTORY_LOGGER.warn(
-        `${rp.clientSecretEnvKey} is set but ${rp.redirectUrisEnvKey} has no valid entries. ` +
-          `The ${rp.label} RP client will not be registered; SSO attempts for it will fail with invalid_client until the URIs are set (cmn-0249).`,
-      );
-    }
-    if (!secret || redirectUris.length === 0) continue;
-    clients.push({
-      client_id: clientId,
-      client_secret: secret,
-      redirect_uris: redirectUris,
-      grant_types: ['authorization_code'],
-      response_types: ['code'],
-      scope: FIRST_PARTY_CLIENT_SCOPE,
-    });
-  }
+  const { clients, firstPartyClientIds } = buildRpClients(isProd);
 
   const oidc: Configuration = {
     adapter: createOidcPrismaAdapter(prisma),
@@ -210,6 +231,10 @@ export async function buildOidcConfiguration(prisma: PrismaService): Promise<Bui
       devInteractions: { enabled: false },
       revocation: { enabled: true },
       introspection: { enabled: true },
+      // d1269: gmis のログアウトを end_session へ送る。既定は確認ページ（ボタン待ち）なので、
+      // アプリのログアウト操作から来た時に SSO セッションが残ってしまう。id_token_hint の本人が
+      // 今のセッションの本人と一致する時だけ確認を省いて自動送信する（詳細は oidc-logout.source.ts）。
+      rpInitiatedLogout: createRpInitiatedLogout(),
     },
     pkce: { required: () => true },
     findAccount: async (_ctx, id) => {

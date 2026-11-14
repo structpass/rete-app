@@ -130,14 +130,13 @@ describe('AccountsController', () => {
 });
 
 /**
- * cmn-0132: route-scoped CORS の対象ルート（CROSS_SERVICE_ROUTES）が、実際に AccountsController の
- * デコレータへ付いているパスと一致していることを、Nest のルートメタデータ経由で固定する。
+ * cmn-0132 / d1264・d1265: route-scoped CORS の対象ルート（CROSS_SERVICE_ROUTES）は、Reference の
+ * 表示設定の写しを廃止したため空になった。表示個人設定の経路自体は Rete 自身の UI が使うので残る。
  *
- * 定数を共有しただけでは「定数を使い忘れて片側だけリテラルへ戻す」余地が残るため、
- * 宣言ではなく実物（デコレータのメタデータ）を突き合わせる。コントローラ側のパスだけを
- * 改名すると、このテストが落ちて CORS 対象ルートとのズレに気づける。
+ * 定数を共有しただけでは「定数を使い忘れて片側だけリテラルへ戻す」余地が残るため、経路の実物は
+ * Nest のルートメタデータ経由で固定する（宣言ではなく実物を突き合わせる）。
  */
-describe('AccountsController のルートと CORS 対象ルートの一致（cmn-0132）', () => {
+describe('CORS 対象ルートと表示個人設定経路（cmn-0132 / d1264・d1265）', () => {
   const controllerPath = Reflect.getMetadata(PATH_METADATA, AccountsController) as string;
 
   const routePathOf = (methodName: keyof AccountsController): string => {
@@ -148,17 +147,12 @@ describe('AccountsController のルートと CORS 対象ルートの一致（cmn
     return `/${[API_GLOBAL_PREFIX, controllerPath, methodPath].join('/')}`;
   };
 
-  it('CROSS_SERVICE_ROUTES はコントローラの実パスと文字列として一致する', () => {
-    expect(routePathOf('getDisplayPreference')).toBe(CROSS_SERVICE_ROUTES[0]);
-    expect(routePathOf('updateDisplayPreference')).toBe(CROSS_SERVICE_ROUTES[0]);
+  it('CROSS_SERVICE_ROUTES は空である（クロスサービスへ開くルートが無い）', () => {
+    expect(CROSS_SERVICE_ROUTES).toEqual([]);
   });
 
-  it('CROSS_SERVICE_ROUTES は表示個人設定の 1 ルートのみを外部オリジンへ開く', () => {
-    expect(CROSS_SERVICE_ROUTES).toEqual(['/api/v1/accounts/me/display-preference']);
-  });
-
-  it('外部へ開いていないルート（desk-preference 等）は CROSS_SERVICE_ROUTES に含まれない', () => {
-    expect(CROSS_SERVICE_ROUTES).not.toContain(routePathOf('getDeskPreference'));
-    expect(CROSS_SERVICE_ROUTES).not.toContain(routePathOf('findAll'));
+  it('表示個人設定の経路は残る（@Get / @Put me/display-preference）', () => {
+    expect(routePathOf('getDisplayPreference')).toBe('/api/v1/accounts/me/display-preference');
+    expect(routePathOf('updateDisplayPreference')).toBe('/api/v1/accounts/me/display-preference');
   });
 });

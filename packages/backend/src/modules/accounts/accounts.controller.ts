@@ -81,8 +81,8 @@ export class AccountsController {
   @Get(ACCOUNTS_DISPLAY_PREFERENCE_PATH)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiOperation({ summary: '表示個人設定（明細の縞模様）の取得。未保存なら data:null' })
-  // ref-0037: reference frontend からもクロスオリジンで呼ばれる（呼び出し元オリジンが1つ増える）ため
-  // per-route Throttle を付与（security-reviewer 指摘・既存の抜けだがついでに解消）。
+  // 個人設定の取得は Rete 自身の UI からのみ呼ばれる（d1264/d1265 で reference からの写しは廃止）。
+  // per-route Throttle は列挙抑止のため残す（他ルートと揃える）。
   getDisplayPreference(@CurrentUser('id') accountId: string) {
     return this.service.getDisplayPreference(accountId);
   }

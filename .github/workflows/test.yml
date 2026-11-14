@@ -37,12 +37,17 @@ on:
     branches: ['**']
   workflow_dispatch:
   workflow_call:
+    inputs:
+      checkout_ref:
+        type: string
+        required: false
+        default: ''
 
 # 同一ブランチへ連続 push した時は最新のみ走らせる（無料枠の節約）。
 # group に event_name を混ぜ、workflow_dispatch の手動 run と push 起因の run が
 # 互いを巻き添えキャンセルしないようにする（cmn-0231 LOW2）。
 concurrency:
-  group: test-${{ github.event_name }}-${{ github.ref }}
+  group: test-${{ github.event_name }}-${{ github.ref }}-${{ inputs.checkout_ref || github.sha }}
   cancel-in-progress: true
 
 # 読み取りのみ。新規シークレット・外部サービスは追加しない。
@@ -86,6 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
           # 本ワークフローは読み取りのみ（push / tag / git 書き込みステップ無し）。
           # GITHUB_TOKEN を .git 配下へ残さない（install / test 中に走る推移依存コードから読めるため。
           # 保存先は checkout の版で変わる＝v6 以降は .git/config でなく別ファイルだが、趣旨は同じ）。
@@ -248,6 +254,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:

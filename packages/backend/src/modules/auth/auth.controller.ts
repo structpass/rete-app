@@ -19,6 +19,8 @@ import { ok, okMessage } from '../../common/dto/response.dto';
 import { clientIp, clientUserAgent } from '../../common/net/client-ip';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { toAccountResponse } from './auth.mapper';
+import { OidcSessionLogoutService } from './oidc/oidc-session-logout.service';
+import { clearOidcSessionCookies } from './oidc/oidc-session-cookie';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { MfaCodeDto } from '../mfa/dto/mfa-code.dto';
@@ -38,6 +40,7 @@ export class AuthController {
     private readonly mfaService: MfaService,
     private readonly loginSettings: LoginSettingsService,
     private readonly auditRecorder: AuditRecorderService,
+    private readonly oidcSessionLogout: OidcSessionLogoutService,
   ) {}
 
   // 資格情報を受ける高リスク endpoint はグローバル(30/60s)より厳しく 5 req / 60s に絞る（brute-force 抑制）。
@@ -233,15 +236,30 @@ export class AuthController {
 
   // H5: logout は POST だが method 写像すると actionType='create' になり不正確。
   // 横断 interceptor を除外して AuthController で actionType='logout' を明示記録する（二重記録回避）。
-  @ApiOperation({ summary: 'ログアウト（session 破棄）' })
+  // d1269: express-session の破棄だけでは oidc-provider の `_session`（SSO セッション・14 日）が残り、
+  // Reference / 報告管理を開き直すとログイン画面を経ずに素通りしていた。SSO セッションも同じ操作で終わらせる。
+  // 順序は SSO → express-session。SSO 側は best-effort（失敗しても throw しない）にして、DB の一時障害で
+  // ログアウト自体が失敗する（画面に留まる）事態を避ける。cookie は成否に関わらず落とすので、ブラウザから
+  // SSO セッションへ戻る道は残らない。
+  @ApiOperation({ summary: 'ログアウト（Rete の session と OIDC の SSO セッションを破棄）' })
   @UseGuards(AuthenticatedGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
-  async logout(@Req() req: Request) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     // session destroy 前にスナップショットを取る（destroy 後は req.user が消える）。
     const user = req.user as AuthenticatedUser;
     const ip = clientIp(req);
     const ua = clientUserAgent(req);
+
+    // 署名検証済みの `_session` だけを対象に SSO セッションを破棄する（他人の id を消せない）。
+    // 消したかどうかに関わらず cookie 自体は落とす（不正・期限切れの残骸を残さない）。
+    // service 側でも握るが、ここでも握ってログアウト本体を止めない（多層防御・d1269）。
+    try {
+      await this.oidcSessionLogout.endSession(req);
+    } catch {
+      // 失敗の痕跡は service が残す。ここでは「ログアウトは続行する」ことだけを保証する。
+    }
+    clearOidcSessionCookies(res, req.secure);
 
     await new Promise<void>((resolve, reject) => {
       req.logout((err) => (err ? reject(err as Error) : resolve()));

@@ -51,6 +51,8 @@ const OIDC_ENV_KEYS = [
   'OIDC_GMIS_CLIENT_ID',
   'OIDC_GMIS_CLIENT_SECRET',
   'OIDC_GMIS_REDIRECT_URIS',
+  // d1269: RP 起点ログアウトの戻り先（gmis のみ）。親プロセスの .env から混入させない。
+  'OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS',
   'CORS_ORIGIN',
   'PORT',
   'NODE_ENV',
@@ -1285,5 +1287,83 @@ describe('buildOidcConfiguration', () => {
         }
       },
     );
+  });
+});
+
+// d1269: gmis のログアウトは Rete の end_session へ送る。戻り先を client 登録へ入れないと
+// provider が post_logout_redirect_uri を拒否し、ログアウト完了画面で止まる（gmis の画面へ戻れない）。
+describe('post_logout_redirect_uris（d1269）', () => {
+  const KEYS = [
+    'OIDC_GMIS_CLIENT_ID',
+    'OIDC_GMIS_CLIENT_SECRET',
+    'OIDC_GMIS_REDIRECT_URIS',
+    'OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS',
+    'OIDC_REFERENCE_CLIENT_SECRET',
+    'OIDC_REFERENCE_REDIRECT_URIS',
+    'OIDC_REFERENCE_POST_LOGOUT_REDIRECT_URIS',
+    'NODE_ENV',
+  ];
+  let backup: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    backup = { ...process.env };
+    for (const key of KEYS) delete process.env[key];
+    mockPrisma.passwordPolicy.findUnique.mockResolvedValue(null);
+    mockPrisma.mfaSetting.findFirst.mockResolvedValue(null);
+    (generateKeyPair as jest.Mock).mockResolvedValue({
+      privateKey: PRIVATE_KEY,
+      publicKey: PUBLIC_KEY,
+    });
+    (exportJWK as jest.Mock).mockImplementation(async () => ({
+      kty: 'RSA',
+      n: 'n-value',
+      e: 'AQAB',
+      d: 'd-value',
+    }));
+  });
+
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (backup[key] === undefined) delete process.env[key];
+      else process.env[key] = backup[key];
+    }
+  });
+
+  it('OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS を設定すると gmis の client に戻り先が入る', async () => {
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
+    process.env.OIDC_GMIS_POST_LOGOUT_REDIRECT_URIS = 'http://127.0.0.1:4188/login?logout=1';
+
+    const built = await build();
+
+    expect(built.oidc.clients?.[0].post_logout_redirect_uris).toEqual([
+      'http://127.0.0.1:4188/login?logout=1',
+    ]);
+  });
+
+  it('未設定なら post_logout_redirect_uris を渡さない（provider は戻り先を受け取らない＝従来挙動）', async () => {
+    process.env.OIDC_GMIS_CLIENT_SECRET = 'gmis-secret';
+    process.env.OIDC_GMIS_REDIRECT_URIS = 'http://127.0.0.1:4188/api/auth/callback';
+
+    const built = await build();
+
+    expect(built.oidc.clients?.[0].post_logout_redirect_uris).toBeUndefined();
+  });
+
+  it('Reference は戻り先 env を持たないので、設定しても登録は変わらない（対象を広げない）', async () => {
+    process.env.OIDC_REFERENCE_CLIENT_SECRET = 's3cret';
+    process.env.OIDC_REFERENCE_REDIRECT_URIS = 'https://ref.example.com/cb';
+    process.env.OIDC_REFERENCE_POST_LOGOUT_REDIRECT_URIS = 'https://ref.example.com/login';
+
+    const built = await build();
+
+    expect(built.oidc.clients?.[0].post_logout_redirect_uris).toBeUndefined();
+  });
+
+  it('rpInitiatedLogout が配線されている（既定の確認ページのままにしない）', async () => {
+    const built = await build();
+
+    expect(built.oidc.features?.rpInitiatedLogout).toBeDefined();
+    expect(typeof built.oidc.features?.rpInitiatedLogout?.logoutSource).toBe('function');
   });
 });
